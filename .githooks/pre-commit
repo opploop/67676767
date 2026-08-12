@@ -1,0 +1,39 @@
+#!/usr/bin/env sh
+set -eu
+
+MAKE_CMD=${MAKE:-make}
+REPO_ROOT=$(git rev-parse --show-toplevel)
+COVERAGE_THRESHOLD=${COVERAGE_THRESHOLD:-70}
+
+cd "$REPO_ROOT"
+
+if command -v "$MAKE_CMD" >/dev/null 2>&1; then
+    echo "pre-commit: running $MAKE_CMD check"
+    "$MAKE_CMD" check
+
+    echo "pre-commit: running $MAKE_CMD coverage-baseline"
+    "$MAKE_CMD" coverage-baseline
+else
+    # no make on this machine (typical Windows setup); run the same gate directly
+    echo "pre-commit: make not found, running the gate directly"
+
+    stylua --syntax Luau --check src tests scripts
+    selene generate-roblox-std >/dev/null
+    selene src tests
+    rojo sourcemap default.project.json -o sourcemap.json
+    # same pin as the Makefile, so the hook and CI cant typecheck against different defs
+    LUAU_LSP_REF=$(sed -n 's/^LUAU_LSP_REF ?= //p' Makefile)
+    if [ ! -f globalTypes.d.luau ]; then
+        curl -fsSL -o globalTypes.d.luau \
+            "https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/${LUAU_LSP_REF}/scripts/globalTypes.d.luau"
+    fi
+    luau-lsp analyze --sourcemap=sourcemap.json --defs=globalTypes.d.luau --no-strict-dm-types \
+        src tests/components tests/integration tests/runner tests/utility
+    lune run scripts/run-tests.luau -- --coverage-threshold="$COVERAGE_THRESHOLD"
+    lune run scripts/run-tests.luau -- --coverage-threshold="$COVERAGE_THRESHOLD" --update-coverage-baseline
+fi
+
+if ! git diff --quiet -- coverage-baseline.json; then
+    echo "pre-commit: coverage-baseline.json changed; stage it and commit again." >&2
+    exit 1
+fi
