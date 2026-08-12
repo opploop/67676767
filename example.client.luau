@@ -149,6 +149,16 @@ home:CreateFlipButton({
     end,
 })
 
+home:CreateRippleButton({
+    name = "Ripple Me",
+    description = "Ripple spreads from wherever you press, clipped to the card's corners.",
+    callback = function()
+        print("Ripple button pressed")
+    end,
+})
+
+home:CreateScrollHint({ text = "Keep scrolling" })
+
 -- Combat --------------------------------------------------------------------
 local combat = window:CreateTab({ name = "Combat", icon = 84750991656135 })
 
@@ -208,6 +218,17 @@ stats:CreateButton({
     callback = function()
         revenue:Set(revenue.value + math.random(500, 3000))
         kills:Set(kills.value + math.random(1, 20))
+    end,
+})
+
+stats:CreateSection({ name = "Progress" })
+
+local xp = stats:CreateProgressBar({ name = "XP This Level", value = 340, max = 500, suffix = "xp" })
+
+stats:CreateButton({
+    name = "Add XP",
+    callback = function()
+        xp:Set(math.min(xp.value + 40, 500))
     end,
 })
 

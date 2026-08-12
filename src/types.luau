@@ -105,6 +105,28 @@ export type FlipButtonProps = {
     callback: (() -> ())?,
 }
 
+-- A Button whose press feedback is a ripple from the exact point pressed (mouse or touch),
+-- clipped to the card's rounded corners, instead of Button's stroke-ghost + width-bounce.
+export type RippleButtonProps = {
+    name: string?,
+    description: string?,
+    icon: (string | number)?,
+    callback: (() -> ())?,
+}
+
+export type ProgressBarProps = {
+    name: string?,
+    description: string?,
+    icon: (string | number)?,
+    value: number?,
+    max: number?, -- default 100
+    suffix: string?, -- set this to switch the readout to "{value} {suffix} out of {max}"
+}
+
+export type ScrollHintProps = {
+    text: string?,
+}
+
 export type SliderProps = {
     name: string?,
     description: string?,
@@ -236,6 +258,17 @@ export type Moveable = {
 
 export type Button = Moveable & {}
 
+export type RippleButton = Moveable & {}
+
+export type ProgressBar = Moveable & {
+    value: number,
+    Set: (self: ProgressBar, value: number, skipAnimation: boolean?) -> (),
+}
+
+export type ScrollHint = Moveable & {
+    Set: (self: ScrollHint, text: string) -> (),
+}
+
 export type CopyButton = Moveable & {
     text: string,
     Set: (self: CopyButton, text: string) -> (),
@@ -304,13 +337,15 @@ export type Popup = {
 }
 
 -- A group lays elements along one axis and nests, so a row of columns builds a grid.
--- A row accepts the compact elements (button/toggle/stat/checkbox/copybutton/flipbutton) +
--- slider; a column also takes dropdown and section. Input, keybind and colorpicker stay
+-- A row accepts the compact elements
+-- (button/toggle/stat/checkbox/copybutton/flipbutton/ripplebutton) + slider; a column also
+-- takes dropdown and section. Input, keybind, colorpicker, progressbar and scrollhint stay
 -- tab-level for now.
 export type Group = Moveable & {
     CreateButton: (self: Group, props: ButtonProps) -> Button,
     CreateFlipButton: (self: Group, props: FlipButtonProps) -> FlipButton,
     CreateCopyButton: (self: Group, props: CopyButtonProps) -> CopyButton,
+    CreateRippleButton: (self: Group, props: RippleButtonProps) -> RippleButton,
     CreateToggle: (self: Group, props: ToggleProps) -> Toggle,
     CreateSwitch: (self: Group, props: ToggleProps) -> Toggle,
     CreateCheckbox: (self: Group, props: CheckboxProps) -> Checkbox,
@@ -325,6 +360,7 @@ export type Tab = {
     CreateButton: (self: Tab, props: ButtonProps) -> Button,
     CreateFlipButton: (self: Tab, props: FlipButtonProps) -> FlipButton,
     CreateCopyButton: (self: Tab, props: CopyButtonProps) -> CopyButton,
+    CreateRippleButton: (self: Tab, props: RippleButtonProps) -> RippleButton,
     CreateToggle: (self: Tab, props: ToggleProps) -> Toggle,
     CreateSwitch: (self: Tab, props: ToggleProps) -> Toggle,
     CreateCheckbox: (self: Tab, props: CheckboxProps) -> Checkbox,
@@ -335,6 +371,8 @@ export type Tab = {
     CreateColorPicker: (self: Tab, props: ColorPickerProps) -> ColorPicker,
     CreateStat: (self: Tab, props: StatProps) -> Stat,
     CreateSection: (self: Tab, props: SectionProps) -> Section,
+    CreateProgressBar: (self: Tab, props: ProgressBarProps) -> ProgressBar,
+    CreateScrollHint: (self: Tab, props: ScrollHintProps?) -> ScrollHint,
     CreateGroup: (self: Tab, props: GroupProps?) -> Group,
 }
 

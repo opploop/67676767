@@ -85,7 +85,17 @@ function RippleButton:_spawnRipple(screenPosition)
         return -- not laid out yet (e.g. a stray input mid-reveal)
     end
 
-    local localPos = Vector2.new(screenPosition.X, screenPosition.Y) - self.main.AbsolutePosition
+    -- Input positions live in the gui-inset-adjusted space regardless of any ScreenGui's own
+    -- IgnoreGuiInset - AbsolutePosition doesn't once that flag's set (ours is, see
+    -- Window.screenGui). Add the inset back or the ripple lands offset from the cursor by the
+    -- topbar's height - the same correction drag.luau applies when it moves the window.
+    local inset = Vector2.zero
+    local screenGui = self.window.screenGui
+    if screenGui and screenGui.IgnoreGuiInset then
+        inset = variables.guiService:GetGuiInset()
+    end
+
+    local localPos = (screenPosition + inset) - self.main.AbsolutePosition
     local diameter = size.Magnitude
 
     local circle = self.window:Create("Frame", {
@@ -120,7 +130,10 @@ end
 
 function RippleButton:_wireRipple()
     self.window:ConnectFor(self, self.interact.InputBegan, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             self:_spawnRipple(Vector2.new(input.Position.X, input.Position.Y))
         end
     end)

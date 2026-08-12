@@ -1,8 +1,8 @@
--- Gen 3 devlog 1 - focused smoke test
+-- Gen 3 - focused smoke test
 --
--- Only the new batch: Checkbox, CopyButton, FlipButton. Kept separate from example.client.luau
--- so it's quick to eyeball each new element on its own against the devlog reference, without
--- the rest of the library's tabs in the way.
+-- Only the new batches (one tab per devlog), kept separate from example.client.luau so it's
+-- quick to eyeball each new element on its own against the devlog reference, without the rest
+-- of the library's tabs in the way.
 --
 -- Not wired into default.project.json - load it the same way you'd load any standalone script
 -- (or point the GitHub-raw test loader at this file instead of example.client.luau).
@@ -12,11 +12,12 @@ local Rayfield = require(ReplicatedStorage.Rayfield)
 
 local window = Rayfield:CreateWindow({
     name = "Gen 3 Changes",
-    subtitle = "Devlog 1",
+    subtitle = "Devlog 1 + 2",
     theme = "cobalt",
 })
 
-local tab = window:CreateTab({ name = "New Elements", icon = 93364949241311 })
+-- Devlog 1: Checkbox, CopyButton, FlipButton --------------------------------
+local tab = window:CreateTab({ name = "Devlog 1", icon = 93364949241311 })
 
 -- Checkbox --------------------------------------------------------------------
 tab:CreateSection({ name = "Checkbox" })
@@ -100,4 +101,51 @@ flipRow:CreateFlipButton({ name = "A", secondaryName = "1" })
 flipRow:CreateFlipButton({ name = "B", secondaryName = "2" })
 flipRow:CreateFlipButton({ name = "C", secondaryName = "3" })
 
-window:Navigate("New Elements")
+-- Devlog 2: RippleButton, ProgressBar, ScrollHint ----------------------------
+local tab2 = window:CreateTab({ name = "Devlog 2", icon = 84750991656135 })
+
+tab2:CreateSection({ name = "Ripple Button" })
+
+tab2:CreateRippleButton({
+    name = "Click Me",
+    icon = 93364949241311,
+    description = "Ripple spreads from wherever you press - mouse or touch.",
+    callback = function()
+        print("Ripple button pressed")
+    end,
+})
+
+tab2:CreateButton({ name = "Normal Button For Comparison" })
+
+tab2:CreateSection({ name = "Progress Bar" })
+
+tab2:CreateProgressBar({ name = "Static Progress", icon = 91452555903853, value = 65 })
+
+local download = tab2:CreateProgressBar({
+    name = "Fake Download",
+    icon = 108115485663409,
+    description = "Animates from 0 to 100 on a loop through Set.",
+})
+
+tab2:CreateProgressBar({
+    name = "XP This Level",
+    icon = 80387863064905,
+    value = 340,
+    max = 500,
+    suffix = "xp",
+})
+
+task.spawn(function()
+    local progress = 0
+    while true do
+        task.wait(2)
+        progress = (progress + 10) % 110
+        download:Set(progress)
+    end
+end)
+
+tab2:CreateSection({ name = "Scroll Hint" })
+
+tab2:CreateScrollHint({ text = "You found it" })
+
+window:Navigate("Devlog 1")

@@ -26,8 +26,8 @@ local assignOrder = require(script.Parent.Parent.utility.ordering)
 local elementPadding = 8
 
 -- these render fine side by side in a row: the compact builds (button/toggle/stat), the
--- newer compact builds (checkbox/copybutton/flipbutton), and the slider (it reflows to its
--- narrow layout). dropdown/section stay full-only.
+-- newer compact builds (checkbox/copybutton/flipbutton/ripplebutton), and the slider (it
+-- reflows to its narrow layout). dropdown/section/progressbar/scrollhint stay full-only.
 local compactCapable = {
     button = true,
     toggle = true,
@@ -36,6 +36,7 @@ local compactCapable = {
     checkbox = true,
     copybutton = true,
     flipbutton = true,
+    ripplebutton = true,
 }
 
 function Group.new(tab, properties)
@@ -98,7 +99,8 @@ end
 function Group:_add(componentName, properties)
     if self.compact and not compactCapable[componentName] then
         log.warn(
-            `Rayfield: a row only holds compact elements (button/toggle/stat/slider/checkbox/copybutton/flipbutton), `
+            `Rayfield: a row only holds compact elements `
+                .. `(button/toggle/stat/slider/checkbox/copybutton/flipbutton/ripplebutton), `
                 .. `ignoring '{componentName}'. Use a column for it.`
         )
         return nil
@@ -170,6 +172,9 @@ function Group:CreateFlipButton(properties)
 end
 function Group:CreateCopyButton(properties)
     return self:_add("copybutton", properties)
+end
+function Group:CreateRippleButton(properties)
+    return self:_add("ripplebutton", properties)
 end
 function Group:CreateToggle(properties)
     return self:_add("toggle", properties)

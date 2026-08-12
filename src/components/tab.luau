@@ -391,6 +391,11 @@ function Tab:CreateCopyButton(properties)
     return self:_register(require(script.Parent.copybutton).new(self, properties))
 end
 
+-- Ripple button: a Button whose press feedback is a ripple from the press point
+function Tab:CreateRippleButton(properties)
+    return self:_register(require(script.Parent.ripplebutton).new(self, properties))
+end
+
 -- Switch/Toggle
 function Tab:CreateToggle(properties)
     return self:_register(require(script.Parent.toggle).new(self, properties))
@@ -423,6 +428,16 @@ end
 -- Dropdown
 function Tab:CreateDropdown(properties)
     return self:_register(require(script.Parent.dropdown).new(self, properties))
+end
+
+-- Progress bar: read-only gradient fill + readout, animates on Set
+function Tab:CreateProgressBar(properties)
+    return self:_register(require(script.Parent.progressbar).new(self, properties))
+end
+
+-- Scroll hint: centred text + bouncing arrow, points further down a page
+function Tab:CreateScrollHint(properties)
+    return self:_register(require(script.Parent.scrollhint).new(self, properties))
 end
 
 -- Input
