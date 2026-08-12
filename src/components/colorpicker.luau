@@ -218,6 +218,7 @@ function ColorPicker.new(tab, properties)
         name = properties.name or properties.Name or "Color Picker",
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
+        tooltip = properties.tooltip or properties.Tooltip,
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
 
         callback = properties.callback or properties.Callback or function() end,
@@ -298,6 +299,8 @@ function ColorPicker.new(tab, properties)
         variables.tweenService:Create(self.title, fadeInfo, { TextColor3 = theme.ContentColor }):Play()
         variables.tweenService:Create(self.hoverOverlay, fadeInfo, { BackgroundTransparency = 1 }):Play()
     end)
+
+    self.window:_wireTooltip(self)
 
     if self.description then
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })

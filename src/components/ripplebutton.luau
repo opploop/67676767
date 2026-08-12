@@ -32,6 +32,7 @@ function RippleButton.new(tab, properties)
         name = properties.name or properties.Name or "Button",
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
+        tooltip = properties.tooltip or properties.Tooltip,
         compact = tab.compact or false,
 
         callback = properties.callback or properties.Callback or function() end,
@@ -42,6 +43,8 @@ function RippleButton.new(tab, properties)
     else
         self:_buildFull()
     end
+
+    self.window:_wireTooltip(self)
 
     if self.description and not self.compact then
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })

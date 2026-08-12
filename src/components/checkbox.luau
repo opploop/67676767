@@ -35,6 +35,7 @@ function Checkbox.new(tab, properties)
         name = properties.name or properties.Name or "Checkbox",
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
+        tooltip = properties.tooltip or properties.Tooltip,
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
         compact = tab.compact or false,
 
@@ -58,6 +59,8 @@ function Checkbox.new(tab, properties)
     else
         self:_buildFull()
     end
+
+    self.window:_wireTooltip(self)
 
     if self.description and not self.compact then
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })

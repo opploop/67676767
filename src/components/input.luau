@@ -46,6 +46,7 @@ function Input.new(tab, properties)
         name = properties.name or properties.Name or "Input",
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
+        tooltip = properties.tooltip or properties.Tooltip,
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
         placeholder = properties.placeholder or properties.Placeholder or "",
         numeric = properties.numeric or properties.Numeric or false, -- strip anything not a number
@@ -204,6 +205,7 @@ function Input.new(tab, properties)
     end)
 
     self.window:_wireElementHover(self)
+    self.window:_wireTooltip(self)
 
     if self.description then
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })

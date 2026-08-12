@@ -28,6 +28,7 @@ function Button.new(tab, properties)
         name = properties.name or properties.Name or "Button",
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
+        tooltip = properties.tooltip or properties.Tooltip,
         compact = tab.compact or false, -- true when the host is a Row
 
         callback = properties.callback or properties.Callback or function() end,
@@ -38,6 +39,8 @@ function Button.new(tab, properties)
     else
         self:_buildFull()
     end
+
+    self.window:_wireTooltip(self)
 
     -- Descriptions don't belong on a compact row element.
     if self.description and not self.compact then

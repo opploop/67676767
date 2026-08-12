@@ -34,6 +34,7 @@ function ProgressBar.new(tab, properties)
         name = properties.name or properties.Name or "Progress",
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
+        tooltip = properties.tooltip or properties.Tooltip,
 
         max = properties.max or properties.Max or 100,
         suffix = properties.suffix or properties.Suffix or "",
@@ -50,6 +51,7 @@ function ProgressBar.new(tab, properties)
     self._lastValue = self.value
 
     self:_buildFull()
+    self.window:_wireTooltip(self)
 
     if self.description then
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })

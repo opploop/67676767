@@ -71,6 +71,7 @@ function Keybind.new(tab, properties)
         name = properties.name or properties.Name or "Keybind",
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
+        tooltip = properties.tooltip or properties.Tooltip,
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
 
         -- the settings' menu-toggle keybind. it drives settings.toggleKeybind, so its clash
@@ -240,6 +241,7 @@ function Keybind.new(tab, properties)
     end)
 
     self.window:_wireElementHover(self)
+    self.window:_wireTooltip(self)
 
     if self.description then
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })

@@ -2188,6 +2188,147 @@ function Window:_wireElementHover(element)
     end)
 end
 
+-- Tooltip: one shared bubble per window, repositioned and reused for whichever element is
+-- currently hovered. Held white regardless of theme - it needs to read clearly against any
+-- card colour, not blend into it.
+local tooltipShowDelay = 0.5
+local tooltipFadeIn = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local tooltipFadeOut = TweenInfo.new(0.12, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local tooltipMaxWidth = 220
+local tooltipCursorGap = 14 -- clears the cursor's own hotspot/hand icon
+
+-- Screen-space mouse position, corrected the same way a ripple press or a window drag is:
+-- raw input coordinates sit in the gui-inset-adjusted space, AbsolutePosition doesn't once
+-- IgnoreGuiInset is set (ours is - see self.screenGui).
+function Window:_mouseAbsolutePosition()
+    local pos = variables.userInputService:GetMouseLocation()
+    local inset = Vector2.zero
+    if self.screenGui and self.screenGui.IgnoreGuiInset then
+        inset = variables.guiService:GetGuiInset()
+    end
+    return pos + inset
+end
+
+function Window:_ensureTooltip()
+    if self.tooltipFrame then
+        return
+    end
+
+    self.tooltipFrame = self:Create("Frame", {
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        AutomaticSize = Enum.AutomaticSize.XY,
+        Size = UDim2.fromOffset(0, 0),
+        Visible = false,
+        ZIndex = constants.zIndex.tooltip,
+
+        Parent = self.screenGui,
+    })
+
+    self:Create("UICorner", {
+        CornerRadius = UDim.new(0, 8),
+        Parent = self.tooltipFrame,
+    })
+
+    self:Create("UIPadding", {
+        PaddingLeft = UDim.new(0, 10),
+        PaddingRight = UDim.new(0, 10),
+        PaddingTop = UDim.new(0, 6),
+        PaddingBottom = UDim.new(0, 6),
+
+        Parent = self.tooltipFrame,
+    })
+
+    self.tooltipLabel = self:Create("TextLabel", {
+        Text = "",
+        BackgroundTransparency = 1,
+        AutomaticSize = Enum.AutomaticSize.XY,
+        Size = UDim2.fromOffset(0, 0),
+        TextSize = 13,
+        TextWrapped = true,
+        TextColor3 = Color3.fromRGB(25, 25, 25),
+        ZIndex = constants.zIndex.tooltip,
+
+        TextTransparency = 1,
+
+        Parent = self.tooltipFrame,
+    }, { FontFace = "Font" })
+
+    -- caps the wrap width so long copy wraps onto more lines instead of one wide bubble
+    self:Create("UISizeConstraint", {
+        MaxSize = Vector2.new(tooltipMaxWidth, math.huge),
+        Parent = self.tooltipLabel,
+    })
+end
+
+function Window:_showTooltip(text)
+    self:_ensureTooltip()
+
+    self.tooltipLabel.Text = locale.resolve(text)
+
+    local mouse = self:_mouseAbsolutePosition()
+    self.tooltipFrame.AnchorPoint = Vector2.new(0.5, 1)
+    self.tooltipFrame.Position = UDim2.fromOffset(mouse.X, mouse.Y - tooltipCursorGap)
+    self.tooltipFrame.Visible = true
+    self.tooltipFrame.BackgroundTransparency = 1
+    self.tooltipLabel.TextTransparency = 1
+
+    self._tooltipToken = (self._tooltipToken or 0) + 1
+
+    variables.tweenService:Create(self.tooltipFrame, tooltipFadeIn, { BackgroundTransparency = 0.05 }):Play()
+    variables.tweenService:Create(self.tooltipLabel, tooltipFadeIn, { TextTransparency = 0 }):Play()
+end
+
+function Window:_hideTooltip()
+    if not self.tooltipFrame or not self.tooltipFrame.Visible then
+        return
+    end
+
+    self._tooltipToken = (self._tooltipToken or 0) + 1
+    local token = self._tooltipToken
+
+    variables.tweenService:Create(self.tooltipFrame, tooltipFadeOut, { BackgroundTransparency = 1 }):Play()
+    variables.tweenService:Create(self.tooltipLabel, tooltipFadeOut, { TextTransparency = 1 }):Play()
+
+    task.delay(tooltipFadeOut.Time, function()
+        if self._tooltipToken == token and self.tooltipFrame then
+            self.tooltipFrame.Visible = false
+        end
+    end)
+end
+
+-- Wires a hover-hold tooltip onto element.main (or element.tooltipTarget, for an element whose
+-- main is a transparent wrapper - see the dropdown) if element.tooltip is set. Independent of
+-- _wireElementHover so it applies uniformly whether or not the element wires its own hover
+-- tint (the slider, dropdown, colorpicker etc. all do that separately).
+function Window:_wireTooltip(element)
+    if not element.tooltip or element.tooltip == "" then
+        return
+    end
+
+    local target = element.tooltipTarget or element.main
+    local pending = 0
+
+    self:ConnectFor(element, target.MouseEnter, function()
+        if not self:_interactive() then
+            return -- window still revealing/hiding: dont pop a tooltip mid-animation
+        end
+        pending += 1
+        local token = pending
+        task.delay(tooltipShowDelay, function()
+            if pending == token then
+                self:_showTooltip(element.tooltip)
+            end
+        end)
+    end)
+
+    self:ConnectFor(element, target.MouseLeave, function()
+        pending += 1 -- invalidates any pending show, whether or not it had already fired
+        self:_hideTooltip()
+    end)
+end
+
 -- run a callback with the red error-flash on failure, debounced via element._errored so a
 -- slider firing every frame flashes once. shared by every interactive element. elements whose
 -- `main` is a transparent wrapper (the dropdown) set `flashTarget` to the frame to tint.

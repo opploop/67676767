@@ -39,6 +39,7 @@ function FlipButton.new(tab, properties)
             or properties.BackText,
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
+        tooltip = properties.tooltip or properties.Tooltip,
         compact = tab.compact or false,
 
         callback = properties.callback or properties.Callback or function() end,
@@ -51,6 +52,8 @@ function FlipButton.new(tab, properties)
     else
         self:_buildFull()
     end
+
+    self.window:_wireTooltip(self)
 
     if self.description and not self.compact then
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })

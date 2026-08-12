@@ -60,10 +60,13 @@ export type GroupProps = {
     direction: string?, -- "row" | "column" (default row); "horizontal"/"vertical" also work
 }
 
+-- tooltip is shared by every card element (see Window:_wireTooltip): hold the mouse a moment
+-- and it fades in above the cursor, wrapping for longer text.
 export type ButtonProps = {
     name: string?,
     description: string?,
     icon: (string | number)?,
+    tooltip: string?,
     callback: (() -> ())?,
 }
 
@@ -71,6 +74,7 @@ export type ToggleProps = {
     name: string?,
     description: string?,
     icon: (string | number)?,
+    tooltip: string?,
     flag: string?,
     value: boolean?,
     forgetState: boolean?,
@@ -83,6 +87,7 @@ export type CheckboxProps = {
     name: string?,
     description: string?,
     icon: (string | number)?,
+    tooltip: string?,
     flag: string?,
     value: boolean?,
     forgetState: boolean?,
@@ -93,6 +98,7 @@ export type CopyButtonProps = {
     name: string?,
     description: string?,
     icon: (string | number)?, -- shown inside the well; the well still works without one
+    tooltip: string?,
     text: string?, -- the string copied to the clipboard
     callback: ((success: boolean) -> ())?, -- fires after every press with whether the copy landed
 }
@@ -101,6 +107,7 @@ export type FlipButtonProps = {
     name: string?,
     description: string?,
     icon: (string | number)?,
+    tooltip: string?,
     secondaryName: string?, -- the back face; hovering flips the title to this and back
     callback: (() -> ())?,
 }
@@ -111,6 +118,7 @@ export type RippleButtonProps = {
     name: string?,
     description: string?,
     icon: (string | number)?,
+    tooltip: string?,
     callback: (() -> ())?,
 }
 
@@ -118,6 +126,7 @@ export type ProgressBarProps = {
     name: string?,
     description: string?,
     icon: (string | number)?,
+    tooltip: string?,
     value: number?,
     max: number?, -- default 100
     suffix: string?, -- set this to switch the readout to "{value} {suffix} out of {max}"
@@ -131,6 +140,7 @@ export type SliderProps = {
     name: string?,
     description: string?,
     icon: (string | number)?,
+    tooltip: string?,
     flag: string?,
     range: { number }?, -- { min, max }
     increment: number?,
@@ -145,6 +155,7 @@ export type DropdownProps = {
     name: string?,
     description: string?,
     icon: (string | number)?,
+    tooltip: string?,
     flag: string?,
     options: { string }?,
     value: (string | { string })?,
@@ -158,6 +169,7 @@ export type InputProps = {
     name: string?,
     description: string?,
     icon: (string | number)?,
+    tooltip: string?,
     flag: string?,
     value: string?,
     placeholder: string?,
@@ -171,6 +183,7 @@ export type KeybindProps = {
     name: string?,
     description: string?,
     icon: (string | number)?,
+    tooltip: string?,
     flag: string?,
     value: (EnumItem | string)?, -- an Enum.KeyCode / mouse button, or a KeyCode name
     forgetState: boolean?,
@@ -185,6 +198,7 @@ export type ColorPickerProps = {
     name: string?,
     description: string?,
     icon: (string | number)?,
+    tooltip: string?,
     flag: string?,
     color: Color3?, -- initial colour (accepts a hex string too)
     alpha: number?, -- initial alpha 0..1 (default 1)
@@ -196,6 +210,7 @@ export type StatProps = {
     name: string?,
     description: string?,
     icon: (string | number)?,
+    tooltip: string?,
     prefix: string?,
     suffix: string?,
     value: number?,

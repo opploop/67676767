@@ -58,6 +58,7 @@ function Slider.new(tab, properties)
         name = properties.name or properties.Name or "Slider",
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
+        tooltip = properties.tooltip or properties.Tooltip,
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
 
         range = properties.range or properties.Range or { 0, 100 },
@@ -264,6 +265,8 @@ function Slider.new(tab, properties)
             self.window:_persist(self)
         end
     end)
+
+    self.window:_wireTooltip(self)
 
     if self.description and not self.minimal then
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })

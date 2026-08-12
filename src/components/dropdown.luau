@@ -97,6 +97,7 @@ function Dropdown.new(tab, properties)
         name = properties.name or properties.Name or "Dropdown",
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
+        tooltip = properties.tooltip or properties.Tooltip,
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState, -- dont save config for this element if true.
 
         flag = properties.flag
@@ -159,6 +160,7 @@ function Dropdown.new(tab, properties)
     self.stroke = self.window:StyleElementBody(self.top)
     self.hoverOverlay = self.window:CreateHoverOverlay(self.top)
     self.flashTarget = self.top -- main is a transparent wrapper, so the error-flash tints the pill
+    self.tooltipTarget = self.top -- same reason: hover on the actual pill, not the wrapper
 
     self.container = self.window:Create("Frame", {
         BorderSizePixel = 0,
@@ -596,8 +598,9 @@ function Dropdown.new(tab, properties)
         end
     end)
 
-    -- Hover feedback via the overlay + title only. The card uses a gradient stroke (white
-    -- base tinted by the gradient), so tweening stroke.Color here would fight the gradient.
+    -- Hover feedback via the overlay + title only (stroke stays put - unlike _wireElementHover's
+    -- elements, the header's stroke transparency also has to track open/close, so leaving hover
+    -- out of it keeps those two animations from fighting over the same property).
     self.window:ConnectFor(self, self.main.MouseEnter, function()
         if self._isOpen or not self.window:_interactive() then
             return
@@ -634,6 +637,8 @@ function Dropdown.new(tab, properties)
             )
             :Play()
     end)
+
+    self.window:_wireTooltip(self)
 
     if self.description then
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })
