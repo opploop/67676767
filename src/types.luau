@@ -136,6 +136,28 @@ export type ScrollHintProps = {
     text: string?,
 }
 
+export type PinnedListItemDef = {
+    icon: (string | number)?,
+    title: string?,
+    subtitle: string?,
+    pinned: boolean?,
+}
+
+export type PinnedListProps = {
+    items: { PinnedListItemDef }?,
+    pinIcon: (string | number)?, -- defaults to the built-in check glyph
+    unpinIcon: (string | number)?, -- defaults to the built-in dot glyph
+}
+
+export type CursorTagProps = {
+    text: string?,
+    placeholder: string?, -- shown in the empty card before it's hovered
+    scope: ("area" | "window" | "screen")?, -- how far the chip may roam once active (default "area")
+    offset: Vector2?,
+    height: number?,
+    ease: number?, -- per-frame Lerp factor toward the cursor, 0..1 (default 0.22)
+}
+
 export type SliderProps = {
     name: string?,
     description: string?,
@@ -284,6 +306,26 @@ export type ScrollHint = Moveable & {
     Set: (self: ScrollHint, text: string) -> (),
 }
 
+-- One row inside a PinnedList. Not itself Moveable - only the list is reordered within its tab.
+export type PinnedListItem = {
+    title: string,
+    subtitle: string,
+    pinned: boolean,
+    SetPinned: (self: PinnedListItem, pinned: boolean, skipAnimation: boolean?) -> (),
+    Pin: (self: PinnedListItem) -> (),
+    Unpin: (self: PinnedListItem) -> (),
+}
+
+export type PinnedList = Moveable & {
+    items: { PinnedListItem },
+    AddItem: (self: PinnedList, item: PinnedListItemDef) -> PinnedListItem,
+}
+
+export type CursorTag = Moveable & {
+    Set: (self: CursorTag, text: string) -> (),
+    SetEnabled: (self: CursorTag, enabled: boolean) -> (),
+}
+
 export type CopyButton = Moveable & {
     text: string,
     Set: (self: CopyButton, text: string) -> (),
@@ -388,6 +430,8 @@ export type Tab = {
     CreateSection: (self: Tab, props: SectionProps) -> Section,
     CreateProgressBar: (self: Tab, props: ProgressBarProps) -> ProgressBar,
     CreateScrollHint: (self: Tab, props: ScrollHintProps?) -> ScrollHint,
+    CreatePinnedList: (self: Tab, props: PinnedListProps?) -> PinnedList,
+    CreateCursorTag: (self: Tab, props: CursorTagProps?) -> CursorTag,
     CreateGroup: (self: Tab, props: GroupProps?) -> Group,
 }
 
