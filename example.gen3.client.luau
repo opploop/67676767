@@ -155,8 +155,8 @@ tab2:CreateScrollHint({ text = "You found it" })
 -- Devlog 3: PinnedList, CursorTag, Tooltip -----------------------------------
 local tab3 = window:CreateTab({ name = "Devlog 3", icon = 100604009889706 })
 
-tab3:CreateSection({ name = "Pinned List" })
-
+-- no outer Section here - the list already shows its own "Pinned list"/"All Items" headers,
+-- so a wrapping "Pinned List" section title would just read as a duplicate above it
 local list = tab3:CreatePinnedList({
     items = {
         { icon = 129180860773723, title = "Token Lock", subtitle = "Login stuff · Open 24 hours", pinned = true },

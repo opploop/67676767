@@ -324,6 +324,7 @@ export type PinnedList = Moveable & {
 export type CursorTag = Moveable & {
     Set: (self: CursorTag, text: string) -> (),
     SetEnabled: (self: CursorTag, enabled: boolean) -> (),
+    ClearEnabled: (self: CursorTag) -> (),
 }
 
 export type CopyButton = Moveable & {

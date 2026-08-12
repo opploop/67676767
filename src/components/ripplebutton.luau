@@ -88,17 +88,9 @@ function RippleButton:_spawnRipple(screenPosition)
         return -- not laid out yet (e.g. a stray input mid-reveal)
     end
 
-    -- Input positions live in the gui-inset-adjusted space regardless of any ScreenGui's own
-    -- IgnoreGuiInset - AbsolutePosition doesn't once that flag's set (ours is, see
-    -- Window.screenGui). Add the inset back or the ripple lands offset from the cursor by the
-    -- topbar's height - the same correction drag.luau applies when it moves the window.
-    local inset = Vector2.zero
-    local screenGui = self.window.screenGui
-    if screenGui and screenGui.IgnoreGuiInset then
-        inset = variables.guiService:GetGuiInset()
-    end
-
-    local localPos = (screenPosition + inset) - self.main.AbsolutePosition
+    -- screenPosition and AbsolutePosition are already in the same coordinate space (see
+    -- Window:_mouseAbsolutePosition) - no GuiInset adjustment needed on top of it.
+    local localPos = screenPosition - self.main.AbsolutePosition
     local diameter = size.Magnitude
 
     local circle = self.window:Create("Frame", {

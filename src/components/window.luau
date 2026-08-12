@@ -2197,16 +2197,12 @@ local tooltipFadeOut = TweenInfo.new(0.12, Enum.EasingStyle.Quint, Enum.EasingDi
 local tooltipMaxWidth = 220
 local tooltipCursorGap = 14 -- clears the cursor's own hotspot/hand icon
 
--- Screen-space mouse position, corrected the same way a ripple press or a window drag is:
--- raw input coordinates sit in the gui-inset-adjusted space, AbsolutePosition doesn't once
--- IgnoreGuiInset is set (ours is - see self.screenGui).
+-- Screen-space mouse position, in the same coordinate space as our GuiObjects' AbsolutePosition
+-- (confirmed empirically against a live client: GetMouseLocation() already matches
+-- screenGui.AbsoluteSize/the camera's ViewportSize directly here - no GuiInset adjustment
+-- needed on top of it, despite screenGui.IgnoreGuiInset being set).
 function Window:_mouseAbsolutePosition()
-    local pos = variables.userInputService:GetMouseLocation()
-    local inset = Vector2.zero
-    if self.screenGui and self.screenGui.IgnoreGuiInset then
-        inset = variables.guiService:GetGuiInset()
-    end
-    return pos + inset
+    return variables.userInputService:GetMouseLocation()
 end
 
 function Window:_ensureTooltip()

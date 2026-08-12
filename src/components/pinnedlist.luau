@@ -30,7 +30,9 @@ local hapticEngine = require(utility.HapticEngine)
 local moveable = require(utility.moveable)
 
 local rowHeight = 54
-local flipInfo = TweenInfo.new(0.4, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
+-- Quint rather than Exponential: a calmer, less punchy settle for a whole list reflowing at
+-- once, closer to how the reference build's reorder reads.
+local flipInfo = TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local pinFadeInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
 function PinnedList.new(tab, properties)

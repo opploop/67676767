@@ -52,7 +52,7 @@ function CursorTag.new(tab, properties)
         height = properties.height or properties.Height or defaultHeight,
         ease = properties.ease or properties.Ease or defaultEase,
 
-        _tracking = false,
+        _active = false,
     }, CursorTag)
 
     self:_build()
@@ -141,16 +141,13 @@ function CursorTag:_build()
         Parent = self.chip,
     }, { FontFace = "Font" })
 
-    window:ConnectFor(self, self.main.MouseEnter, function()
-        if not window:_interactive() then
-            return
-        end
-        self:_startTracking()
-    end)
-
-    window:ConnectFor(self, self.main.MouseLeave, function()
-        self:_stopTracking()
-    end)
+    -- Driven by a continuous per-frame bounds check (see _tick) rather than main.MouseEnter/
+    -- MouseLeave: a placeholder-only card has nothing else to steal hover from it, but once a
+    -- dev nests real controls inside one, THEIR MouseEnter fires a MouseLeave on the frame
+    -- underneath it first, flickering the chip off and on every time the cursor crosses a
+    -- child. A plain "is the mouse inside my bounds right now" check every frame has no such
+    -- event ordering to fight, so it fades out only once the cursor truly leaves the container.
+    self:_startLoop()
 end
 
 function CursorTag:_bounds()
@@ -163,13 +160,43 @@ function CursorTag:_bounds()
     return self.main.AbsolutePosition, self.main.AbsoluteSize
 end
 
-function CursorTag:_updatePosition()
-    if not self.main.Visible or self.main.AbsoluteSize.Magnitude == 0 then
-        self:_stopTracking() -- e.g. its tab isn't the one on screen anymore
+local function pointInside(point, pos, size)
+    return point.X >= pos.X and point.X <= pos.X + size.X and point.Y >= pos.Y and point.Y <= pos.Y + size.Y
+end
+
+-- One connection for the element's whole life, started once at build. Cheap (a couple of
+-- comparisons) even while idle, and it's what lets activation be a plain "is the mouse inside
+-- right now" check instead of a MouseEnter/MouseLeave pair a nested child's own hover can
+-- interrupt.
+function CursorTag:_startLoop()
+    if self._loopConnection then
+        return
+    end
+    self._loopConnection = self.window:ConnectFor(self, variables.runService.RenderStepped, function()
+        self:_tick()
+    end)
+end
+
+function CursorTag:_tick()
+    if not self.window:_interactive() or not self.main.Visible or self.main.AbsoluteSize.Magnitude == 0 then
+        self:_setActive(false) -- e.g. its tab isn't the one on screen, or the window's hidden
         return
     end
 
     local mouse = self.window:_mouseAbsolutePosition()
+    -- _forced is nil (no override, hover decides), true (force on), or false (force off) -
+    -- an explicit "off" has to win over hover, or SetEnabled(false) while still hovering the
+    -- card would get undone by this same tick a moment later
+    local hovering = pointInside(mouse, self.main.AbsolutePosition, self.main.AbsoluteSize)
+    local active = if self._forced ~= nil then self._forced else hovering
+    self:_setActive(active)
+
+    if active then
+        self:_followMouse(mouse)
+    end
+end
+
+function CursorTag:_followMouse(mouse)
     local targetX, targetY = mouse.X + self.offset.X, mouse.Y + self.offset.Y
 
     local boundsPos, boundsSize = self:_bounds()
@@ -184,64 +211,49 @@ function CursorTag:_updatePosition()
     self.chip.Position = UDim2.fromOffset(eased.X, eased.Y)
 end
 
--- Hovering the card calls this; so does explicit code (a toggle wired to SetEnabled(true), say)
-function CursorTag:_startTracking()
-    if self._tracking then
+local fadeInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+-- Cross-fades the chip in/out. Only fires on an actual state change, so the per-frame tick
+-- calling this every frame while active is a no-op past the first one.
+function CursorTag:_setActive(active)
+    if self._active == active then
         return
     end
-    self._tracking = true
+    self._active = active
 
-    -- land it on the mouse immediately rather than easing in from wherever it last was
-    local mouse = self.window:_mouseAbsolutePosition()
-    self.chip.Position = UDim2.fromOffset(mouse.X + self.offset.X, mouse.Y + self.offset.Y)
-    self.chip.Visible = true
-    self.chip.BackgroundTransparency = 1
-    self.chipLabel.TextTransparency = 1
-    variables.tweenService
-        :Create(self.chip, TweenInfo.new(0.15, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-            BackgroundTransparency = 0,
-        })
-        :Play()
-    variables.tweenService
-        :Create(self.chipLabel, TweenInfo.new(0.15, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-            TextTransparency = 0,
-        })
-        :Play()
-
-    self._trackConnection = variables.runService.RenderStepped:Connect(function()
-        self:_updatePosition()
-    end)
-end
-
-function CursorTag:_stopTracking()
-    if not self._tracking then
-        return
+    if active then
+        -- land on the mouse immediately rather than easing in from wherever it last was
+        local mouse = self.window:_mouseAbsolutePosition()
+        self.chip.Position = UDim2.fromOffset(mouse.X + self.offset.X, mouse.Y + self.offset.Y)
+        self.chip.Visible = true
+        self.chip.BackgroundTransparency = 1
+        self.chipLabel.TextTransparency = 1
+        variables.tweenService:Create(self.chip, fadeInfo, { BackgroundTransparency = 0 }):Play()
+        variables.tweenService:Create(self.chipLabel, fadeInfo, { TextTransparency = 0 }):Play()
+    else
+        self._fadeToken = (self._fadeToken or 0) + 1
+        local token = self._fadeToken
+        variables.tweenService:Create(self.chip, fadeInfo, { BackgroundTransparency = 1 }):Play()
+        variables.tweenService:Create(self.chipLabel, fadeInfo, { TextTransparency = 1 }):Play()
+        task.delay(fadeInfo.Time, function()
+            if self._fadeToken == token then
+                self.chip.Visible = false
+            end
+        end)
     end
-    self._tracking = false
-
-    if self._trackConnection then
-        self._trackConnection:Disconnect()
-        self._trackConnection = nil
-    end
-
-    local fadeOut = TweenInfo.new(0.15, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-    variables.tweenService:Create(self.chip, fadeOut, { BackgroundTransparency = 1 }):Play()
-    local tween = variables.tweenService:Create(self.chipLabel, fadeOut, { TextTransparency = 1 })
-    tween:Play()
-    tween.Completed:Connect(function(state)
-        if state == Enum.PlaybackState.Completed and not self._tracking then
-            self.chip.Visible = false
-        end
-    end)
 end
 
 -- Explicit on/off from code, independent of hover - e.g. a toggle demoing window/screen scope.
+-- Forces the state (on or off) regardless of the bounds check. Call ClearEnabled to hand
+-- control back to hover.
 function CursorTag:SetEnabled(enabled)
-    if enabled then
-        self:_startTracking()
-    else
-        self:_stopTracking()
-    end
+    self._forced = enabled and true or false
+    self:_setActive(self._forced)
+end
+
+-- Hands control back to hover-driven activation after a SetEnabled override.
+function CursorTag:ClearEnabled()
+    self._forced = nil
 end
 
 -- Update the chip's label at runtime.
@@ -258,7 +270,7 @@ function CursorTag:_setShown(shown, animate)
     else
         w:_hideCommon(self, animate)
         w:_reveal(self.placeholderLabel, { TextTransparency = 1 }, animate)
-        self:_stopTracking()
+        self:_setActive(false)
     end
 end
 
