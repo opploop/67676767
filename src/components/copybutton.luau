@@ -123,12 +123,14 @@ function CopyButton:_buildWell(parent)
 end
 
 -- pop -> squish -> swap to the checkmark -> settle. the swap lands at the bottom of the
--- squish, where it's smallest and the crossfade reads as one motion instead of two.
-local popInfo = TweenInfo.new(0.09, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local squishInfo = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-local settleInfo = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-local crossfadeInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-local revertInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+-- squish, where it's smallest and the crossfade reads as one motion instead of two. Kept snappy
+-- end to end (checkmark lands well under a quarter second after the press) - only the 2s hold
+-- before revert is meant to read as a deliberate pause.
+local popInfo = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local squishInfo = TweenInfo.new(0.07, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+local settleInfo = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local crossfadeInfo = TweenInfo.new(0.06, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local revertInfo = TweenInfo.new(0.12, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
 function CopyButton:_playSuccess()
     local ts = variables.tweenService
@@ -136,12 +138,12 @@ function CopyButton:_playSuccess()
     local token = self._copyToken
 
     ts:Create(self.wellScale, popInfo, { Scale = 1.12 }):Play()
-    task.delay(0.09, function()
+    task.delay(popInfo.Time, function()
         if self._copyToken ~= token then
             return
         end
         ts:Create(self.wellScale, squishInfo, { Scale = 0.82 }):Play()
-        task.delay(0.12, function()
+        task.delay(squishInfo.Time, function()
             if self._copyToken ~= token then
                 return
             end
@@ -172,12 +174,12 @@ function CopyButton:_playMiss()
     local token = self._copyToken
 
     ts:Create(self.wellScale, popInfo, { Scale = 1.08 }):Play()
-    task.delay(0.09, function()
+    task.delay(popInfo.Time, function()
         if self._copyToken ~= token then
             return
         end
         ts:Create(self.wellScale, squishInfo, { Scale = 0.88 }):Play()
-        task.delay(0.12, function()
+        task.delay(squishInfo.Time, function()
             if self._copyToken ~= token then
                 return
             end
