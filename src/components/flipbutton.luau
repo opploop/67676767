@@ -133,6 +133,27 @@ function FlipButton:_flip(showBack)
     end)
 end
 
+-- Hover flips the title for a mouse; MouseEnter/MouseLeave never fire for touch at all, so
+-- without this a phone never sees the back face. A tap toggles it instead - same _flip, just a
+-- different trigger. Shared by both layouts so the two builds can't drift out of sync on this.
+function FlipButton:_wireFlipTrigger()
+    self.window:ConnectFor(self, self.interact.MouseEnter, function()
+        if not self.window:_interactive() then
+            return
+        end
+        self:_flip(true)
+    end)
+    self.window:ConnectFor(self, self.interact.MouseLeave, function()
+        self:_flip(false)
+    end)
+    self.window:ConnectFor(self, self.interact.InputBegan, function(input)
+        if input.UserInputType ~= Enum.UserInputType.Touch or not self.window:_interactive() then
+            return
+        end
+        self:_flip(not self._showingBack)
+    end)
+end
+
 -- full-width: icon left, flipping title beside it, width-bounce on press (matches button.luau)
 function FlipButton:_buildFull()
     self.main = self.window:Create("Frame", {
@@ -195,16 +216,7 @@ function FlipButton:_buildFull()
     })
 
     self.window:_wireElementHover(self)
-
-    self.window:ConnectFor(self, self.interact.MouseEnter, function()
-        if not self.window:_interactive() then
-            return
-        end
-        self:_flip(true)
-    end)
-    self.window:ConnectFor(self, self.interact.MouseLeave, function()
-        self:_flip(false)
-    end)
+    self:_wireFlipTrigger()
 
     self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
         hapticEngine.click()
@@ -284,16 +296,7 @@ function FlipButton:_buildCompact()
     self:_buildFlipContainer(self.interact, 1)
 
     self.window:_wireElementHover(self)
-
-    self.window:ConnectFor(self, self.interact.MouseEnter, function()
-        if not self.window:_interactive() then
-            return
-        end
-        self:_flip(true)
-    end)
-    self.window:ConnectFor(self, self.interact.MouseLeave, function()
-        self:_flip(false)
-    end)
+    self:_wireFlipTrigger()
 
     self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
         hapticEngine.click()
