@@ -83,7 +83,9 @@ function ProgressBar:_buildFull()
 
     self.stroke = window:StyleElementBody(self.main)
 
-    -- Top row: title (+ icon) left, readout right
+    -- Top row: title (+ icon) left, readout right. Same split Checkbox/CopyButton use in a
+    -- compact row - HorizontalFlex on the layout pins the two groups to either end, rather
+    -- than a UIFlexItem on either side (which only governs shrink/grow, not placement).
     self.container = window:Create("Frame", {
         Position = UDim2.new(0, 20, 0, 14),
         Size = UDim2.new(1, -40, 0, 16),
@@ -94,17 +96,37 @@ function ProgressBar:_buildFull()
     })
 
     self.containerLayout = window:Create("UIListLayout", {
-        Padding = UDim.new(0, 5),
         FillDirection = Enum.FillDirection.Horizontal,
         VerticalAlignment = Enum.VerticalAlignment.Center,
+        HorizontalFlex = Enum.UIFlexAlignment.SpaceBetween,
+        SortOrder = Enum.SortOrder.LayoutOrder,
 
         Parent = self.container,
     })
 
-    -- title grows, value hugs the right - same split as the slider's narrow row
-    self.titleFlex = window:Create("UIFlexItem", {
-        FlexMode = Enum.UIFlexMode.Fill,
+    -- left: icon + title, sharing whatever width the value readout doesn't need
+    self.titleGroup = window:Create("Frame", {
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.fromOffset(0, 16),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        LayoutOrder = 0,
+
         Parent = self.container,
+    })
+
+    window:Create("UIListLayout", {
+        Padding = UDim.new(0, 5),
+        FillDirection = Enum.FillDirection.Horizontal,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+
+        Parent = self.titleGroup,
+    })
+
+    window:Create("UIFlexItem", {
+        FlexMode = Enum.UIFlexMode.Shrink,
+        Parent = self.titleGroup,
     })
 
     if self.icon then
@@ -113,16 +135,18 @@ function ProgressBar:_buildFull()
             Size = UDim2.fromOffset(16, 16),
             BorderSizePixel = 0,
             BackgroundTransparency = 1,
+            LayoutOrder = 0,
 
             ImageTransparency = 1, -- In = 0
 
-            Parent = self.container,
+            Parent = self.titleGroup,
         }, { ImageColor3 = "ContentColor" })
     end
 
     self.title = window:Create("TextLabel", {
         Text = locale.t(self.name),
-        Size = UDim2.new(1, 0, 0, 16),
+        Size = UDim2.fromOffset(0, 16),
+        AutomaticSize = Enum.AutomaticSize.X,
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
         TextSize = 16,
@@ -132,10 +156,10 @@ function ProgressBar:_buildFull()
 
         TextTransparency = 1, -- In = 0
 
-        Parent = self.container,
+        Parent = self.titleGroup,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
-    self.window:Create("UIFlexItem", {
+    window:Create("UIFlexItem", {
         FlexMode = Enum.UIFlexMode.Shrink,
         Parent = self.title,
     })
@@ -145,7 +169,7 @@ function ProgressBar:_buildFull()
         AutomaticSize = Enum.AutomaticSize.X,
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        LayoutOrder = 2,
+        LayoutOrder = 1,
 
         Parent = self.container,
     })
