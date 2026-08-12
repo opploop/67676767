@@ -16,6 +16,10 @@ local window = Rayfield:CreateWindow({
     theme = "cobalt",
 })
 
+-- debug hook for the test harness: lets an external probe call window:Navigate(...) directly
+-- instead of simulating clicks on the tab bar. Harmless to leave in a smoke-test script.
+_G.RayfieldGen3Window = window
+
 -- Devlog 1: Checkbox, CopyButton, FlipButton --------------------------------
 local tab = window:CreateTab({ name = "Devlog 1", icon = 93364949241311 })
 
