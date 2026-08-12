@@ -164,16 +164,25 @@ local function pointInside(point, pos, size)
     return point.X >= pos.X and point.X <= pos.X + size.X and point.Y >= pos.Y and point.Y <= pos.Y + size.Y
 end
 
--- One connection for the element's whole life, started once at build. Cheap (a couple of
+-- One background loop for the element's whole life, started once at build. Cheap (a couple of
 -- comparisons) even while idle, and it's what lets activation be a plain "is the mouse inside
 -- right now" check instead of a MouseEnter/MouseLeave pair a nested child's own hover can
--- interrupt.
+-- interrupt. task.wait() rather than a RenderStepped:Connect - the same shape Window's own
+-- LiveAnimation loop uses - since a couple of executors don't reliably drive a plain
+-- RenderStepped connection made from injected code, leaving it looking connected but never
+-- actually firing.
 function CursorTag:_startLoop()
-    if self._loopConnection then
+    if self._looping then
         return
     end
-    self._loopConnection = self.window:ConnectFor(self, variables.runService.RenderStepped, function()
-        self:_tick()
+    self._looping = true
+    task.spawn(function()
+        -- self.main.Parent stops the loop the same way ScrollHint's bounce does: once
+        -- Tab:Remove tears the instances down there's nothing left to check bounds against
+        while self._looping and self.main.Parent do
+            self:_tick()
+            task.wait()
+        end
     end)
 end
 
