@@ -153,7 +153,10 @@ function Dropdown.new(tab, properties)
         Parent = self.main,
     }, { BackgroundTransparency = "ElementTransparency" })
 
-    self.stroke = self.window:StyleElementPanel(self.top)
+    -- flat themed stroke, same as every other element's card (StyleElementPanel's gradient
+    -- sheen read as an inconsistent/"improper" outline next to them - see StyleElementPanel's
+    -- own doc comment; Popup still uses it deliberately for its changelog cards)
+    self.stroke = self.window:StyleElementBody(self.top)
     self.hoverOverlay = self.window:CreateHoverOverlay(self.top)
     self.flashTarget = self.top -- main is a transparent wrapper, so the error-flash tints the pill
 
@@ -275,7 +278,7 @@ function Dropdown.new(tab, properties)
         Parent = self.main,
     })
 
-    self.panelStroke = self.window:StyleElementPanel(self.panel)
+    self.panelStroke = self.window:StyleElementBody(self.panel)
 
     -- The card stacks the search bar over the list. The search bar is always present in
     -- the layout (it just grows/shrinks), so the gap under it is stable; the list is a
