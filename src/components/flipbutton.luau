@@ -118,15 +118,19 @@ function FlipButton:_flip(showBack)
     local token = self._flipToken
 
     local ts = variables.tweenService
-    local closeTween = ts:Create(self.flipContainer, closeInfo, { Size = UDim2.fromOffset(0, titleHeight) })
-    closeTween.Completed:Connect(function(state)
-        if state ~= Enum.PlaybackState.Completed or self._flipToken ~= token then
+    ts:Create(self.flipContainer, closeInfo, { Size = UDim2.fromOffset(0, titleHeight) }):Play()
+
+    -- task.delay rather than Tween.Completed: a same-property tween created before this one
+    -- finishes (a quick re-hover) cancels it, and a cancelled tween's Completed is unreliable
+    -- across executors. A plain delay always fires, and the token guard still drops it if a
+    -- newer flip has since taken over the container.
+    task.delay(closeInfo.Time, function()
+        if self._flipToken ~= token then
             return -- superseded by a newer flip; that one owns the container now
         end
         self.title.Text = locale.resolve(showBack and self.secondaryName or self.name)
         ts:Create(self.flipContainer, openInfo, { Size = UDim2.fromOffset(self._faceWidth, titleHeight) }):Play()
     end)
-    closeTween:Play()
 end
 
 -- full-width: icon left, flipping title beside it, width-bounce on press (matches button.luau)
