@@ -123,7 +123,7 @@ function FlipButton:_flip(showBack)
         if state ~= Enum.PlaybackState.Completed or self._flipToken ~= token then
             return -- superseded by a newer flip; that one owns the container now
         end
-        self.title.Text = locale.t(showBack and self.secondaryName or self.name)
+        self.title.Text = locale.resolve(showBack and self.secondaryName or self.name)
         ts:Create(self.flipContainer, openInfo, { Size = UDim2.fromOffset(self._faceWidth, titleHeight) }):Play()
     end)
     closeTween:Play()
@@ -345,7 +345,7 @@ function FlipButton:Set(front, back)
             :Play()
     end
 
-    self.title.Text = locale.t(self._showingBack and self.secondaryName or self.name)
+    self.title.Text = locale.resolve(self._showingBack and self.secondaryName or self.name)
 end
 
 -- Room the compact flip button needs before its label would clip: side padding + icon
