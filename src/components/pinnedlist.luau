@@ -295,6 +295,7 @@ function Item:_buildRow(list)
     end)
 
     window:ConnectFor(list, self.main.MouseEnter, function()
+        self._hovering = true
         if not window:_interactive() then
             return
         end
@@ -312,10 +313,14 @@ function Item:_buildRow(list)
             :Play()
         if not self.pinned then
             variables.tweenService:Create(self.pinIconLabel, pinFadeInfo, { ImageTransparency = 0.3 }):Play()
+            variables.tweenService:Create(self.pinButton, pinFadeInfo, {
+                BackgroundTransparency = window.theme.ToggleKnobOffTransparency,
+            }):Play()
         end
     end)
 
     window:ConnectFor(list, self.main.MouseLeave, function()
+        self._hovering = false
         variables.tweenService
             :Create(
                 self.stroke,
@@ -330,6 +335,7 @@ function Item:_buildRow(list)
             :Play()
         if not self.pinned then
             variables.tweenService:Create(self.pinIconLabel, pinFadeInfo, { ImageTransparency = 1 }):Play()
+            variables.tweenService:Create(self.pinButton, pinFadeInfo, { BackgroundTransparency = 1 }):Play()
         end
     end)
 
@@ -389,9 +395,16 @@ function Item:SetPinned(pinned, skipAnimation)
     end
 
     local window = list.window
+    -- unpinning while still hovered (the common case - this is usually reached by clicking the
+    -- button itself) rests at the hover-faint level rather than vanishing out from under the
+    -- cursor; unpinning from code with nothing hovering it goes fully hidden, like at rest.
+    local restTransparency = if pinned
+        then 0
+        elseif self._hovering then window.theme.ToggleKnobOffTransparency
+        else 1
     variables.tweenService:Create(self.pinButton, pinFadeInfo, {
         BackgroundColor3 = pinned and window.theme.AccentColor or window.theme.ToggleKnobOff,
-        BackgroundTransparency = pinned and 0 or window.theme.ToggleKnobOffTransparency,
+        BackgroundTransparency = restTransparency,
     }):Play()
     variables.tweenService
         :Create(self.pinIconLabel, pinFadeInfo, { ImageTransparency = pinned and 0 or 1 })
@@ -417,9 +430,8 @@ function Item:_setShown(shown, animate)
         if self.iconLabel then
             w:_reveal(self.iconLabel, { ImageTransparency = 0 }, animate)
         end
-        w:_reveal(self.pinButton, {
-            BackgroundTransparency = self.pinned and 0 or w.theme.ToggleKnobOffTransparency,
-        }, animate)
+        -- unpinned starts fully hidden (not just faint) - only a hover reveals it
+        w:_reveal(self.pinButton, { BackgroundTransparency = self.pinned and 0 or 1 }, animate)
         w:_reveal(self.pinIconLabel, { ImageTransparency = self.pinned and 0 or 1 }, animate)
     else
         w:_reveal(self.stroke, { Transparency = 1 }, animate)
