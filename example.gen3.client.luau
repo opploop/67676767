@@ -152,28 +152,8 @@ tab2:CreateSection({ name = "Scroll Hint" })
 
 tab2:CreateScrollHint({ text = "You found it" })
 
--- Devlog 3: PinnedList, Tooltip -----------------------------------------------
+-- Devlog 3: Tooltips ------------------------------------------------------------
 local tab3 = window:CreateTab({ name = "Devlog 3", icon = 100604009889706 })
-
--- no outer Section here - the list already shows its own "Pinned list"/"All Items" headers,
--- so a wrapping "Pinned List" section title would just read as a duplicate above it
-local list = tab3:CreatePinnedList({
-    items = {
-        { icon = 129180860773723, title = "Token Lock", subtitle = "Login stuff · Open 24 hours", pinned = true },
-        { icon = 88479147175134, title = "Commit Zone", subtitle = "Code updates · Closes 9:00 PM", pinned = true },
-        { icon = 100604009889706, title = "Regex Zone", subtitle = "Find words · Closes 9:00 PM" },
-        { icon = 108115485663409, title = "NPM Stop", subtitle = "Install stuff · Closes 8:00 PM" },
-        { icon = 83277910885129, title = "404 Room", subtitle = "Fixing errors · Open 24 hours" },
-    },
-})
-
-tab3:CreateButton({
-    name = "Pin \"404 Room\" From Code",
-    description = "Pinning also works from code, not just the row's own pin button.",
-    callback = function()
-        list.items[5]:Pin()
-    end,
-})
 
 tab3:CreateSection({ name = "Tooltips" })
 

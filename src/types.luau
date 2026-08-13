@@ -136,17 +136,6 @@ export type ScrollHintProps = {
     text: string?,
 }
 
-export type PinnedListItemDef = {
-    icon: (string | number)?,
-    title: string?,
-    subtitle: string?,
-    pinned: boolean?,
-}
-
-export type PinnedListProps = {
-    items: { PinnedListItemDef }?,
-}
-
 export type SliderProps = {
     name: string?,
     description: string?,
@@ -295,21 +284,6 @@ export type ScrollHint = Moveable & {
     Set: (self: ScrollHint, text: string) -> (),
 }
 
--- One row inside a PinnedList. Not itself Moveable - only the list is reordered within its tab.
-export type PinnedListItem = {
-    title: string,
-    subtitle: string,
-    pinned: boolean,
-    SetPinned: (self: PinnedListItem, pinned: boolean, skipAnimation: boolean?) -> (),
-    Pin: (self: PinnedListItem) -> (),
-    Unpin: (self: PinnedListItem) -> (),
-}
-
-export type PinnedList = Moveable & {
-    items: { PinnedListItem },
-    AddItem: (self: PinnedList, item: PinnedListItemDef) -> PinnedListItem,
-}
-
 export type CopyButton = Moveable & {
     text: string,
     Set: (self: CopyButton, text: string) -> (),
@@ -414,7 +388,6 @@ export type Tab = {
     CreateSection: (self: Tab, props: SectionProps) -> Section,
     CreateProgressBar: (self: Tab, props: ProgressBarProps) -> ProgressBar,
     CreateScrollHint: (self: Tab, props: ScrollHintProps?) -> ScrollHint,
-    CreatePinnedList: (self: Tab, props: PinnedListProps?) -> PinnedList,
     CreateGroup: (self: Tab, props: GroupProps?) -> Group,
 }
 

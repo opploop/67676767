@@ -257,19 +257,6 @@ quickRow:CreateCheckbox({ name = "HUD" })
 quickRow:CreateCopyButton({ name = "Copy ID", text = "PLAYER-0001" })
 quickRow:CreateFlipButton({ name = "Info", secondaryName = "v1.0.0" })
 
--- Extras ----------------------------------------------------------------------
-local extras = window:CreateTab({ name = "Extras", icon = 91452555903853 })
-
-extras:CreateSection({ name = "Favourites" })
-
-extras:CreatePinnedList({
-    items = {
-        { icon = 129180860773723, title = "Settings", subtitle = "Menu preferences", pinned = true },
-        { icon = 100604009889706, title = "Search", subtitle = "Find anything fast" },
-        { icon = 84750991656135, title = "Combat", subtitle = "Aimbot, ESP, more" },
-    },
-})
-
 -- Language ------------------------------------------------------------------
 local language = window:CreateTab({ name = "Language", icon = 100604009889706 })
 

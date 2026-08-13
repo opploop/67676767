@@ -83,7 +83,6 @@ local componentFiles = {
     "input",
     "keybind",
     "notification",
-    "pinnedlist",
     "popup",
     "progressbar",
     "ripplebutton",
