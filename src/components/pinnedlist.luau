@@ -364,11 +364,21 @@ end
 -- Snapshot every visible row's AbsolutePosition, run `mutate` (a reparent + reorder), then
 -- glide every row that actually moved from its old spot to wherever the layout settled it -
 -- the FLIP technique: capture, reparent (layout jumps instantly), tween the resulting jump away.
-local function flipReflow(list, mutate)
+-- primaryItem (the one that was actually clicked/Set) leads immediately; every other displaced
+-- row starts a little behind it, staggered by how far down the list it sits from the primary -
+-- so the reorder reads as that row pushing the rest of the stack out of its way, not everything
+-- just teleporting into a new spot at once.
+local function flipReflow(list, mutate, primaryItem)
     local before = {}
-    for _, item in list.items do
+    local indexOf = {}
+    local primaryIndex = 1
+    for index, item in list.items do
+        indexOf[item] = index
         if item.main then
             before[item] = item.main.AbsolutePosition
+        end
+        if item == primaryItem then
+            primaryIndex = index
         end
     end
 
@@ -379,6 +389,14 @@ local function flipReflow(list, mutate)
     -- library) - "before" and "after" would read identical, delta ~0, and every row would just
     -- snap with no visible glide. task.wait() already proved reliable for exactly this
     -- (_startLoop's follow loop), so use that instead of trusting deferral timing here too.
+    -- Pinning several rows in quick succession (real usage - someone clicking down a list) fires
+    -- overlapping flipReflow calls; without this, whichever call finishes first reattaches the
+    -- layout while an earlier call's tween is still mid-flight, and the reattached layout
+    -- immediately fights that still-running tween the same way it fought the very first,
+    -- undetached attempt. Reference-counted so the layout only reattaches once every overlapping
+    -- flip currently in flight has actually finished.
+    list._flipsInFlight = (list._flipsInFlight or 0) + 1
+
     task.spawn(function()
         -- two frames, not one: this reflow can move a row across containers (pinned <-> all
         -- items) plus toggle the section headers' visibility, more for the layout to settle
@@ -395,11 +413,12 @@ local function flipReflow(list, mutate)
         -- but never actually ran the loop below it), so detach the layout instead: unparenting
         -- it stops it managing children just as well, and reparenting it back afterward makes
         -- it recompute fresh - AddItem/_reorder already set every child's final LayoutOrder
-        -- before this runs, so that recompute just confirms the same positions.
+        -- before this runs, so that recompute just confirms the same positions. Idempotent if
+        -- an overlapping call already detached it.
         list.pinnedLayout.Parent = nil
         list.allLayout.Parent = nil
 
-        local animating = false
+        local maxStagger = 0
         for item, fromPos in before do
             if not item.main or not item.main.Parent then
                 continue -- removed mid-transition
@@ -407,23 +426,36 @@ local function flipReflow(list, mutate)
             local toPos = item.main.AbsolutePosition
             local delta = fromPos - toPos
             if math.abs(delta.X) > 0.5 or math.abs(delta.Y) > 0.5 then
-                animating = true
                 local settled = item.main.Position
                 item.main.Position = settled + UDim2.fromOffset(delta.X, delta.Y)
-                variables.tweenService:Create(item.main, flipInfo, { Position = settled }):Play()
+
+                -- the clicked row leads; everything it displaces follows a beat behind, later
+                -- the further down the list it sits from that row - reads as the click pushing
+                -- the rest of the stack out of the way rather than the whole list teleporting
+                local distance = math.abs((indexOf[item] or primaryIndex) - primaryIndex)
+                local stagger = item == primaryItem and 0 or math.min(distance * 0.035, 0.18)
+                maxStagger = math.max(maxStagger, stagger)
+
+                if stagger == 0 then
+                    variables.tweenService:Create(item.main, flipInfo, { Position = settled }):Play()
+                else
+                    task.delay(stagger, function()
+                        if item.main and item.main.Parent then
+                            variables.tweenService:Create(item.main, flipInfo, { Position = settled }):Play()
+                        end
+                    end)
+                end
             end
         end
 
-        local function reattachLayouts()
-            list.pinnedLayout.Parent = list.pinnedContainer
-            list.allLayout.Parent = list.allContainer
-        end
-
-        if animating then
-            task.delay(flipInfo.Time, reattachLayouts)
-        else
-            reattachLayouts()
-        end
+        task.delay(flipInfo.Time + maxStagger, function()
+            list._flipsInFlight -= 1
+            if list._flipsInFlight <= 0 then
+                list._flipsInFlight = 0
+                list.pinnedLayout.Parent = list.pinnedContainer
+                list.allLayout.Parent = list.allContainer
+            end
+        end)
     end)
 end
 
@@ -447,7 +479,7 @@ function Item:SetPinned(pinned, skipAnimation)
     if skipAnimation then
         mutate()
     else
-        flipReflow(list, mutate)
+        flipReflow(list, mutate, self)
     end
 
     local window = list.window
