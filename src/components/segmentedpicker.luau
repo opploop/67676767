@@ -156,10 +156,15 @@ function SegmentedPicker:_build()
     })
 
     -- the sliding indicator - a free Frame with no layout of its own, so tweening its Position/
-    -- Size directly never has anything to fight (see toggle.luau's knob, same idea)
+    -- Size directly never has anything to fight (see toggle.luau's knob, same idea). No explicit
+    -- ZIndex on this or the two siblings below - confirmed live that staggering explicit ZIndex
+    -- (1/2/3/4) here broke real click completion on the buttons entirely (hover still fired,
+    -- MouseButton1Click never did), while button.luau's interact - which relies purely on being
+    -- the last-created sibling, no explicit ZIndex anywhere - has always clicked fine. Creation
+    -- order alone (indicator, then childIndicator, then segmentsRow-with-the-actual-buttons last)
+    -- reproduces that same reliable layering without whatever the explicit-ZIndex path breaks.
     self.indicator = window:Create("Frame", {
         BorderSizePixel = 0,
-        ZIndex = 1,
 
         BackgroundTransparency = 1, -- In = 0
 
@@ -178,7 +183,6 @@ function SegmentedPicker:_build()
     self.childIndicator = window:Create("Frame", {
         BorderSizePixel = 0,
         BackgroundColor3 = childIndicatorColor,
-        ZIndex = 2,
         Visible = false,
 
         BackgroundTransparency = 1,
@@ -194,7 +198,6 @@ function SegmentedPicker:_build()
         Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        ZIndex = 3,
 
         Parent = self.row,
     })
@@ -245,7 +248,6 @@ function SegmentedPicker:_buildSegment(option, index)
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
             TextSize = 15,
-            ZIndex = 4,
 
             Parent = slot,
         }, { TextColor3 = "ContentColor", FontFace = "Font" })
@@ -269,7 +271,6 @@ function SegmentedPicker:_buildSegment(option, index)
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         TextSize = 15,
-        ZIndex = 4,
 
         Parent = slot,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
@@ -311,7 +312,6 @@ function SegmentedPicker:_buildSegment(option, index)
             BorderSizePixel = 0,
             TextSize = 15,
             LayoutOrder = j,
-            ZIndex = 4,
 
             Parent = segment.expandedRow,
         }, { TextColor3 = "ContentColor", FontFace = "Font" })
