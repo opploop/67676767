@@ -415,8 +415,24 @@ local function flipReflow(list, mutate, primaryItem)
         -- it recompute fresh - AddItem/_reorder already set every child's final LayoutOrder
         -- before this runs, so that recompute just confirms the same positions. Idempotent if
         -- an overlapping call already detached it.
-        list.pinnedLayout.Parent = nil
-        list.allLayout.Parent = nil
+        --
+        -- Both containers use AutomaticSize.Y, which measures its UIListLayout's content
+        -- height - detach that layout and there's nothing left to measure, so the container
+        -- collapses for as long as it's gone. Confirmed live too: the whole list's height
+        -- shrinks mid-glide, clipping rows out and leaking the game world behind them, then
+        -- the clipped rows "pop" back in once the layout reattaches - not the rows disappearing,
+        -- the container they're clipped against disappearing out from under them. Freeze each
+        -- container at its own already-settled height (captured now, before detaching) and
+        -- switch off AutomaticSize for the same window, so nothing downstream even notices the
+        -- layout is briefly gone.
+        for _, entry in {
+            { container = list.pinnedContainer, layout = list.pinnedLayout },
+            { container = list.allContainer, layout = list.allLayout },
+        } do
+            entry.container.Size = UDim2.new(1, 0, 0, entry.container.AbsoluteSize.Y)
+            entry.container.AutomaticSize = Enum.AutomaticSize.None
+            entry.layout.Parent = nil
+        end
 
         local maxStagger = 0
         for item, fromPos in before do
@@ -454,6 +470,8 @@ local function flipReflow(list, mutate, primaryItem)
                 list._flipsInFlight = 0
                 list.pinnedLayout.Parent = list.pinnedContainer
                 list.allLayout.Parent = list.allContainer
+                list.pinnedContainer.AutomaticSize = Enum.AutomaticSize.Y
+                list.allContainer.AutomaticSize = Enum.AutomaticSize.Y
             end
         end)
     end)
