@@ -231,7 +231,14 @@ end
 function SegmentedPicker:_buildSegment(option, index)
     local window = self.window
 
+    -- Confirmed live with GetGuiObjectsAtPosition: this slot's AbsoluteSize was 213x0 - zero
+    -- height, an unclickable sliver, while its child TextButton still rendered its text at
+    -- full size regardless (Roblox doesn't clip text to a 0-height parent) - looked completely
+    -- normal, wasn't clickable at all. HorizontalFlex.Fill only stretches the main (horizontal)
+    -- axis; it never touches height, so a child with no Size of its own collapses to 0 on the
+    -- cross axis. Explicit full-height Size fixes it - width is still overridden by Fill flex.
     local slot = window:Create("Frame", {
+        Size = UDim2.new(0, 0, 1, 0),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         LayoutOrder = index,
@@ -307,6 +314,9 @@ function SegmentedPicker:_buildSegment(option, index)
     for j, child in option.options do
         local childText = if typeof(child) == "table" then child.text or child.Text else tostring(child)
         local childButton = window:Create("TextButton", {
+            -- same fix as slot above: HorizontalFlex.Fill only stretches width, an explicit
+            -- Size is still needed for height or this collapses to an unclickable 0
+            Size = UDim2.new(0, 0, 1, 0),
             Text = locale.t(childText),
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
