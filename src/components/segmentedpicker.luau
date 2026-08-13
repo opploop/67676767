@@ -130,9 +130,8 @@ function SegmentedPicker:_build()
     self.stroke = window:StyleElementBody(self.main)
 
     window:Create("UICorner", {
-        CornerRadius = "PillCornerRadius",
         Parent = self.main,
-    })
+    }, { CornerRadius = "PillCornerRadius" })
 
     self.row = window:Create("Frame", {
         Size = UDim2.fromScale(1, 1),
@@ -154,9 +153,8 @@ function SegmentedPicker:_build()
     }, { BackgroundColor3 = "FieldGlow" })
 
     window:Create("UICorner", {
-        CornerRadius = "PillCornerRadius",
         Parent = self.indicator,
-    })
+    }, { CornerRadius = "PillCornerRadius" })
 
     self.segmentsRow = window:Create("Frame", {
         Size = UDim2.fromScale(1, 1),
