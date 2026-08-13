@@ -856,15 +856,20 @@ function Window:_paintTabIndicator(animate)
     end
 end
 
--- Slide the pill to `tab`'s own resolved geometry. tab.topbarItem's Position is exactly what
--- UIListLayout already computed for it (pure Offset, no Scale) and both it and the indicator
--- share the same parent (tabList), so no AbsolutePosition conversion is needed - just copy it.
+-- Slide the pill to `tab`'s own resolved geometry. Reads AbsolutePosition/AbsoluteSize rather
+-- than the tab's own Position/Size - confirmed live that this executor's UIListLayout updates
+-- the Absolute* read-outs correctly but never actually writes the settable Position property
+-- back (it stays frozen at its unlaid-out (0,0) forever), so trusting Position left the pill
+-- stuck in the corner no matter what. tab.topbarItem and the indicator share a parent (tabList),
+-- so a plain AbsolutePosition subtraction is all the conversion this needs.
 function Window:_updateTabIndicator(tab, animate)
     if not tab or tab.neglectSelector or not tab.topbarItem then
         return
     end
     local item = tab.topbarItem
-    local targetPos = UDim2.fromOffset(item.Position.X.Offset, item.Position.Y.Offset)
+    local listOrigin = self.tabList.AbsolutePosition
+    local itemPos = item.AbsolutePosition
+    local targetPos = UDim2.fromOffset(itemPos.X - listOrigin.X, itemPos.Y - listOrigin.Y)
     local targetSize = UDim2.fromOffset(item.AbsoluteSize.X, item.AbsoluteSize.Y)
     slideTabIndicator(self.tabIndicator, targetPos, targetSize, not animate)
     self:_paintTabIndicator(animate)

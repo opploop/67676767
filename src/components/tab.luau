@@ -243,12 +243,13 @@ function Tab.new(window, properties)
             end)
         )
 
-        -- self-healing re-snap: if this tab is selected and its own resolved Position or
+        -- self-healing re-snap: if this tab is selected and its own resolved AbsolutePosition or
         -- AbsoluteSize changes (a rename, a locale swap, or - the common case - UIListLayout
         -- only actually placing this tab a moment after the indicator's very first read of it,
         -- which can land while every tab still sits at its unlaid-out (0,0) default), slide the
-        -- shared pill to match again without animating.
-        for _, propertyName in { "Position", "AbsoluteSize" } do
+        -- shared pill to match again without animating. AbsolutePosition, not Position - see
+        -- _updateTabIndicator for why.
+        for _, propertyName in { "AbsolutePosition", "AbsoluteSize" } do
             table.insert(
                 self.connections,
                 self.window:Connect(self.topbarItem:GetPropertyChangedSignal(propertyName), function()
