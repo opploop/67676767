@@ -497,6 +497,9 @@ function Window.new(properties)
         AnchorPoint = Vector2.new(0.5, 0),
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
+        ClipsDescendants = true, -- the indicator now lives in here, not inside tabList's own
+        -- scroll-clipped viewport (see its creation below) - keep it from poking out past the
+        -- dock's rounded corners when a tab near the strip's edge is selected
 
         BackgroundTransparency = 0.55,
 
@@ -544,12 +547,20 @@ function Window.new(properties)
     -- the sliding pill: a free Frame with no layout of its own (same idea as segmentedpicker's
     -- indicator / toggle's knob), created before any tab so creation order alone keeps it
     -- behind every tab's own icon/text/click surface with no explicit ZIndex needed anywhere.
+    -- Parented to tabDock, NOT tabList: confirmed live that this executor never actually
+    -- re-renders a plain (non-layout) child's AbsolutePosition after a later Position write
+    -- once it's nested inside a ScrollingFrame - the property itself updates, AbsolutePosition
+    -- (and the real on-screen render) just silently never follows it again after the first
+    -- placement. tabDock is a plain Frame with no such quirk. Position is computed relative to
+    -- tabDock's own AbsolutePosition instead of tabList's, which still stays correct as the
+    -- strip scrolls since tab.topbarItem's own AbsolutePosition already reflects the current
+    -- scroll position.
     self.tabIndicator = self:Create("Frame", {
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
         Size = UDim2.fromOffset(0, 0),
 
-        Parent = self.tabList,
+        Parent = self.tabDock,
     })
     self:Create("UICorner", {
         Parent = self.tabIndicator,
@@ -860,16 +871,21 @@ end
 -- than the tab's own Position/Size - confirmed live that this executor's UIListLayout updates
 -- the Absolute* read-outs correctly but never actually writes the settable Position property
 -- back (it stays frozen at its unlaid-out (0,0) forever), so trusting Position left the pill
--- stuck in the corner no matter what. tab.topbarItem and the indicator share a parent (tabList),
--- so a plain AbsolutePosition subtraction is all the conversion this needs.
+-- stuck in the corner no matter what. Measured against tabDock (the indicator's own parent,
+-- see its creation above), not tabList - a second live-probe found that once a plain Position
+-- write lands on a child nested inside tabList's ScrollingFrame, this executor never actually
+-- re-renders it (the property itself reads back correctly; AbsolutePosition and the real pixel
+-- just silently stop following it). tab.topbarItem's own AbsolutePosition already reflects
+-- wherever tabList is currently scrolled to, so this stays correct without depending on
+-- CanvasPosition at all.
 function Window:_updateTabIndicator(tab, animate)
     if not tab or tab.neglectSelector or not tab.topbarItem then
         return
     end
     local item = tab.topbarItem
-    local listOrigin = self.tabList.AbsolutePosition
+    local dockOrigin = self.tabDock.AbsolutePosition
     local itemPos = item.AbsolutePosition
-    local targetPos = UDim2.fromOffset(itemPos.X - listOrigin.X, itemPos.Y - listOrigin.Y)
+    local targetPos = UDim2.fromOffset(itemPos.X - dockOrigin.X, itemPos.Y - dockOrigin.Y)
     local targetSize = UDim2.fromOffset(item.AbsoluteSize.X, item.AbsoluteSize.Y)
     slideTabIndicator(self.tabIndicator, targetPos, targetSize, not animate)
     self:_paintTabIndicator(animate)
