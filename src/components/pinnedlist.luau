@@ -31,11 +31,13 @@ local hapticEngine = require(utility.HapticEngine)
 local moveable = require(utility.moveable)
 
 local rowHeight = 54
--- Back rather than Quint: a touch of overshoot-then-settle so a whole list reflowing reads as
--- spring-like motion instead of a flat ease, closer to the reference build's reorder. Longer
--- than it looks like it needs to be (0.45 still read as "almost instant" - a one-row glide is
--- a small distance, so it needs the extra time just to be perceptible at all).
-local flipInfo = TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+-- Quint, not Back: Back's whole point is overshooting past the target before settling - fine
+-- for something that stays inside a clipped container, but confirmed live as a real problem for
+-- the pin/unpin ghost specifically, which floats free and unclipped over the whole screen so it
+-- could actually fly past the list (occasionally off the edge of the window) before springing
+-- back. Quint still decelerates smoothly into the landing, it just never leaves the straight
+-- line between the two points to get there.
+local flipInfo = TweenInfo.new(0.6, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local pinFadeInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
 function PinnedList.new(tab, properties)
