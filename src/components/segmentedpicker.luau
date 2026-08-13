@@ -188,9 +188,13 @@ function SegmentedPicker:_build()
         Parent = self.tab.tabPage,
     })
 
+    -- rounder than the standard ElementCornerRadius on purpose - this card is taller than a
+    -- normal element body, so the usual radius reads as barely-rounded next to the fully
+    -- pill-shaped bar sitting inside it.
     window:Create("UICorner", {
+        CornerRadius = UDim.new(0, 18),
         Parent = self.main,
-    }, { CornerRadius = "ElementCornerRadius" })
+    })
 
     self.bar = window:Create("Frame", {
         Size = UDim2.new(1, -16, 0, barHeight),
