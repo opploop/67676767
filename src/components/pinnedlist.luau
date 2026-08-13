@@ -445,10 +445,17 @@ local function flipReflow(list, mutate, primaryItem)
                 continue -- removed mid-transition
             end
             local toPos = item.main.AbsolutePosition
-            local delta = fromPos - toPos
-            if math.abs(delta.X) > 0.5 or math.abs(delta.Y) > 0.5 then
+            -- Y only, never X: this is a vertical list, rows only ever reorder up/down. Also
+            -- confirmed live as the cause of a real glitch - rows sliding sideways off the edge
+            -- of the window mid-animation. Every row's Position is Scale-1 width (fills its
+            -- parent), so it has no real X of its own to speak of; capturing/replaying a stray
+            -- X delta (e.g. from the window itself moving/resizing between the "before" and
+            -- "after" reads) shifted rows sideways by that same stray amount instead of leaving
+            -- them alone.
+            local deltaY = fromPos.Y - toPos.Y
+            if math.abs(deltaY) > 0.5 then
                 local settled = item.main.Position
-                item.main.Position = settled + UDim2.fromOffset(delta.X, delta.Y)
+                item.main.Position = settled + UDim2.fromOffset(0, deltaY)
 
                 -- the clicked row leads; everything it displaces follows a beat behind, later
                 -- the further down the list it sits from that row - reads as the click pushing
