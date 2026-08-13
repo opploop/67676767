@@ -258,21 +258,6 @@ function Window.new(properties)
         Parent = self.screenGui,
     })
 
-    -- Self-calibrating mouse position (see _mouseAbsolutePosition below): learned from the
-    -- whole window rather than any one card, so it's ready well before a CursorTag's own
-    -- small area is ever hovered - by the time anything in the window has been clicked at
-    -- all, the mouse has necessarily crossed this frame first. MouseMoved fires continuously,
-    -- same shape as RenderStepped (which this executor drops when connected from injected
-    -- code) - MouseEnter is the fallback that's actually confirmed reliable here (every hover
-    -- tint in the library depends on it), so it also recalibrates on its own, once per
-    -- entry, rather than trusting MouseMoved to ever fire at all.
-    self._mouseCalibration = Vector2.zero
-    local function recalibrate(x, y)
-        self._mouseCalibration = Vector2.new(x, y) - variables.userInputService:GetMouseLocation()
-    end
-    self:ConnectFor(self, self.main.MouseMoved, recalibrate)
-    self:ConnectFor(self, self.main.MouseEnter, recalibrate)
-
     self.drag = require(script.Parent.drag).new(self)
 
     self.windowCorner = self:Create("UICorner", {
@@ -2213,14 +2198,16 @@ local tooltipMaxWidth = 220
 local tooltipCursorGap = 14 -- clears the cursor's own hotspot/hand icon
 
 -- Screen-space mouse position, in the same coordinate space as our GuiObjects' AbsolutePosition.
--- GetMouseLocation() alone turned out not to reliably already be in that space - the gap to
--- AbsolutePosition varies by client/executor in a way no fixed GuiInset correction covered - so
--- this applies a calibration learned at runtime instead: self.main.MouseMoved reports (x, y)
--- already correct by construction (it's Roblox's own hit-test, not ours to get wrong), and
--- comparing it against GetMouseLocation() at the same instant gives the exact delta to apply
--- everywhere else in the window that needs a mouse position (tooltips, CursorTag, ripples).
+-- GetMouseLocation() reports Y including the Roblox topbar inset, while AbsolutePosition (for a
+-- GuiObject under an IgnoreGuiInset ScreenGui, which ours is) does not - so the topbar's own
+-- height leaks in as a constant downward offset unless it's subtracted back out here. Runtime
+-- self-calibration (comparing GetMouseLocation() against a GuiObject's own MouseMoved/MouseEnter)
+-- was tried instead of this and didn't hold up: on the test client neither event reliably fired
+-- from this executor's injected code, so the calibration just stayed at zero.
 function Window:_mouseAbsolutePosition()
-    return variables.userInputService:GetMouseLocation() + self._mouseCalibration
+    local mouse = variables.userInputService:GetMouseLocation()
+    local topLeftInset = variables.guiService:GetGuiInset()
+    return Vector2.new(mouse.X, mouse.Y - topLeftInset.Y)
 end
 
 function Window:_ensureTooltip()

@@ -31,6 +31,7 @@ constants.icons = {
     banner = 111263549366178,
     config = 125823673784681, -- saved-configurations picker
     rayfield = 80387863064905, -- default show icon on the sign-in toast
+    pin = 118194326195391, -- PinnedList's pin control (lucide.dev "pin")
 }
 
 -- Accent used by the toggle switch + slider glow when active.
