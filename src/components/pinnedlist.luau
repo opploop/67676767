@@ -389,12 +389,15 @@ local function flipReflow(list, mutate)
         -- Confirmed live: a UIListLayout re-asserts its own children's Position essentially
         -- every step, so the tween below was losing that fight instantly - the row would jump
         -- straight to its settled spot within ~90ms and sit there for the rest of flipInfo's
-        -- duration, reading as no animation at all. Disabling both containers' layouts for the
-        -- length of the tween stops them re-imposing Position while we drive it manually;
-        -- AddItem/_reorder already set every child's final LayoutOrder before this runs, so
-        -- re-enabling afterward just confirms the same positions rather than moving anything.
-        list.pinnedLayout.Enabled = false
-        list.allLayout.Enabled = false
+        -- duration, reading as no animation at all. UIListLayout.Enabled doesn't exist on this
+        -- client (setting it throws "not a valid member" - silently swallowed since this runs
+        -- inside task.spawn, which is why that fix looked like it worked in isolated testing
+        -- but never actually ran the loop below it), so detach the layout instead: unparenting
+        -- it stops it managing children just as well, and reparenting it back afterward makes
+        -- it recompute fresh - AddItem/_reorder already set every child's final LayoutOrder
+        -- before this runs, so that recompute just confirms the same positions.
+        list.pinnedLayout.Parent = nil
+        list.allLayout.Parent = nil
 
         local animating = false
         for item, fromPos in before do
@@ -411,14 +414,15 @@ local function flipReflow(list, mutate)
             end
         end
 
+        local function reattachLayouts()
+            list.pinnedLayout.Parent = list.pinnedContainer
+            list.allLayout.Parent = list.allContainer
+        end
+
         if animating then
-            task.delay(flipInfo.Time, function()
-                list.pinnedLayout.Enabled = true
-                list.allLayout.Enabled = true
-            end)
+            task.delay(flipInfo.Time, reattachLayouts)
         else
-            list.pinnedLayout.Enabled = true
-            list.allLayout.Enabled = true
+            reattachLayouts()
         end
     end)
 end
