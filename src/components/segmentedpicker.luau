@@ -170,21 +170,45 @@ end
 function SegmentedPicker:_build()
     local window = self.window
 
+    -- self.main is the outer, tabPage-parented frame - assignOrder (shared by every Tab/Group)
+    -- sets element.main.LayoutOrder directly, so this has to be the actual tabPage child or the
+    -- picker's position among the tab's other elements would silently stop tracking creation
+    -- order. A darker frame here, the same idea as the icon well behind PinnedList's icons - a
+    -- dedicated background specifically surrounding this element rather than just the ordinary
+    -- card treatment every other element gets, for a more "premium" look. self.bar (below) is
+    -- the actual pill everything else in this file already assumes "main" means.
     self.main = window:Create("Frame", {
-        Size = UDim2.new(1, -20, 0, barHeight),
+        Size = UDim2.new(1, -20, 0, barHeight + 16),
         BorderSizePixel = 0,
         Name = "SegmentedPicker",
+        BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+
+        BackgroundTransparency = 1, -- In = 0.5
+
+        Parent = self.tab.tabPage,
+    })
+
+    window:Create("UICorner", {
+        Parent = self.main,
+    }, { CornerRadius = "ElementCornerRadius" })
+
+    self.bar = window:Create("Frame", {
+        Size = UDim2.new(1, -16, 0, barHeight),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BorderSizePixel = 0,
+        Name = "Bar",
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 
         BackgroundTransparency = 1, -- In = ElementTransparency
 
-        Parent = self.tab.tabPage,
+        Parent = self.main,
     }, { BackgroundTransparency = "ElementTransparency" })
 
-    self.stroke = window:StyleElementBody(self.main)
+    self.stroke = window:StyleElementBody(self.bar)
 
     window:Create("UICorner", {
-        Parent = self.main,
+        Parent = self.bar,
     }, { CornerRadius = "PillCornerRadius" })
 
     self.row = window:Create("Frame", {
@@ -192,7 +216,7 @@ function SegmentedPicker:_build()
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
 
-        Parent = self.main,
+        Parent = self.bar,
     })
 
     -- the sliding indicator - a free Frame with no layout of its own, so tweening its Position/
@@ -531,15 +555,17 @@ end
 function SegmentedPicker:_setShown(shown, animate)
     local w = self.window
     if shown then
+        w:_reveal(self.main, { BackgroundTransparency = 0.5 }, animate)
         w:_reveal(self.stroke, { Transparency = w.theme.ElementStrokeTransparency }, animate)
-        w:_reveal(self.main, { BackgroundTransparency = w.theme.ElementTransparency or 0 }, animate)
+        w:_reveal(self.bar, { BackgroundTransparency = w.theme.ElementTransparency or 0 }, animate)
         w:_reveal(self.indicator, { BackgroundTransparency = 0 }, animate)
         if self.descriptor then
             w:_reveal(self.descriptor.titleLabel, { TextTransparency = 0.7 }, animate)
         end
     else
-        w:_reveal(self.stroke, { Transparency = 1 }, animate)
         w:_reveal(self.main, { BackgroundTransparency = 1 }, animate)
+        w:_reveal(self.stroke, { Transparency = 1 }, animate)
+        w:_reveal(self.bar, { BackgroundTransparency = 1 }, animate)
         w:_reveal(self.indicator, { BackgroundTransparency = 1 }, animate)
         if self.descriptor then
             w:_reveal(self.descriptor.titleLabel, { TextTransparency = 1 }, animate)
