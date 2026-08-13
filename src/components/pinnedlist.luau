@@ -78,9 +78,9 @@ function PinnedList:_build()
     })
 
     self.pinnedHeader = self:_buildHeader(self.main, "Pinned list", 0)
-    self.pinnedContainer = self:_buildContainer(self.main, 1)
+    self.pinnedContainer, self.pinnedLayout = self:_buildContainer(self.main, 1)
     self.allHeader = self:_buildHeader(self.main, "All Items", 2)
-    self.allContainer = self:_buildContainer(self.main, 3)
+    self.allContainer, self.allLayout = self:_buildContainer(self.main, 3)
 end
 
 -- A muted section-style label. Hidden (both header and its own top spacing) while its group
@@ -128,7 +128,7 @@ function PinnedList:_buildContainer(parent, layoutOrder)
         Parent = parent,
     })
 
-    window:Create("UIListLayout", {
+    local layout = window:Create("UIListLayout", {
         FillDirection = Enum.FillDirection.Vertical,
         SortOrder = Enum.SortOrder.LayoutOrder,
         Padding = UDim.new(0, 7),
@@ -136,7 +136,7 @@ function PinnedList:_buildContainer(parent, layoutOrder)
         Parent = container,
     })
 
-    return container
+    return container, layout
 end
 
 -- Show a group's header only once it holds something - an empty "Pinned list" above nothing
@@ -385,6 +385,18 @@ local function flipReflow(list, mutate)
         -- than the single-container reorder task.wait() was first proven against
         task.wait()
         task.wait()
+
+        -- Confirmed live: a UIListLayout re-asserts its own children's Position essentially
+        -- every step, so the tween below was losing that fight instantly - the row would jump
+        -- straight to its settled spot within ~90ms and sit there for the rest of flipInfo's
+        -- duration, reading as no animation at all. Disabling both containers' layouts for the
+        -- length of the tween stops them re-imposing Position while we drive it manually;
+        -- AddItem/_reorder already set every child's final LayoutOrder before this runs, so
+        -- re-enabling afterward just confirms the same positions rather than moving anything.
+        list.pinnedLayout.Enabled = false
+        list.allLayout.Enabled = false
+
+        local animating = false
         for item, fromPos in before do
             if not item.main or not item.main.Parent then
                 continue -- removed mid-transition
@@ -392,10 +404,21 @@ local function flipReflow(list, mutate)
             local toPos = item.main.AbsolutePosition
             local delta = fromPos - toPos
             if math.abs(delta.X) > 0.5 or math.abs(delta.Y) > 0.5 then
+                animating = true
                 local settled = item.main.Position
                 item.main.Position = settled + UDim2.fromOffset(delta.X, delta.Y)
                 variables.tweenService:Create(item.main, flipInfo, { Position = settled }):Play()
             end
+        end
+
+        if animating then
+            task.delay(flipInfo.Time, function()
+                list.pinnedLayout.Enabled = true
+                list.allLayout.Enabled = true
+            end)
+        else
+            list.pinnedLayout.Enabled = true
+            list.allLayout.Enabled = true
         end
     end)
 end
