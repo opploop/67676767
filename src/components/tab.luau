@@ -108,6 +108,11 @@ function Tab.new(window, properties)
             BorderSizePixel = 0,
             Text = "",
             TextTransparency = 1,
+            -- explicit, above the shared indicator's ZIndex 1 (window.luau): ZIndex isn't
+            -- inherited from a parent under Global behavior, and the indicator now lives in a
+            -- different branch of the tree (tabDock, not tabList) since it moved out of the
+            -- ScrollingFrame, so this can't lean on creation order to stay clickable above it
+            ZIndex = 2,
 
             Parent = self.topbarItem,
         })
@@ -148,6 +153,7 @@ function Tab.new(window, properties)
                 Size = UDim2.fromOffset(16, 16),
                 BorderSizePixel = 0,
                 BackgroundTransparency = 1,
+                ZIndex = 2, -- see topbarItemInteract for why this needs to be explicit now
 
                 -- Animation
                 ImageTransparency = 1, -- In = 0 / 0.5
@@ -169,6 +175,7 @@ function Tab.new(window, properties)
                 TextXAlignment = Enum.TextXAlignment.Left,
                 TextWrapped = true,
                 LayoutOrder = 1,
+                ZIndex = 2, -- see topbarItemInteract for why this needs to be explicit now
 
                 -- Animation
                 TextTransparency = 1, -- In = 0 / 0.5

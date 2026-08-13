@@ -559,6 +559,8 @@ function Window.new(properties)
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
         Size = UDim2.fromOffset(0, 0),
+        ZIndex = 1, -- explicit: each tab's own icon/text/click-catcher sits at ZIndex 2 to
+        -- guarantee it stays above this now that they're in different branches of the tree
 
         Parent = self.tabDock,
     })
