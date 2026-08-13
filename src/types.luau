@@ -145,8 +145,8 @@ export type PinnedListItemDef = {
 
 export type PinnedListProps = {
     items: { PinnedListItemDef }?,
-    pinIcon: (string | number)?, -- defaults to the built-in check glyph
-    unpinIcon: (string | number)?, -- defaults to the built-in dot glyph
+    pinIcon: string?, -- text glyph shown while pinned; defaults to a pin emoji
+    unpinIcon: string?, -- text glyph shown while not pinned; defaults to the same pin emoji
 }
 
 export type CursorTagProps = {

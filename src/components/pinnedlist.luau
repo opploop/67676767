@@ -23,7 +23,6 @@ local utility = script.Parent.Parent.utility
 
 -- Variables
 local variables = require(utility.variables)
-local constants = require(utility.constants)
 local locale = require(utility.locale)
 local assignOrder = require(utility.ordering)
 local hapticEngine = require(utility.HapticEngine)
@@ -41,11 +40,12 @@ function PinnedList.new(tab, properties)
     local self = setmetatable({
         tab = assert(tab, "Missing argument #1 (Tab expected)"),
         window = tab.window,
-        -- no built-in pin glyph asset ships with the library; default to the existing
-        -- check/dot pair (already cached - see constants.icons) so pinned/unpinned still
-        -- reads clearly without one. Pass pinIcon/unpinIcon for a real thumbtack glyph.
-        pinIcon = properties.pinIcon or properties.PinIcon or constants.icons.check,
-        unpinIcon = properties.unpinIcon or properties.UnpinIcon or constants.icons.dot,
+        -- no built-in pin glyph asset ships with the library, so this renders as text rather
+        -- than an ImageLabel - a Unicode pin (matching lucide.dev's "pin"), same glyph whether
+        -- pinned or not; only the button's own background/transparency tells them apart. Pass
+        -- pinIcon/unpinIcon to swap in a different character.
+        pinIcon = properties.pinIcon or properties.PinIcon or "📌",
+        unpinIcon = properties.unpinIcon or properties.UnpinIcon or "📌",
 
         items = {},
     }, PinnedList)
@@ -184,17 +184,35 @@ function Item:_buildRow(list)
     self.hoverOverlay = window:CreateHoverOverlay(self.main)
 
     if self.icon then
-        self.iconLabel = window:Create("ImageLabel", {
-            Image = self.icon,
-            Size = UDim2.fromOffset(28, 28),
+        -- a well behind the icon, same idea as the copy button's - a raised circle so the
+        -- glyph doesn't just float bare against the row
+        self.iconWell = window:Create("Frame", {
+            Size = UDim2.fromOffset(38, 38),
             Position = UDim2.new(0, 16, 0.5, 0),
             AnchorPoint = Vector2.new(0, 0.5),
+            BorderSizePixel = 0,
+
+            BackgroundTransparency = 1, -- In = FieldTransparency
+
+            Parent = self.main,
+        }, { BackgroundColor3 = "FieldBackground" })
+
+        window:Create("UICorner", {
+            CornerRadius = UDim.new(1, 0),
+            Parent = self.iconWell,
+        })
+
+        self.iconLabel = window:Create("ImageLabel", {
+            Image = self.icon,
+            Size = UDim2.fromOffset(18, 18),
+            Position = UDim2.fromScale(0.5, 0.5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
             BorderSizePixel = 0,
             BackgroundTransparency = 1,
 
             ImageTransparency = 1, -- In = 0
 
-            Parent = self.main,
+            Parent = self.iconWell,
         }, { ImageColor3 = "ContentColor" })
     end
 
@@ -247,14 +265,15 @@ function Item:_buildRow(list)
         Parent = self.textContainer,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
-    -- pin control: a small circle, filled + a checkmark while pinned, a faint hollow dot
-    -- (hover-only) while not
+    -- pin control: a small circle holding a pin glyph - a neutral filled background while
+    -- pinned, a faint hollow one (hover-only) while not; SetPinned re-tweens this color
+    -- directly, so it's a plain resolved value here rather than a live-bound theme key
     self.pinButton = window:Create("Frame", {
         Size = UDim2.fromOffset(26, 26),
         Position = UDim2.new(1, -16, 0.5, 0),
         AnchorPoint = Vector2.new(1, 0.5),
         BorderSizePixel = 0,
-        BackgroundColor3 = self.pinned and window.theme.AccentColor or window.theme.ToggleKnobOff,
+        BackgroundColor3 = self.pinned and window.theme.FieldBackground or window.theme.ToggleKnobOff,
 
         BackgroundTransparency = 1,
 
@@ -266,19 +285,20 @@ function Item:_buildRow(list)
         Parent = self.pinButton,
     })
 
-    self.pinIconLabel = window:Create("ImageLabel", {
-        Image = self.pinned and list.pinIcon or list.unpinIcon,
-        Size = UDim2.fromOffset(14, 14),
+    self.pinIconLabel = window:Create("TextLabel", {
+        Text = self.pinned and list.pinIcon or list.unpinIcon,
+        Size = UDim2.fromOffset(16, 16),
         Position = UDim2.fromScale(0.5, 0.5),
         AnchorPoint = Vector2.new(0.5, 0.5),
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
-        ImageColor3 = Color3.fromRGB(255, 255, 255),
+        TextSize = 13,
+        Font = Enum.Font.SourceSansBold,
 
-        ImageTransparency = 1,
+        TextTransparency = 1,
 
         Parent = self.pinButton,
-    })
+    }, { TextColor3 = "ContentColor" })
 
     self.pinInteract = window:Create("TextButton", {
         Size = UDim2.fromScale(1, 1),
@@ -314,7 +334,7 @@ function Item:_buildRow(list)
             })
             :Play()
         if not self.pinned then
-            variables.tweenService:Create(self.pinIconLabel, pinFadeInfo, { ImageTransparency = 0.3 }):Play()
+            variables.tweenService:Create(self.pinIconLabel, pinFadeInfo, { TextTransparency = 0.3 }):Play()
             variables.tweenService:Create(self.pinButton, pinFadeInfo, {
                 BackgroundTransparency = window.theme.ToggleKnobOffTransparency,
             }):Play()
@@ -336,7 +356,7 @@ function Item:_buildRow(list)
             })
             :Play()
         if not self.pinned then
-            variables.tweenService:Create(self.pinIconLabel, pinFadeInfo, { ImageTransparency = 1 }):Play()
+            variables.tweenService:Create(self.pinIconLabel, pinFadeInfo, { TextTransparency = 1 }):Play()
             variables.tweenService:Create(self.pinButton, pinFadeInfo, { BackgroundTransparency = 1 }):Play()
         end
     end)
@@ -401,17 +421,17 @@ function Item:SetPinned(pinned, skipAnimation)
     -- button itself) rests at the hover-faint level rather than vanishing out from under the
     -- cursor; unpinning from code with nothing hovering it goes fully hidden, like at rest.
     local restTransparency = if pinned
-        then 0
+        then window.theme.FieldTransparency
         elseif self._hovering then window.theme.ToggleKnobOffTransparency
         else 1
     variables.tweenService:Create(self.pinButton, pinFadeInfo, {
-        BackgroundColor3 = pinned and window.theme.AccentColor or window.theme.ToggleKnobOff,
+        BackgroundColor3 = pinned and window.theme.FieldBackground or window.theme.ToggleKnobOff,
         BackgroundTransparency = restTransparency,
     }):Play()
     variables.tweenService
-        :Create(self.pinIconLabel, pinFadeInfo, { ImageTransparency = pinned and 0 or 1 })
+        :Create(self.pinIconLabel, pinFadeInfo, { TextTransparency = pinned and 0 or 1 })
         :Play()
-    self.pinIconLabel.Image = pinned and list.pinIcon or list.unpinIcon
+    self.pinIconLabel.Text = pinned and list.pinIcon or list.unpinIcon
 end
 
 function Item:Pin()
@@ -430,21 +450,26 @@ function Item:_setShown(shown, animate)
         w:_reveal(self.titleLabel, { TextTransparency = 0 }, animate)
         w:_reveal(self.subtitleLabel, { TextTransparency = 0.5 }, animate)
         if self.iconLabel then
+            w:_reveal(self.iconWell, { BackgroundTransparency = w.theme.FieldTransparency }, animate)
             w:_reveal(self.iconLabel, { ImageTransparency = 0 }, animate)
         end
-        -- unpinned starts fully hidden (not just faint) - only a hover reveals it
-        w:_reveal(self.pinButton, { BackgroundTransparency = self.pinned and 0 or 1 }, animate)
-        w:_reveal(self.pinIconLabel, { ImageTransparency = self.pinned and 0 or 1 }, animate)
+        -- unpinned starts fully hidden (not just faint) - only a hover reveals it; pinned
+        -- rests at the same soft translucent fill as other inset fields (Input, search box)
+        w:_reveal(self.pinButton, {
+            BackgroundTransparency = self.pinned and w.theme.FieldTransparency or 1,
+        }, animate)
+        w:_reveal(self.pinIconLabel, { TextTransparency = self.pinned and 0 or 1 }, animate)
     else
         w:_reveal(self.stroke, { Transparency = 1 }, animate)
         w:_reveal(self.main, { BackgroundTransparency = 1 }, animate)
         w:_reveal(self.titleLabel, { TextTransparency = 1 }, animate)
         w:_reveal(self.subtitleLabel, { TextTransparency = 1 }, animate)
         if self.iconLabel then
+            w:_reveal(self.iconWell, { BackgroundTransparency = 1 }, animate)
             w:_reveal(self.iconLabel, { ImageTransparency = 1 }, animate)
         end
         w:_reveal(self.pinButton, { BackgroundTransparency = 1 }, animate)
-        w:_reveal(self.pinIconLabel, { ImageTransparency = 1 }, animate)
+        w:_reveal(self.pinIconLabel, { TextTransparency = 1 }, animate)
     end
 end
 

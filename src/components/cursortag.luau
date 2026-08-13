@@ -6,10 +6,12 @@
 -- file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 -- A hover area where a small chip trails the cursor, like a designer name tag on a canvas.
--- Hovering the card activates it (code can too, via SetEnabled - handy for a toggle-driven
--- demo); every frame it eases toward the mouse and clamps to its scope's bounds so it never
--- leaves that container. `area` is its own card; `window` is the whole window; `screen` is the
--- full viewport.
+-- Hovering the card activates it; every frame it eases toward the mouse and clamps to its
+-- scope's bounds so it never leaves that container - `area` is its own card, `window` is the
+-- whole window, `screen` is the full viewport. SetEnabled opts into following anywhere within
+-- those bounds instead of only while the card itself is hovered (handy for window/screen
+-- scope, which has no card-sized area of its own to hover), but it still hides once the
+-- cursor actually leaves them.
 
 local CursorTag = {}
 CursorTag.__index = CursorTag
@@ -103,6 +105,18 @@ function CursorTag:_build()
         Parent = self.main,
     })
 
+    -- Self-calibrating mouse position: GuiObject.MouseMoved reports (x, y) already in
+    -- AbsolutePosition's coordinate space by construction (it's Roblox's own hit-test, not
+    -- ours to get wrong), so comparing it against GetMouseLocation() at the same instant gives
+    -- the exact correction needed - whatever it is on this client/executor - without hardcoding
+    -- a GuiInset guess that turned out to be wrong here. Learned fresh each time the mouse
+    -- crosses the card; good enough to carry outside it for window/screen scope afterward.
+    self._calibration = Vector2.zero
+    window:ConnectFor(self, self.interact.MouseMoved, function(x, y)
+        local raw = variables.userInputService:GetMouseLocation()
+        self._calibration = Vector2.new(x, y) - raw
+    end)
+
     -- The chip lives at the top of the screenGui, not nested under main: a tab page is a
     -- ScrollingFrame and clips its own content, which would cut the chip off the moment
     -- window/screen scope lets it roam past the page's edge.
@@ -186,29 +200,41 @@ function CursorTag:_startLoop()
     end)
 end
 
+function CursorTag:_mousePos()
+    return self.window:_mouseAbsolutePosition() + self._calibration
+end
+
 function CursorTag:_tick()
     if not self.window:_interactive() or not self.main.Visible or self.main.AbsoluteSize.Magnitude == 0 then
         self:_setActive(false) -- e.g. its tab isn't the one on screen, or the window's hidden
         return
     end
 
-    local mouse = self.window:_mouseAbsolutePosition()
-    -- _forced is nil (no override, hover decides), true (force on), or false (force off) -
-    -- an explicit "off" has to win over hover, or SetEnabled(false) while still hovering the
-    -- card would get undone by this same tick a moment later
-    local hovering = pointInside(mouse, self.main.AbsolutePosition, self.main.AbsoluteSize)
-    local active = if self._forced ~= nil then self._forced else hovering
-    self:_setActive(active)
+    local mouse = self:_mousePos()
+    local boundsPos, boundsSize = self:_bounds()
 
+    -- _forced is nil (no override, hover over the card decides), true (follow anywhere within
+    -- the scope's bounds, e.g. a toggle enabling a window-scope tag with nothing to hover), or
+    -- false (forced off, wins even while still hovering the card so it doesn't spring back on
+    -- a tick later)
+    local active
+    if self._forced == false then
+        active = false
+    elseif self._forced == true then
+        active = pointInside(mouse, boundsPos, boundsSize)
+    else
+        active = pointInside(mouse, self.main.AbsolutePosition, self.main.AbsoluteSize)
+    end
+
+    self:_setActive(active)
     if active then
-        self:_followMouse(mouse)
+        self:_followMouse(mouse, boundsPos, boundsSize)
     end
 end
 
-function CursorTag:_followMouse(mouse)
+function CursorTag:_followMouse(mouse, boundsPos, boundsSize)
     local targetX, targetY = mouse.X + self.offset.X, mouse.Y + self.offset.Y
 
-    local boundsPos, boundsSize = self:_bounds()
     local chipSize = self.chip.AbsoluteSize
     local minX, maxX = boundsPos.X, boundsPos.X + boundsSize.X - chipSize.X
     local minY, maxY = boundsPos.Y, boundsPos.Y + boundsSize.Y - chipSize.Y
@@ -232,7 +258,7 @@ function CursorTag:_setActive(active)
 
     if active then
         -- land on the mouse immediately rather than easing in from wherever it last was
-        local mouse = self.window:_mouseAbsolutePosition()
+        local mouse = self:_mousePos()
         self.chip.Position = UDim2.fromOffset(mouse.X + self.offset.X, mouse.Y + self.offset.Y)
         self.chip.Visible = true
         self.chip.BackgroundTransparency = 1
@@ -252,12 +278,14 @@ function CursorTag:_setActive(active)
     end
 end
 
--- Explicit on/off from code, independent of hover - e.g. a toggle demoing window/screen scope.
--- Forces the state (on or off) regardless of the bounds check. Call ClearEnabled to hand
--- control back to hover.
+-- Opts into following the cursor anywhere within the scope's bounds, not just while hovering
+-- the card - useful for window/screen scope, which has no natural "hover to activate" trigger
+-- of its own otherwise. Still hides once the cursor actually leaves those bounds; it isn't a
+-- permanent show. false forces it off outright, winning even while the card's hovered. The
+-- next tick (a frame away at most) applies either state. Call ClearEnabled to hand control
+-- back to plain hover-the-card.
 function CursorTag:SetEnabled(enabled)
     self._forced = enabled and true or false
-    self:_setActive(self._forced)
 end
 
 -- Hands control back to hover-driven activation after a SetEnabled override.
