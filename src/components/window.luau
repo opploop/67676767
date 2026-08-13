@@ -954,6 +954,12 @@ function Window:PlayGreeting(properties)
             TextColor3 = Color3.fromRGB(20, 20, 20),
             TextTransparency = 1,
             FontFace = self.theme.TitleFont,
+            -- ZIndexBehavior is Global, so this child doesn't inherit/get elevated by the
+            -- overlay's own high ZIndex - without its own explicit bump above the overlay's,
+            -- the overlay's opaque white background paints right over it (confirmed live: the
+            -- whole thing just read as a blank white card, the text was there the whole time,
+            -- just painted under its own background).
+            ZIndex = constants.zIndex.greeting + 1,
 
             Parent = self._greetingOverlay,
         })
