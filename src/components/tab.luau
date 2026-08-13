@@ -445,11 +445,6 @@ function Tab:CreatePinnedList(properties)
     return self:_register(require(script.Parent.pinnedlist).new(self, properties))
 end
 
--- Cursor tag: a chip that trails the cursor while hovering the card (or via code, SetEnabled)
-function Tab:CreateCursorTag(properties)
-    return self:_register(require(script.Parent.cursortag).new(self, properties))
-end
-
 -- Input
 function Tab:CreateInput(properties)
     return self:_register(require(script.Parent.input).new(self, properties))

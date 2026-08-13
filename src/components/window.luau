@@ -937,19 +937,22 @@ function Window:Hide()
 
     local home, size = self:_collapsedRect()
 
-    local fadeInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    -- named so the task.delay staging below can stay in lockstep with however long these
+    -- actually run - slowed down from 0.18/0.35 (read as too fast, closing almost instantly)
+    local fadeDuration, moveDuration = 0.26, 0.5
+    local fadeInfo = TweenInfo.new(fadeDuration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     -- one continuous move for the whole collapse: size and position tween together on the
     -- same curve so they stay perfectly in sync, no seam between separate legs
-    local moveInfo = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
-    local cornerInfo = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
-    local faceInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    local moveInfo = TweenInfo.new(moveDuration, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
+    local cornerInfo = TweenInfo.new(moveDuration, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
+    local faceInfo = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
     -- shrink the drag bar back down the same way it grows in on first reveal, instead of
     -- just cutting it
     variables.tweenService
         :Create(self.drag.dragCosmetic, fadeInfo, { Size = UDim2.fromOffset(0, 4), BackgroundTransparency = 1 })
         :Play()
-    task.delay(0.18, function()
+    task.delay(fadeDuration, function()
         if not self.hidden then
             return
         end
@@ -996,7 +999,7 @@ function Window:Hide()
 
     -- once the chrome's faded, drop it and the scrolling content so nothing squashes/pokes
     -- out as the frame shrinks around it, then bring the collapsed face up over the top
-    task.delay(0.18, function()
+    task.delay(fadeDuration, function()
         if not self.hidden then
             return
         end
@@ -1008,7 +1011,7 @@ function Window:Hide()
     end)
 
     -- once the move's settled the pill is done morphing: hand clicks to it
-    task.delay(0.35, function()
+    task.delay(moveDuration, function()
         if not self.hidden then
             return
         end
@@ -1693,20 +1696,23 @@ function Window:_quickRestore()
     local target = self:_clampedPosition(self._restorePosition or UDim2.new(0.5, 0, 0.5, 0))
     self._restorePosition = target
 
-    local growInfo = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
-    local cornerInfo = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
-    local fadeInfo = TweenInfo.new(0.28, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
+    -- slowed down from 0.35/0.28 (read as too fast, opening almost instantly) - kept in named
+    -- locals so the task.delay staging below stays in step with the new pacing
+    local growDuration, fadeDuration = 0.5, 0.38
+    local growInfo = TweenInfo.new(growDuration, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
+    local cornerInfo = TweenInfo.new(growDuration, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
+    local fadeInfo = TweenInfo.new(fadeDuration, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
 
     -- Phase 1: nothing but the pill morphing back into the window frame. The collapsed face
     -- fades off, main grows + un-rounds. No chrome, no content - so you never see the topbar,
     -- tabs or bottom fade floating over a frame that isn't a window yet.
-    chrome.setCollapsedShown(self, false, TweenInfo.new(0.15, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
+    chrome.setCollapsedShown(self, false, TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
     variables.tweenService:Create(self.main, growInfo, { Size = self.size, Position = target }):Play()
     variables.tweenService:Create(self.windowCorner, cornerInfo, { CornerRadius = self.theme.CornerRoundness }):Play()
 
     -- Phase 2: once the frame actually reads as a window, fade its chrome in and stagger the
     -- open tab's elements. Other tabs snap ready off-screen - nobody's looking, so no animation.
-    task.delay(0.22, function()
+    task.delay(growDuration * 0.63, function()
         self.topbar.Visible = true
         self.tabList.Visible = true
         self.elements.Visible = true
@@ -1753,7 +1759,7 @@ function Window:_quickRestore()
     -- Drag handle grows in with the chrome, same width sweep it uses on first reveal. Position
     -- is recalculated against the full restored size - if the window was minimised (a shorter
     -- bar-hang offset) before hiding, it would otherwise reappear at the old, wrong height.
-    task.delay(0.22, function()
+    task.delay(growDuration * 0.63, function()
         self.drag.drag.Position =
             UDim2.new(target.X.Scale, target.X.Offset, target.Y.Scale, target.Y.Offset + self.size.Y.Offset / 2 + 15)
         self.drag.dragCosmetic.Size = UDim2.fromOffset(0, 4)
@@ -1764,7 +1770,7 @@ function Window:_quickRestore()
             :Play()
     end)
 
-    task.delay(0.6, function()
+    task.delay(growDuration * 1.71, function()
         self.animating = false
         self._revealing = false
     end)

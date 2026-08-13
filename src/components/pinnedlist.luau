@@ -31,8 +31,10 @@ local moveable = require(utility.moveable)
 
 local rowHeight = 54
 -- Back rather than Quint: a touch of overshoot-then-settle so a whole list reflowing reads as
--- spring-like motion instead of a flat ease, closer to the reference build's reorder.
-local flipInfo = TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+-- spring-like motion instead of a flat ease, closer to the reference build's reorder. Longer
+-- than it looks like it needs to be (0.45 still read as "almost instant" - a one-row glide is
+-- a small distance, so it needs the extra time just to be perceptible at all).
+local flipInfo = TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local pinFadeInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
 function PinnedList.new(tab, properties)
@@ -378,6 +380,10 @@ local function flipReflow(list, mutate)
     -- snap with no visible glide. task.wait() already proved reliable for exactly this
     -- (_startLoop's follow loop), so use that instead of trusting deferral timing here too.
     task.spawn(function()
+        -- two frames, not one: this reflow can move a row across containers (pinned <-> all
+        -- items) plus toggle the section headers' visibility, more for the layout to settle
+        -- than the single-container reorder task.wait() was first proven against
+        task.wait()
         task.wait()
         for item, fromPos in before do
             if not item.main or not item.main.Parent then

@@ -75,7 +75,6 @@ local componentFiles = {
     "chrome",
     "colorpicker",
     "copybutton",
-    "cursortag",
     "descriptor",
     "drag",
     "dropdown",

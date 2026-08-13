@@ -152,7 +152,7 @@ tab2:CreateSection({ name = "Scroll Hint" })
 
 tab2:CreateScrollHint({ text = "You found it" })
 
--- Devlog 3: PinnedList, CursorTag, Tooltip -----------------------------------
+-- Devlog 3: PinnedList, Tooltip -----------------------------------------------
 local tab3 = window:CreateTab({ name = "Devlog 3", icon = 100604009889706 })
 
 -- no outer Section here - the list already shows its own "Pinned list"/"All Items" headers,
@@ -182,28 +182,6 @@ tab3:CreateButton({ name = "Guide", tooltip = "A short walkthrough for first-tim
 tab3:CreateToggle({
     name = "Lorem",
     tooltip = "Lorem ipsum dolor sit amet consectetur adipisicing elit",
-})
-
-tab3:CreateSection({ name = "Cursor Tag" })
-
-tab3:CreateCursorTag({
-    text = "You",
-    placeholder = "Move your mouse over this area",
-    scope = "area",
-})
-
-local windowTag = tab3:CreateCursorTag({
-    text = "Designer",
-    placeholder = "Window scope: this one follows you across the whole menu",
-    scope = "window",
-})
-
-tab3:CreateToggle({
-    name = "Menu cursor tag",
-    description = "Turns the window-scope tag above on/off from code, independent of hovering its own card.",
-    callback = function(value)
-        windowTag:SetEnabled(value)
-    end,
 })
 
 window:Navigate("Devlog 1")

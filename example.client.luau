@@ -270,10 +270,6 @@ extras:CreatePinnedList({
     },
 })
 
-extras:CreateSection({ name = "Cursor Tag" })
-
-extras:CreateCursorTag({ text = "Here", placeholder = "Hover to see the tag trail your cursor" })
-
 -- Language ------------------------------------------------------------------
 local language = window:CreateTab({ name = "Language", icon = 100604009889706 })
 

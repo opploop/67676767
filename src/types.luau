@@ -147,15 +147,6 @@ export type PinnedListProps = {
     items: { PinnedListItemDef }?,
 }
 
-export type CursorTagProps = {
-    text: string?,
-    placeholder: string?, -- shown in the empty card before it's hovered
-    scope: ("area" | "window" | "screen")?, -- how far the chip may roam once active (default "area")
-    offset: Vector2?,
-    height: number?,
-    ease: number?, -- per-frame Lerp factor toward the cursor, 0..1 (default 0.22)
-}
-
 export type SliderProps = {
     name: string?,
     description: string?,
@@ -319,12 +310,6 @@ export type PinnedList = Moveable & {
     AddItem: (self: PinnedList, item: PinnedListItemDef) -> PinnedListItem,
 }
 
-export type CursorTag = Moveable & {
-    Set: (self: CursorTag, text: string) -> (),
-    SetEnabled: (self: CursorTag, enabled: boolean) -> (),
-    ClearEnabled: (self: CursorTag) -> (),
-}
-
 export type CopyButton = Moveable & {
     text: string,
     Set: (self: CopyButton, text: string) -> (),
@@ -430,7 +415,6 @@ export type Tab = {
     CreateProgressBar: (self: Tab, props: ProgressBarProps) -> ProgressBar,
     CreateScrollHint: (self: Tab, props: ScrollHintProps?) -> ScrollHint,
     CreatePinnedList: (self: Tab, props: PinnedListProps?) -> PinnedList,
-    CreateCursorTag: (self: Tab, props: CursorTagProps?) -> CursorTag,
     CreateGroup: (self: Tab, props: GroupProps?) -> Group,
 }
 

@@ -70,7 +70,6 @@ constants.zIndex = {
     restoreContent = 100001,
     restoreInteract = 100002,
     tooltip = 100003,
-    cursorTag = 100004,
 }
 
 -- DisplayOrder for the top-level ScreenGuis (the window vs the loading banner).
