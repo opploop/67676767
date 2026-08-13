@@ -261,11 +261,17 @@ function Window.new(properties)
     -- Self-calibrating mouse position (see _mouseAbsolutePosition below): learned from the
     -- whole window rather than any one card, so it's ready well before a CursorTag's own
     -- small area is ever hovered - by the time anything in the window has been clicked at
-    -- all, the mouse has necessarily crossed this frame first.
+    -- all, the mouse has necessarily crossed this frame first. MouseMoved fires continuously,
+    -- same shape as RenderStepped (which this executor drops when connected from injected
+    -- code) - MouseEnter is the fallback that's actually confirmed reliable here (every hover
+    -- tint in the library depends on it), so it also recalibrates on its own, once per
+    -- entry, rather than trusting MouseMoved to ever fire at all.
     self._mouseCalibration = Vector2.zero
-    self:ConnectFor(self, self.main.MouseMoved, function(x, y)
+    local function recalibrate(x, y)
         self._mouseCalibration = Vector2.new(x, y) - variables.userInputService:GetMouseLocation()
-    end)
+    end
+    self:ConnectFor(self, self.main.MouseMoved, recalibrate)
+    self:ConnectFor(self, self.main.MouseEnter, recalibrate)
 
     self.drag = require(script.Parent.drag).new(self)
 
