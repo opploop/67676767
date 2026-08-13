@@ -243,17 +243,21 @@ function Tab.new(window, properties)
             end)
         )
 
-        -- self-healing re-snap: if this tab is selected and its own resolved width changes
-        -- (a rename, a locale swap, or just AutomaticSize settling a frame after the indicator's
-        -- very first read of it), slide the shared pill to match again without animating.
-        table.insert(
-            self.connections,
-            self.window:Connect(self.topbarItem:GetPropertyChangedSignal("AbsoluteSize"), function()
-                if self.window.selectedTab == self then
-                    self.window:_updateTabIndicator(self, false)
-                end
-            end)
-        )
+        -- self-healing re-snap: if this tab is selected and its own resolved Position or
+        -- AbsoluteSize changes (a rename, a locale swap, or - the common case - UIListLayout
+        -- only actually placing this tab a moment after the indicator's very first read of it,
+        -- which can land while every tab still sits at its unlaid-out (0,0) default), slide the
+        -- shared pill to match again without animating.
+        for _, propertyName in { "Position", "AbsoluteSize" } do
+            table.insert(
+                self.connections,
+                self.window:Connect(self.topbarItem:GetPropertyChangedSignal(propertyName), function()
+                    if self.window.selectedTab == self then
+                        self.window:_updateTabIndicator(self, false)
+                    end
+                end)
+            )
+        end
     end
 
     -- Auto-select is handled by Window:CreateTab after insertion
@@ -276,7 +280,10 @@ function Tab:_applyVisual(stateName, tweenInfo)
 
     local color
     if stateName == "selected" then
+        -- defensive fallback: contrastText would error on a nil color, and a custom theme
+        -- (or a window mid-construction) might not have an AccentColor to fall back on either
         local pillColor = if self.window.tabStyle == "white" then Color3.fromRGB(255, 255, 255) else self.window.tabAccentColor
+        pillColor = pillColor or self.window.theme.AccentColor or Color3.fromRGB(255, 255, 255)
         color = functions.contrastText(pillColor)
     else
         color = self.window.theme.TabColor

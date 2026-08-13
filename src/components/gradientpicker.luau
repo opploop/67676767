@@ -180,7 +180,14 @@ function GradientPicker.new(tab, properties)
 
     self.stroke = self.window:StyleElementBody(self.main)
     self.hoverOverlay = self.window:CreateHoverOverlay(self.main)
-    self.previewGlow = self.window:CreateGlow(self.main, self.stops[1].color, 26, 1) -- In = glowOnTransparency
+
+    -- UIShadow only takes one flat Color3 - a single glow can't actually shimmer with the whole
+    -- gradient. Layering three, sampled at 0/0.5/1 across the current stops and each softly
+    -- blurred+transparent, blends into a real multi-hue halo instead of one flat tint.
+    self.previewGlows = {}
+    for _ = 1, 3 do
+        table.insert(self.previewGlows, self.window:CreateGlow(self.main, self.stops[1].color, 26, 1))
+    end
 
     self:_buildHeader()
     self:_buildBody()
@@ -639,13 +646,11 @@ function GradientPicker:_render(mode)
     self.swatchGradient.Color = self.value
     self.previewGradient.Color = self.value
 
-    local leftmost = self.stops[1]
-    for _, stop in self.stops do
-        if stop.time < leftmost.time then
-            leftmost = stop
-        end
-    end
-    self.previewGlow.Color = leftmost and leftmost.color or Color3.fromRGB(255, 255, 255)
+    -- sample the live gradient at 0/0.5/1 so the three stacked glows actually track whatever
+    -- colours are currently at each end and the middle, not just whichever stop was leftmost
+    self.previewGlows[1].Color = colorAt(self.stops, 0)
+    self.previewGlows[2].Color = colorAt(self.stops, 0.5)
+    self.previewGlows[3].Color = colorAt(self.stops, 1)
 
     for stop, handle in self.stopHandles do
         local pos = UDim2.new(stop.time, 0, 0.5, 0)
@@ -819,9 +824,9 @@ end
 
 function GradientPicker:SetGlow(shown)
     self.showGlow = shown and true or false
-    variables.tweenService
-        :Create(self.previewGlow, fadeInfo, { Transparency = if self.showGlow then glowOnTransparency else 1 })
-        :Play()
+    for _, glow in self.previewGlows do
+        variables.tweenService:Create(glow, fadeInfo, { Transparency = if self.showGlow then glowOnTransparency else 1 }):Play()
+    end
 end
 
 -- Persistence: "time:hex,time:hex,..." - a plain flat string like every other flag value.
@@ -854,11 +859,15 @@ function GradientPicker:_setShown(shown, animate)
     if shown then
         w:_revealCommon(self, animate)
         w:_reveal(self.swatch, { BackgroundTransparency = 0 }, animate)
-        w:_reveal(self.previewGlow, { Transparency = if self.showGlow then glowOnTransparency else 1 }, animate)
+        for _, glow in self.previewGlows do
+            w:_reveal(glow, { Transparency = if self.showGlow then glowOnTransparency else 1 }, animate)
+        end
     else
         w:_hideCommon(self, animate)
         w:_reveal(self.swatch, { BackgroundTransparency = 1 }, animate)
-        w:_reveal(self.previewGlow, { Transparency = 1 }, animate)
+        for _, glow in self.previewGlows do
+            w:_reveal(glow, { Transparency = 1 }, animate)
+        end
         if self._isOpen then
             self:_close()
         end

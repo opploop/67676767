@@ -525,7 +525,7 @@ function Window.new(properties)
     })
 
     self.tabListLayout = self:Create("UIListLayout", {
-        Padding = UDim.new(0, 7),
+        Padding = UDim.new(0, 4),
         FillDirection = Enum.FillDirection.Horizontal,
         VerticalAlignment = Enum.VerticalAlignment.Center,
         HorizontalAlignment = Enum.HorizontalAlignment.Left,
@@ -535,8 +535,8 @@ function Window.new(properties)
     })
 
     self:Create("UIPadding", {
-        PaddingLeft = UDim.new(0, 22),
-        PaddingRight = UDim.new(0, 10),
+        PaddingLeft = UDim.new(0, 5),
+        PaddingRight = UDim.new(0, 5),
 
         Parent = self.tabList,
     })
@@ -1327,6 +1327,9 @@ function Window:ToggleMinimise()
                     tab:_applyVisual(if self.selectedTab == tab then "selected" else "unselected", fadeInfo)
                 end
             end
+            -- one extra step so UIListLayout actually resolves Position/AbsoluteSize for tabs
+            -- that just went Visible = true, before the indicator reads them
+            task.wait()
             self:_updateTabIndicator(self.selectedTab, false)
 
             self:_revealElements(0.035, 0.4)
@@ -2001,6 +2004,7 @@ function Window:_quickRestore()
                 tab:_applyVisual(if self.selectedTab == tab then "selected" else "unselected", fadeInfo)
             end
         end
+        task.wait() -- let UIListLayout resolve the tabs that just went Visible = true
         self:_updateTabIndicator(self.selectedTab, false)
 
         self:_revealElements(0.035, 0.4)
@@ -2114,6 +2118,7 @@ function Window:_firstShow()
                     TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
                 )
                 if self.selectedTab == tab then
+                    task.wait() -- let UIListLayout resolve this tab now that it's Visible = true
                     self:_updateTabIndicator(tab, false)
                 end
 
