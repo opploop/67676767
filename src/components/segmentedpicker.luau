@@ -27,7 +27,7 @@ local locale = require(utility.locale)
 local hapticEngine = require(utility.HapticEngine)
 
 local fadeInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-local barHeight = 48
+local barHeight = 40
 -- text sitting directly on the white indicator (a selected top-level segment, or an inactive
 -- child once expanded - the outer white shows through behind it) needs dark ink to read; text
 -- on the dark bar itself, or on the childIndicator's own dark inset, needs the theme's light one
@@ -178,10 +178,10 @@ function SegmentedPicker:_build()
     -- card treatment every other element gets, for a more "premium" look. self.bar (below) is
     -- the actual pill everything else in this file already assumes "main" means.
     self.main = window:Create("Frame", {
-        Size = UDim2.new(1, -20, 0, barHeight + 16),
+        Size = UDim2.new(1, -20, 0, barHeight + 28),
         BorderSizePixel = 0,
         Name = "SegmentedPicker",
-        BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+        BackgroundColor3 = Color3.fromRGB(45, 45, 45),
 
         BackgroundTransparency = 1, -- In = 0.5
 
