@@ -440,6 +440,16 @@ function Tab:CreateScrollHint(properties)
     return self:_register(require(script.Parent.scrollhint).new(self, properties))
 end
 
+-- Segmented picker: pill bar with a sliding indicator, segments can nest a couple of sub-options
+function Tab:CreateSegmentedPicker(properties)
+    return self:_register(require(script.Parent.segmentedpicker).new(self, properties))
+end
+
+-- Shimmer label: a big heading with a light band sweeping across the text on a loop
+function Tab:CreateShimmerLabel(properties)
+    return self:_register(require(script.Parent.shimmerlabel).new(self, properties))
+end
+
 -- Input
 function Tab:CreateInput(properties)
     return self:_register(require(script.Parent.input).new(self, properties))

@@ -136,6 +136,31 @@ export type ScrollHintProps = {
     text: string?,
 }
 
+export type SegmentedPickerOption = string | {
+    text: string?,
+    Text: string?,
+    -- nested sub-options, expanded inline within this segment's own slot once it's selected
+    options: { (string | { text: string?, Text: string? }) }?,
+    Options: { (string | { text: string?, Text: string? }) }?,
+}
+
+export type SegmentedPickerProps = {
+    options: { SegmentedPickerOption }?,
+    value: string?, -- a leaf's text - a top-level option's own, or a nested child's
+    description: string?,
+    flag: string?,
+    forgetState: boolean?,
+    callback: ((value: string) -> ())?,
+}
+
+export type ShimmerLabelProps = {
+    text: string?,
+    speed: number?, -- seconds per sweep (default 1.4)
+    spread: number?, -- 0..1, width of the bright band (default 0.2)
+    angle: number?, -- gradient rotation in degrees (default 20)
+    textSize: number?,
+}
+
 export type SliderProps = {
     name: string?,
     description: string?,
@@ -284,6 +309,20 @@ export type ScrollHint = Moveable & {
     Set: (self: ScrollHint, text: string) -> (),
 }
 
+export type SegmentedPicker = Moveable & {
+    value: string,
+    Set: (self: SegmentedPicker, value: string, skipCallback: boolean?) -> (),
+}
+
+export type ShimmerLabel = Moveable & {
+    text: string,
+    Set: (self: ShimmerLabel, text: string) -> (),
+    SetSpeed: (self: ShimmerLabel, seconds: number) -> (),
+    SetSpread: (self: ShimmerLabel, fraction: number) -> (),
+    SetAngle: (self: ShimmerLabel, degrees: number) -> (),
+    SetTextSize: (self: ShimmerLabel, size: number) -> (),
+}
+
 export type CopyButton = Moveable & {
     text: string,
     Set: (self: CopyButton, text: string) -> (),
@@ -388,7 +427,15 @@ export type Tab = {
     CreateSection: (self: Tab, props: SectionProps) -> Section,
     CreateProgressBar: (self: Tab, props: ProgressBarProps) -> ProgressBar,
     CreateScrollHint: (self: Tab, props: ScrollHintProps?) -> ScrollHint,
+    CreateSegmentedPicker: (self: Tab, props: SegmentedPickerProps?) -> SegmentedPicker,
+    CreateShimmerLabel: (self: Tab, props: ShimmerLabelProps?) -> ShimmerLabel,
     CreateGroup: (self: Tab, props: GroupProps?) -> Group,
+}
+
+export type GreetingProps = {
+    texts: { string }?,
+    holdTime: number?, -- seconds each greeting stays fully shown (default 0.85)
+    wipeTime: number?, -- duration of the closing curved wipe (default 0.7)
 }
 
 export type Window = {
@@ -398,6 +445,7 @@ export type Window = {
     Notify: (self: Window, props: NotifyProps) -> (),
     Toast: (self: Window, props: ToastProps) -> (),
     Popup: (self: Window, props: PopupProps) -> Popup,
+    PlayGreeting: (self: Window, props: GreetingProps?) -> (),
     Show: (self: Window) -> (),
     Hide: (self: Window) -> (),
     ToggleHide: (self: Window) -> (),

@@ -906,6 +906,87 @@ function Window:Popup(properties)
     return require(script.Parent.popup).new(self, properties)
 end
 
+local greetingFadeInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+-- A white overlay, matching the window's own rounded corners, that cycles a short greeting in
+-- each of `texts` and then sweeps away in a curved (circular) wipe to reveal the menu - the
+-- overlay shrinks toward its centre while its own corner radius grows to fully round at the same
+-- time, so a plain rectangle becomes an iris closing rather than needing any actual masking.
+-- Takes { texts = {"Hello", "Bonjour", ...}, holdTime?, wipeTime? }. Safe to call on demand (a
+-- "Play greeting" button) as well as once on first show - re-entrant calls no-op while one's
+-- already running rather than fighting it for the same overlay.
+function Window:PlayGreeting(properties)
+    if self.unloaded or self._greetingPlaying then
+        return
+    end
+    properties = if typeof(properties) == "table" then properties else {}
+    local texts = properties.texts or properties.Texts or { "Hello" }
+    local holdTime = properties.holdTime or properties.HoldTime or 0.85
+    local wipeTime = properties.wipeTime or properties.WipeTime or 0.7
+    if #texts == 0 then
+        return
+    end
+    self._greetingPlaying = true
+
+    if not self._greetingOverlay then
+        self._greetingOverlay = self:Create("Frame", {
+            Size = UDim2.fromScale(1, 1),
+            Position = UDim2.fromScale(0.5, 0.5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+            BorderSizePixel = 0,
+            ZIndex = constants.zIndex.greeting,
+
+            Parent = self.main,
+        })
+
+        self._greetingCorner = self:Create("UICorner", {
+            Parent = self._greetingOverlay,
+        })
+
+        self._greetingLabel = self:Create("TextLabel", {
+            Size = UDim2.fromScale(0.85, 0.3),
+            Position = UDim2.fromScale(0.5, 0.5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            TextSize = 28,
+            TextColor3 = Color3.fromRGB(20, 20, 20),
+            TextTransparency = 1,
+            FontFace = self.theme.TitleFont,
+
+            Parent = self._greetingOverlay,
+        })
+    end
+
+    local overlay, corner, label = self._greetingOverlay, self._greetingCorner, self._greetingLabel
+    overlay.Size = UDim2.fromScale(1, 1)
+    overlay.Position = UDim2.fromScale(0.5, 0.5)
+    overlay.BackgroundTransparency = 0
+    corner.CornerRadius = self.theme.CornerRoundness
+    label.TextTransparency = 1
+    overlay.Visible = true
+
+    for i, text in texts do
+        label.Text = locale.resolve(tostring(text))
+        variables.tweenService:Create(label, greetingFadeInfo, { TextTransparency = 0 }):Play()
+        task.wait(holdTime)
+        if i < #texts then
+            variables.tweenService:Create(label, greetingFadeInfo, { TextTransparency = 1 }):Play()
+            task.wait(0.15)
+        end
+    end
+
+    variables.tweenService:Create(label, greetingFadeInfo, { TextTransparency = 1 }):Play()
+    local wipeInfo = TweenInfo.new(wipeTime, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
+    variables.tweenService:Create(overlay, wipeInfo, { Size = UDim2.fromScale(0, 0) }):Play()
+    variables.tweenService:Create(corner, wipeInfo, { CornerRadius = UDim.new(1, 0) }):Play()
+    task.wait(wipeTime)
+
+    overlay.Visible = false
+    self._greetingPlaying = false
+end
+
 function Window:Hide()
     -- idempotent: a second Hide while collapsed would capture the pill spot as the
     -- restore position and teleport the window there on the next Show

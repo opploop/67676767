@@ -89,6 +89,8 @@ local componentFiles = {
     "scrollhint",
     "search",
     "section",
+    "segmentedpicker",
+    "shimmerlabel",
     "slider",
     "stat",
     "tab",

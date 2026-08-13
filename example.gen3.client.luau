@@ -164,4 +164,75 @@ tab3:CreateToggle({
     tooltip = "Lorem ipsum dolor sit amet consectetur adipisicing elit",
 })
 
+-- Devlog 4: Segmented Picker, Shimmer Label, Greeting Intro --------------------
+local tab4 = window:CreateTab({ name = "Devlog 4", icon = 87024289287775 })
+
+tab4:CreateSection({ name = "Segmented Picker" })
+
+tab4:CreateSegmentedPicker({
+    options = {
+        "Free",
+        { text = "Premium", options = { "Monthly", "Annual" } },
+    },
+    value = "Monthly",
+    callback = function(value)
+        print("Plan:", value)
+    end,
+})
+
+tab4:CreateSegmentedPicker({
+    options = { "Low", "Medium", "High" },
+    value = "Medium",
+    description = "A plain three way split, no nested options.",
+    callback = function(value)
+        print("Difficulty:", value)
+    end,
+})
+
+tab4:CreateSection({ name = "Text Shimmer" })
+
+local shimmerLines = { "Text Shimmer", "Rayfield Gen 3", "Now In Motion", "Ship It" }
+local shimmerIndex = 1
+local shimmer = tab4:CreateShimmerLabel({ text = shimmerLines[1] })
+
+tab4:CreateSlider({
+    name = "Shimmer speed",
+    range = { 0.6, 4 },
+    increment = 0.1,
+    value = 1.4,
+    suffix = "s",
+    callback = function(value)
+        shimmer:SetSpeed(value)
+    end,
+})
+
+tab4:CreateSlider({
+    name = "Shimmer spread",
+    range = { 5, 60 },
+    value = 20,
+    suffix = "%",
+    callback = function(value)
+        shimmer:SetSpread(value / 100)
+    end,
+})
+
+tab4:CreateButton({
+    name = "Rename shimmer",
+    description = "Cycles a new line on every tap.",
+    callback = function()
+        shimmerIndex = (shimmerIndex % #shimmerLines) + 1
+        shimmer:Set(shimmerLines[shimmerIndex])
+    end,
+})
+
+tab4:CreateSection({ name = "Greeting Intro" })
+
+tab4:CreateButton({
+    name = "Play greeting",
+    description = "A hello sequence, then a curved wipe reveals the menu again.",
+    callback = function()
+        window:PlayGreeting({ texts = { "Hello", "你好", "こんにちは", "olá" } })
+    end,
+})
+
 window:Navigate("Devlog 1")
