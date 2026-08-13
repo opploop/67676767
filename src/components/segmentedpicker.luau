@@ -178,10 +178,10 @@ function SegmentedPicker:_build()
     -- card treatment every other element gets, for a more "premium" look. self.bar (below) is
     -- the actual pill everything else in this file already assumes "main" means.
     self.main = window:Create("Frame", {
-        Size = UDim2.new(1, -20, 0, barHeight + 28),
+        Size = UDim2.new(1, -20, 0, barHeight + 34),
         BorderSizePixel = 0,
         Name = "SegmentedPicker",
-        BackgroundColor3 = Color3.fromRGB(45, 45, 45),
+        BackgroundColor3 = Color3.fromRGB(24, 24, 24),
 
         BackgroundTransparency = 1, -- In = 0.5
 
