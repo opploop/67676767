@@ -226,9 +226,28 @@ export type ColorPickerProps = {
     tooltip: string?,
     flag: string?,
     color: Color3?, -- initial colour (accepts a hex string too)
-    alpha: number?, -- initial alpha 0..1 (default 1)
+    alpha: number?, -- initial alpha 0..1 (default 1, no dedicated control in this layout - set via code)
+    presets: { Color3 }?, -- quick-pick swatches under the RGB row
+    glow: boolean?, -- ambient glow behind the card (default true)
     forgetState: boolean?,
     callback: ((value: Color3, alpha: number) -> ())?,
+}
+
+export type GradientStop = {
+    time: number,
+    color: Color3,
+}
+
+export type GradientPickerProps = {
+    name: string?,
+    description: string?,
+    icon: (string | number)?,
+    tooltip: string?,
+    flag: string?,
+    gradient: (ColorSequence | { Color3 } | { GradientStop })?, -- initial value
+    glow: boolean?, -- ambient glow behind the card (default true)
+    forgetState: boolean?,
+    callback: ((value: ColorSequence) -> ())?,
 }
 
 export type StatProps = {
@@ -367,6 +386,13 @@ export type ColorPicker = Moveable & {
     alpha: number,
     Set: (self: ColorPicker, value: Color3 | string, skipCallback: boolean?) -> (),
     SetAlpha: (self: ColorPicker, alpha: number, skipCallback: boolean?) -> (),
+    SetGlow: (self: ColorPicker, shown: boolean) -> (),
+}
+
+export type GradientPicker = Moveable & {
+    value: ColorSequence,
+    Set: (self: GradientPicker, value: (ColorSequence | { Color3 } | { GradientStop }), skipCallback: boolean?) -> (),
+    SetGlow: (self: GradientPicker, shown: boolean) -> (),
 }
 
 export type Stat = Moveable & {
@@ -423,6 +449,7 @@ export type Tab = {
     CreateInput: (self: Tab, props: InputProps) -> Input,
     CreateKeybind: (self: Tab, props: KeybindProps) -> Keybind,
     CreateColorPicker: (self: Tab, props: ColorPickerProps) -> ColorPicker,
+    CreateGradientPicker: (self: Tab, props: GradientPickerProps?) -> GradientPicker,
     CreateStat: (self: Tab, props: StatProps) -> Stat,
     CreateSection: (self: Tab, props: SectionProps) -> Section,
     CreateProgressBar: (self: Tab, props: ProgressBarProps) -> ProgressBar,

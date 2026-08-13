@@ -235,4 +235,45 @@ tab4:CreateButton({
     end,
 })
 
+-- Devlog 5: HSV Color Picker rebuild, Gradient Picker, Glow control -----------
+local tab5 = window:CreateTab({ name = "Devlog 5", icon = 91452555903853 })
+
+tab5:CreateSection({ name = "Single color picker" })
+
+local solidPicker = tab5:CreateColorPicker({
+    name = "Solid color",
+    color = Color3.fromRGB(255, 214, 10),
+    glow = true,
+    callback = function(value)
+        print("Solid color:", value)
+    end,
+})
+
+tab5:CreateToggle({
+    name = "Solid glow",
+    value = true,
+    callback = function(value)
+        solidPicker:SetGlow(value)
+    end,
+})
+
+tab5:CreateSection({ name = "Gradient color picker" })
+
+local themeGradient = tab5:CreateGradientPicker({
+    name = "Theme gradient",
+    gradient = { Color3.fromRGB(52, 199, 89), Color3.fromRGB(10, 132, 255), Color3.fromRGB(175, 82, 222) },
+    glow = true,
+    callback = function(value)
+        print("Theme gradient updated")
+    end,
+})
+
+tab5:CreateToggle({
+    name = "Gradient glow",
+    value = true,
+    callback = function(value)
+        themeGradient:SetGlow(value)
+    end,
+})
+
 window:Navigate("Devlog 1")

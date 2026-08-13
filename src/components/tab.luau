@@ -465,6 +465,11 @@ function Tab:CreateColorPicker(properties)
     return self:_register(require(script.Parent.colorpicker).new(self, properties))
 end
 
+-- Gradient picker: a collapsible stops-rail editor producing a real ColorSequence
+function Tab:CreateGradientPicker(properties)
+    return self:_register(require(script.Parent.gradientpicker).new(self, properties))
+end
+
 -- Group (layout container). A row that wraps by default; pass direction="column" for a
 -- column. Nest a row of columns for a grid. Add elements via group:CreateX.
 function Tab:CreateGroup(properties)
