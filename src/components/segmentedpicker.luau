@@ -87,7 +87,7 @@ function SegmentedPicker.new(tab, properties)
     end
     if childIndex then
         self.segments[index].activeChild = childIndex
-        self.segments[index].collapsedLabel.Text = locale.t(self:_childText(index, childIndex))
+        self.segments[index].collapsedLabel.Text = locale.resolve(self:_childText(index, childIndex))
     end
     self:_select(index, childIndex, true)
 
@@ -455,7 +455,7 @@ function SegmentedPicker:_pick(index, childIndex)
     local segment = self.segments[index]
     if segment.option.options and childIndex then
         segment.activeChild = childIndex
-        segment.collapsedLabel.Text = locale.t(self:_childText(index, childIndex))
+        segment.collapsedLabel.Text = locale.resolve(self:_childText(index, childIndex))
     end
 
     if self.selectedIndex == index and self.selectedChildIndex == childIndex then
@@ -489,7 +489,7 @@ function SegmentedPicker:Set(value, skipCallback)
     local segment = self.segments[index]
     if childIndex and segment.option.options then
         segment.activeChild = childIndex
-        segment.collapsedLabel.Text = locale.t(self:_childText(index, childIndex))
+        segment.collapsedLabel.Text = locale.resolve(self:_childText(index, childIndex))
     end
     self:_select(index, childIndex)
 
