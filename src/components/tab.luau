@@ -276,7 +276,9 @@ function Tab:_applyVisual(stateName, tweenInfo)
         -- (or a window mid-construction) might not have an AccentColor to fall back on either
         local pillColor = if self.window.tabStyle == "white" then Color3.fromRGB(255, 255, 255) else self.window.tabAccentColor
         pillColor = pillColor or self.window.theme.AccentColor or Color3.fromRGB(255, 255, 255)
-        color = functions.contrastText(pillColor)
+        -- pillColor may be a full ColorSequence (SetTabAccentColor accepts either) - flatten to
+        -- one representative colour before contrastText, which only understands a Color3
+        color = functions.contrastText(functions.flattenColor(pillColor))
     else
         color = self.window.theme.TabColor
     end

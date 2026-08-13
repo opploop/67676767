@@ -26,4 +26,15 @@ function colors.contrastText(color: Color3): Color3
     return if luminance > 0.6 then Color3.fromRGB(20, 20, 20) else Color3.fromRGB(255, 255, 255)
 end
 
+-- The reverse of toColorSequence: a single representative Color3 for something that might be a
+-- full gradient (e.g. picking contrast text for a label sitting on a gradient-filled pill) -
+-- the midpoint blend of the sequence's first and last keypoints.
+function colors.flatten(color: Color3 | ColorSequence): Color3
+    if typeof(color) ~= "ColorSequence" then
+        return color
+    end
+    local keypoints = color.Keypoints
+    return keypoints[1].Value:Lerp(keypoints[#keypoints].Value, 0.5)
+end
+
 return colors

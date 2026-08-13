@@ -22,6 +22,7 @@ local variables = require(utility.variables)
 local functions = require(utility.functions)
 local moveable = require(utility.moveable)
 local locale = require(utility.locale)
+local constants = require(utility.constants)
 local hapticEngine = require(utility.HapticEngine)
 local hsvEditor = require(utility.hsvEditor)
 
@@ -33,7 +34,14 @@ local minStops = 2
 local maxStops = 8
 
 local fadeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+-- closing fades faster than it opens, and faster than the card shrinks, so the content is
+-- gone before (or right as) the height tween finishes instead of visibly cutting off mid-fade
+local closeFadeInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local openInfo = TweenInfo.new(0.5, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
+-- the card's own open/close height specifically - Quart out, not the springier Exponential
+-- the stop handles use, and quick enough (0.3s) to read as snappy rather than languid
+local heightInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local chevronInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local dragInfo = TweenInfo.new(0.12, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local heldInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
@@ -311,6 +319,22 @@ function GradientPicker:_buildHeader()
     })
     self.window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.swatch })
     self.swatchGradient = self.window:Create("UIGradient", { Color = self.value, Parent = self.swatch })
+
+    -- chevron: 180deg = closed (matches dropdown.luau's own convention), tweens to 0 on open
+    self.chevron = self.window:Create("ImageLabel", {
+        Image = constants.icons.chevron,
+        Size = UDim2.fromOffset(12, 12),
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -68, 0, headerHeight / 2),
+        Rotation = 180,
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+        ZIndex = 3,
+
+        ImageTransparency = 1, -- In = 0.4
+
+        Parent = self.main,
+    }, { ImageColor3 = "ContentColor" })
 
     self.interact = self.window:Create("TextButton", {
         BackgroundTransparency = 1,
@@ -697,8 +721,11 @@ function GradientPicker:_open()
         end
     end)
 
-    variables.tweenService:Create(self.main, openInfo, { Size = UDim2.new(1, -20, 0, self._openHeight) }):Play()
-    self:_applyBodyVisibility(true, true)
+    variables.tweenService:Create(self.main, heightInfo, { Size = UDim2.new(1, -20, 0, self._openHeight) }):Play()
+    if self.chevron then
+        variables.tweenService:Create(self.chevron, chevronInfo, { Rotation = 0 }):Play()
+    end
+    self:_applyBodyVisibility(true, fadeInfo)
     self.hsv:SetVisible(true, true)
     self:_render("animate")
 end
@@ -717,18 +744,25 @@ function GradientPicker:_close()
         self:_endDrag()
     end
 
-    self:_applyBodyVisibility(false, true)
+    -- fade out on the quicker closeFadeInfo so the content is gone before (or right as) the
+    -- slower height tween below finishes, instead of visibly cutting off mid-fade
+    self:_applyBodyVisibility(false, closeFadeInfo)
     self.hsv:SetVisible(false, true)
     self:_render("animate") -- also drops the selection ring now that _isOpen is false
-    variables.tweenService:Create(self.main, openInfo, { Size = UDim2.new(1, -20, 0, headerHeight) }):Play()
+    variables.tweenService:Create(self.main, heightInfo, { Size = UDim2.new(1, -20, 0, headerHeight) }):Play()
+    if self.chevron then
+        variables.tweenService:Create(self.chevron, chevronInfo, { Rotation = 180 }):Play()
+    end
 
-    task.delay(fadeInfo.Time, function()
+    task.delay(closeFadeInfo.Time, function()
         if not self._isOpen then
             self:_setControlsVisible(false)
         end
     end)
 end
 
+-- animate: false/nil snaps instantly; otherwise a TweenInfo to ease with (fadeInfo on open,
+-- the quicker closeFadeInfo on close - see callers).
 function GradientPicker:_applyBodyVisibility(open, animate)
     local set = {
         [self.preview] = { BackgroundTransparency = if open then 0 else 1 },
@@ -746,7 +780,7 @@ function GradientPicker:_applyBodyVisibility(open, animate)
 
     for instance, props in set do
         if animate then
-            variables.tweenService:Create(instance, fadeInfo, props):Play()
+            variables.tweenService:Create(instance, animate, props):Play()
         else
             for prop, value in props do
                 instance[prop] = value
@@ -795,7 +829,7 @@ function GradientPicker:_applyLayout()
     end
 
     if self._isOpen then
-        variables.tweenService:Create(self.main, openInfo, { Size = UDim2.new(1, -20, 0, self._openHeight) }):Play()
+        variables.tweenService:Create(self.main, heightInfo, { Size = UDim2.new(1, -20, 0, self._openHeight) }):Play()
     end
 end
 
@@ -859,12 +893,14 @@ function GradientPicker:_setShown(shown, animate)
     if shown then
         w:_revealCommon(self, animate)
         w:_reveal(self.swatch, { BackgroundTransparency = 0 }, animate)
+        w:_reveal(self.chevron, { ImageTransparency = 0.4 }, animate)
         for _, glow in self.previewGlows do
             w:_reveal(glow, { Transparency = if self.showGlow then glowOnTransparency else 1 }, animate)
         end
     else
         w:_hideCommon(self, animate)
         w:_reveal(self.swatch, { BackgroundTransparency = 1 }, animate)
+        w:_reveal(self.chevron, { ImageTransparency = 1 }, animate)
         for _, glow in self.previewGlows do
             w:_reveal(glow, { Transparency = 1 }, animate)
         end

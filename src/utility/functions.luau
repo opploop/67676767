@@ -17,5 +17,6 @@ functions.deriveFlagFromName = flags.deriveFlagFromName
 functions.contrastColor = colors.contrastColor
 functions.toColorSequence = colors.toColorSequence
 functions.contrastText = colors.contrastText
+functions.flattenColor = colors.flatten
 
 return functions

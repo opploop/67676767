@@ -287,7 +287,7 @@ local themeGradient = tab5:CreateGradientPicker({
     glow = true,
     callback = function(value)
         if connectGradientToAccent then
-            window:SetTabAccentColor(value.Keypoints[1].Value)
+            window:SetTabAccentColor(value)
         end
     end,
 })
@@ -303,11 +303,11 @@ tab5:CreateToggle({
 tab5:CreateToggle({
     name = "Connect gradient to tab accent",
     value = false,
-    description = "Live-ties the tab pill's accent colour to the gradient's first stop.",
+    description = "Live-ties the tab pill's fill to the whole gradient, not just one stop.",
     callback = function(value)
         connectGradientToAccent = value
         if value then
-            window:SetTabAccentColor(themeGradient.value.Keypoints[1].Value)
+            window:SetTabAccentColor(themeGradient.value)
         end
     end,
 })

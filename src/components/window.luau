@@ -499,9 +499,12 @@ function Window.new(properties)
         Position = UDim2.new(0.5, 0, 0, 65),
         AnchorPoint = Vector2.new(0.5, 0),
         BorderSizePixel = 0,
-        ClipsDescendants = true, -- the indicator now lives in here, not inside tabList's own
-        -- scroll-clipped viewport (see its creation below) - keep it from poking out past the
-        -- dock's rounded corners when a tab near the strip's edge is selected
+        -- NOT ClipsDescendants: tried that to keep the indicator from poking out past the
+        -- dock's rounded corners at the strip's edges, but it hard-clips the glow's blur
+        -- (BlurRadius reaches past the pill's own bounds by design) into a visible straight
+        -- edge - the reported line under the dock and the square near the last tab. The pill
+        -- itself only very slightly overshoots the rounded corners at the extreme edges, which
+        -- reads far better than a clipped-off glow.
 
         -- BackgroundColor3 deliberately isn't in this table: Window:Create applies themed
         -- properties first and literal ones after, so a literal Color3 here would permanently
@@ -573,6 +576,10 @@ function Window.new(properties)
     self:Create("UICorner", {
         Parent = self.tabIndicator,
     }, { CornerRadius = "PillCornerRadius" })
+    -- Always present: BackgroundColor3 alone can't render a multi-stop gradient, so
+    -- tabAccentColor (Color3 or ColorSequence) always goes through this - a flat colour just
+    -- becomes a uniform "gradient", indistinguishable from a plain fill.
+    self.tabIndicatorGradient = self:Create("UIGradient", { Parent = self.tabIndicator })
     self.tabIndicatorGlow = self:CreateGlow(self.tabIndicator, Color3.fromRGB(255, 255, 255), 18, 1)
 
     self.tabStyle = properties.tabStyle or properties.TabStyle or "accent"
@@ -860,7 +867,11 @@ end
 -- colour - never touches Position/Size, so it's safe to call from a style/accent setter without
 -- disturbing wherever the pill currently sits.
 function Window:_paintTabIndicator(animate)
+    -- pillColor can be a flat Color3 or a full ColorSequence (SetTabAccentColor accepts either,
+    -- e.g. wired straight to a GradientPicker's own value) - White mode is always flat.
     local pillColor = if self.tabStyle == "white" then Color3.fromRGB(255, 255, 255) else self.tabAccentColor
+    local pillSequence = functions.toColorSequence(pillColor)
+    local flatColor = functions.flattenColor(pillColor) -- for the glow (Color3-only) + contrast text
     local glowOn = self.tabStyle == "accent" and self.tabAccentGlow
     local info = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
@@ -874,8 +885,12 @@ function Window:_paintTabIndicator(animate)
         end
     end
 
-    set(self.tabIndicator, { BackgroundColor3 = pillColor })
-    set(self.tabIndicatorGlow, { Color = pillColor, Transparency = if glowOn then 0.5 else 1 })
+    -- ColorSequence isn't a tweenable type - the gradient itself always snaps, only the flat
+    -- BackgroundColor3 underneath it (visible for an instant on the very first paint, and as
+    -- whatever peeks past the gradient's own edges) and the glow actually ease.
+    self.tabIndicatorGradient.Color = pillSequence
+    set(self.tabIndicator, { BackgroundColor3 = flatColor })
+    set(self.tabIndicatorGlow, { Color = flatColor, Transparency = if glowOn then 0.5 else 1 })
 
     -- re-run the selected tab's own "selected" paint so its text/icon re-derive contrast
     -- against whatever the pill colour just became - _applyVisual computes that itself
@@ -915,8 +930,10 @@ function Window:SetTabStyle(style)
 end
 
 -- Live-recolour the accent pill (and its glow), e.g. wiring it to a ColorPicker/GradientPicker.
+-- Accepts a flat Color3 or a full ColorSequence - wire a GradientPicker's own :value straight
+-- in and the pill actually renders that gradient instead of flattening it to one colour.
 function Window:SetTabAccentColor(color)
-    if typeof(color) ~= "Color3" then
+    if typeof(color) ~= "Color3" and typeof(color) ~= "ColorSequence" then
         return
     end
     self.tabAccentColor = color
