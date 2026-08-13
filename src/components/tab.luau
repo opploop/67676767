@@ -51,12 +51,14 @@ local function teardownElements(window, elements)
     end
 end
 
--- Pill transparencies per state. Gradient stays constant (theme TabBackground/TabStroke), selection is just transparency.
+-- Icon/text transparency per state. No more per-tab background/stroke to animate - Devlog 5's
+-- shared self.window.tabIndicator pill supplies the "selected" background now, sliding to
+-- whichever tab is active instead of each one fading its own pill in.
 local tabStates = {
-    selected = { background = 0, stroke = 0, content = 0 },
-    hover = { background = 0.4, stroke = 0.3, content = 0.3 },
-    unselected = { background = 0.8, stroke = 0.65, content = 0.5 },
-    hidden = { background = 1, stroke = 1, content = 1 },
+    selected = { content = 0 },
+    hover = { content = 0.3 },
+    unselected = { content = 0.5 },
+    hidden = { content = 1 },
 }
 
 local selectTweenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -82,16 +84,16 @@ function Tab.new(window, properties)
     assert(self.name or self.icon, "A tab needs a name or an icon.")
 
     if not self.neglectSelector then -- Allow for tabs to be hidden from the tab selector, for Rayfield Settings.
-        -- Topbar Item
+        -- Topbar Item - purely a sizing/click surface now. It never paints its own background;
+        -- the window's single shared tabIndicator pill (see window.luau) slides behind whichever
+        -- one of these is selected, reading this frame's own resolved Position/AbsoluteSize.
         self.topbarItem = self.window:Create("Frame", {
             Name = self.name,
             Size = UDim2.fromOffset(0, 34), -- min size, grows with content
             AutomaticSize = Enum.AutomaticSize.X,
-            BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+            BackgroundTransparency = 1,
             BorderSizePixel = 0,
 
-            -- Animation
-            BackgroundTransparency = 1, -- In = 0 / 0.8
             Visible = false, -- In = true
 
             LayoutOrder = self.customOrder or 0,
@@ -109,32 +111,6 @@ function Tab.new(window, properties)
 
             Parent = self.topbarItem,
         })
-
-        self.window:Create("UICorner", {
-            Parent = self.topbarItem,
-        }, { CornerRadius = "PillCornerRadius" })
-
-        self.topbarItemGradient = self.window:Create("UIGradient", {
-            Rotation = 90,
-
-            Parent = self.topbarItem,
-        }, { Color = { "TabBackground", functions.toColorSequence } })
-
-        self.topbarItemStroke = self.window:Create("UIStroke", {
-            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-            Color = Color3.fromRGB(255, 255, 255),
-
-            -- Animation
-            Transparency = 1, -- In = 0 / 0.5
-
-            Parent = self.topbarItem,
-        })
-
-        self.topbarItemStrokeGradient = self.window:Create("UIGradient", {
-            Rotation = 90,
-
-            Parent = self.topbarItemStroke,
-        }, { Color = { "TabStroke", functions.toColorSequence } })
 
         self.topbarItemContainer = self.window:Create("Frame", {
             Size = UDim2.fromOffset(0, 34),
@@ -254,7 +230,6 @@ function Tab.new(window, properties)
                 end
                 if self.window.selectedTab ~= self then
                     self:_applyVisual("hover", hoverTweenInfo)
-                    self:_spinGradients() -- little gradient sweep, same as the intro flourish
                 end
             end)
         )
@@ -267,6 +242,18 @@ function Tab.new(window, properties)
                 end
             end)
         )
+
+        -- self-healing re-snap: if this tab is selected and its own resolved width changes
+        -- (a rename, a locale swap, or just AutomaticSize settling a frame after the indicator's
+        -- very first read of it), slide the shared pill to match again without animating.
+        table.insert(
+            self.connections,
+            self.window:Connect(self.topbarItem:GetPropertyChangedSignal("AbsoluteSize"), function()
+                if self.window.selectedTab == self then
+                    self.window:_updateTabIndicator(self, false)
+                end
+            end)
+        )
     end
 
     -- Auto-select is handled by Window:CreateTab after insertion
@@ -274,6 +261,9 @@ function Tab.new(window, properties)
     return self
 end
 
+-- selected: contrast-computed against whatever colour the shared pill currently is (white, or
+-- the live accent colour) so the label always reads on top of it. Every other state uses the
+-- theme's plain TabColor - only the transparency actually varies between hover/unselected/hidden.
 function Tab:_applyVisual(stateName, tweenInfo)
     if self.neglectSelector or not self.topbarItem then
         return
@@ -284,38 +274,34 @@ function Tab:_applyVisual(stateName, tweenInfo)
         return
     end
 
+    local color
+    if stateName == "selected" then
+        local pillColor = if self.window.tabStyle == "white" then Color3.fromRGB(255, 255, 255) else self.window.tabAccentColor
+        color = functions.contrastText(pillColor)
+    else
+        color = self.window.theme.TabColor
+    end
+
     if tweenInfo then
-        variables.tweenService:Create(self.topbarItem, tweenInfo, { BackgroundTransparency = state.background }):Play()
-        variables.tweenService:Create(self.topbarItemStroke, tweenInfo, { Transparency = state.stroke }):Play()
         if self.topbarItemIcon then
-            variables.tweenService:Create(self.topbarItemIcon, tweenInfo, { ImageTransparency = state.content }):Play()
+            variables.tweenService
+                :Create(self.topbarItemIcon, tweenInfo, { ImageTransparency = state.content, ImageColor3 = color })
+                :Play()
         end
         if self.topbarItemTitle then
-            variables.tweenService:Create(self.topbarItemTitle, tweenInfo, { TextTransparency = state.content }):Play()
+            variables.tweenService
+                :Create(self.topbarItemTitle, tweenInfo, { TextTransparency = state.content, TextColor3 = color })
+                :Play()
         end
     else
-        self.topbarItem.BackgroundTransparency = state.background
-        self.topbarItemStroke.Transparency = state.stroke
         if self.topbarItemIcon then
             self.topbarItemIcon.ImageTransparency = state.content
+            self.topbarItemIcon.ImageColor3 = color
         end
         if self.topbarItemTitle then
             self.topbarItemTitle.TextTransparency = state.content
+            self.topbarItemTitle.TextColor3 = color
         end
-    end
-end
-
--- Flourish: spin the pill's fill + stroke gradients one full turn back to their resting 90deg.
--- Used staggered per tab on the first reveal, and again when hovering an unselected tab.
-function Tab:_spinGradients()
-    if self.neglectSelector then
-        return
-    end
-
-    local spinInfo = TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-    for _, gradient in { self.topbarItemGradient, self.topbarItemStrokeGradient } do
-        gradient.Rotation = 90 - 360 -- one full turn shy of rest, so the tween lands clockwise on 90
-        variables.tweenService:Create(gradient, spinInfo, { Rotation = 90 }):Play()
     end
 end
 
@@ -335,8 +321,11 @@ function Tab:Select(noAnimation)
     -- icon it targets would just pop straight to its end state the moment the window appears
     local skipAnimation = noAnimation or not self.window:_interactive()
 
-    if not self.neglectSelector and not skipAnimation then
-        self:_applyVisual("selected", selectTweenInfo)
+    if not self.neglectSelector then
+        if not skipAnimation then
+            self:_applyVisual("selected", selectTweenInfo)
+        end
+        self.window:_updateTabIndicator(self, not skipAnimation)
     end
 
     for _, tab in self.window.tabs do

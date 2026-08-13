@@ -483,12 +483,36 @@ function Window.new(properties)
     })
 
     -- Tabs Preparation
-    self.tabList = self:Create("ScrollingFrame", {
-        Name = "Tabs",
-        Active = true,
+    -- Devlog 5: every tab now lives inside one dock surface, with a single pill
+    -- (self.tabIndicator) sliding behind whichever one is selected instead of each tab pill
+    -- fading its own background in/out. tabList itself is unchanged (still the horizontally
+    -- scrolling UIListLayout row); the dock is just a background wrapper around it, and the
+    -- indicator is a free sibling inside tabList that reads the selected tab's own resolved
+    -- Position/AbsoluteSize rather than participating in the layout - the same "free-floating
+    -- overlay" shape segmentedpicker.luau's sliding indicator already uses successfully.
+    self.tabDock = self:Create("Frame", {
+        Name = "TabDock",
         Size = UDim2.new(1, 0, 0, 38),
         Position = UDim2.new(0.5, 0, 0, 65),
         AnchorPoint = Vector2.new(0.5, 0),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+
+        BackgroundTransparency = 0.55,
+
+        Parent = self.main,
+    }, { BackgroundColor3 = "StatBackground" })
+
+    self:Create("UICorner", {
+        Parent = self.tabDock,
+    }, { CornerRadius = "PillCornerRadius" })
+
+    self.tabList = self:Create("ScrollingFrame", {
+        Name = "Tabs",
+        Active = true,
+        Size = UDim2.fromScale(1, 1),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
 
         BackgroundTransparency = 1,
         AutomaticCanvasSize = Enum.AutomaticSize.X,
@@ -497,7 +521,7 @@ function Window.new(properties)
         ScrollBarImageTransparency = 1,
         ScrollingDirection = Enum.ScrollingDirection.X,
 
-        Parent = self.main,
+        Parent = self.tabDock,
     })
 
     self.tabListLayout = self:Create("UIListLayout", {
@@ -516,6 +540,28 @@ function Window.new(properties)
 
         Parent = self.tabList,
     })
+
+    -- the sliding pill: a free Frame with no layout of its own (same idea as segmentedpicker's
+    -- indicator / toggle's knob), created before any tab so creation order alone keeps it
+    -- behind every tab's own icon/text/click surface with no explicit ZIndex needed anywhere.
+    self.tabIndicator = self:Create("Frame", {
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+        Size = UDim2.fromOffset(0, 0),
+
+        Parent = self.tabList,
+    })
+    self:Create("UICorner", {
+        Parent = self.tabIndicator,
+    }, { CornerRadius = "PillCornerRadius" })
+    self.tabIndicatorGlow = self:CreateGlow(self.tabIndicator, Color3.fromRGB(255, 255, 255), 18, 1)
+
+    self.tabStyle = properties.tabStyle or properties.TabStyle or "accent"
+    self.tabAccentColor = self.theme.AccentColor
+    self.tabAccentGlow = if properties.tabAccentGlow ~= nil
+        then properties.tabAccentGlow
+        elseif properties.TabAccentGlow ~= nil then properties.TabAccentGlow
+        else true
 
     -- Actions
     self.actionContainer = self:Create("Frame", {
@@ -692,6 +738,15 @@ function Window:ChangeTheme(theme)
         self:_refreshElementThemes()
     end
 
+    -- tabAccentColor isn't itself a themeProperty (it's live-settable independent of the theme
+    -- via SetTabAccentColor), but it starts out just a snapshot of the old theme's AccentColor -
+    -- follow the new one on a swap unless a dev has explicitly pinned it to something else.
+    if not self._tabAccentOverridden then
+        self.tabAccentColor = self.theme.AccentColor
+    end
+    -- the pill's own colour + the selected tab's contrast text are outside themeProperties too
+    self:_paintTabIndicator(not self.hidden)
+
     self:_syncLiveAnimation()
 end
 
@@ -734,6 +789,110 @@ function Window:CreateTab(properties)
     end
 
     return newTab
+end
+
+-- Squish & stretch, same technique segmentedpicker.luau's slideIndicator uses: a quick stretch
+-- into a shape spanning both the old and new bounds, then a springy settle onto the exact
+-- target (Back overshoots slightly before easing back). Offset-based rather than scale-based,
+-- since tab pills are sized to their own content, not equal fractions of a shared bar.
+local tabStretchInfo = TweenInfo.new(0.12, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+local tabSettleInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+local function slideTabIndicator(pill, targetPos, targetSize, skipAnimation)
+    if skipAnimation then
+        pill.Position, pill.Size = targetPos, targetSize
+        return
+    end
+
+    local fromLeft = pill.Position.X.Offset
+    local fromRight = fromLeft + pill.Size.X.Offset
+    local toLeft = targetPos.X.Offset
+    local toRight = toLeft + targetSize.X.Offset
+
+    local stretchLeft = math.min(fromLeft, toLeft)
+    local stretchRight = math.max(fromRight, toRight)
+
+    local stretchPos = UDim2.fromOffset(stretchLeft, targetPos.Y.Offset)
+    local stretchSize = UDim2.fromOffset(stretchRight - stretchLeft, targetSize.Y.Offset)
+
+    local stretchTween = variables.tweenService:Create(pill, tabStretchInfo, { Position = stretchPos, Size = stretchSize })
+    stretchTween:Play()
+
+    -- :Once() isn't guaranteed on every client this session has run into - :Connect() + manual
+    -- disconnect is the one form of "run this once" every client here has actually supported
+    local connection
+    connection = stretchTween.Completed:Connect(function()
+        connection:Disconnect()
+        variables.tweenService:Create(pill, tabSettleInfo, { Position = targetPos, Size = targetSize }):Play()
+    end)
+end
+
+-- Repaint the indicator's colour (+ its glow) from the current tabStyle/tabAccentColor/
+-- tabAccentGlow, and recolour the selected tab's own text/icon to match (auto-contrast). Pure
+-- colour - never touches Position/Size, so it's safe to call from a style/accent setter without
+-- disturbing wherever the pill currently sits.
+function Window:_paintTabIndicator(animate)
+    local pillColor = if self.tabStyle == "white" then Color3.fromRGB(255, 255, 255) else self.tabAccentColor
+    local glowOn = self.tabStyle == "accent" and self.tabAccentGlow
+    local info = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+    local function set(instance, props)
+        if animate then
+            variables.tweenService:Create(instance, info, props):Play()
+        else
+            for prop, value in props do
+                instance[prop] = value
+            end
+        end
+    end
+
+    set(self.tabIndicator, { BackgroundColor3 = pillColor })
+    set(self.tabIndicatorGlow, { Color = pillColor, Transparency = if glowOn then 0.5 else 1 })
+
+    -- re-run the selected tab's own "selected" paint so its text/icon re-derive contrast
+    -- against whatever the pill colour just became - _applyVisual computes that itself
+    if self.selectedTab and not self.selectedTab.neglectSelector then
+        self.selectedTab:_applyVisual("selected", if animate then info else nil)
+    end
+end
+
+-- Slide the pill to `tab`'s own resolved geometry. tab.topbarItem's Position is exactly what
+-- UIListLayout already computed for it (pure Offset, no Scale) and both it and the indicator
+-- share the same parent (tabList), so no AbsolutePosition conversion is needed - just copy it.
+function Window:_updateTabIndicator(tab, animate)
+    if not tab or tab.neglectSelector or not tab.topbarItem then
+        return
+    end
+    local item = tab.topbarItem
+    local targetPos = UDim2.fromOffset(item.Position.X.Offset, item.Position.Y.Offset)
+    local targetSize = UDim2.fromOffset(item.AbsoluteSize.X, item.AbsoluteSize.Y)
+    slideTabIndicator(self.tabIndicator, targetPos, targetSize, not animate)
+    self:_paintTabIndicator(animate)
+end
+
+-- Live switch between a plain white pill and one tinted to the accent colour with a soft glow.
+function Window:SetTabStyle(style)
+    self.tabStyle = if style == "white" then "white" else "accent"
+    self:_paintTabIndicator(true)
+end
+
+-- Live-recolour the accent pill (and its glow), e.g. wiring it to a ColorPicker/GradientPicker.
+function Window:SetTabAccentColor(color)
+    if typeof(color) ~= "Color3" then
+        return
+    end
+    self.tabAccentColor = color
+    self._tabAccentOverridden = true
+    if self.tabStyle == "accent" then
+        self:_paintTabIndicator(true)
+    end
+end
+
+-- Toggle the soft glow under the accent pill at runtime. No-op look while in White mode (no
+-- glow there either way) - still stored, so switching back to Accent respects it immediately.
+function Window:SetTabAccentGlow(shown)
+    self.tabAccentGlow = shown and true or false
+    self:_paintTabIndicator(true)
 end
 
 function Window:CreateTag(properties)
@@ -1093,7 +1252,7 @@ function Window:Hide()
         self.topbar.Visible = false
         self.elements.Visible = false
         self.tabList.Visible = false
-
+        self.tabDock.Visible = false
         chrome.setCollapsedShown(self, true, faceInfo)
     end)
 
@@ -1161,13 +1320,14 @@ function Window:ToggleMinimise()
             end
             self.elements.Visible = true
             self.tabList.Visible = true
-
+            self.tabDock.Visible = true
             for _, tab in pairs(self.tabs) do
                 if not tab.neglectSelector and tab.topbarItem then
                     tab.topbarItem.Visible = true
                     tab:_applyVisual(if self.selectedTab == tab then "selected" else "unselected", fadeInfo)
                 end
             end
+            self:_updateTabIndicator(self.selectedTab, false)
 
             self:_revealElements(0.035, 0.4)
         end)
@@ -1194,6 +1354,7 @@ function Window:ToggleMinimise()
             end
             self.elements.Visible = false
             self.tabList.Visible = false
+            self.tabDock.Visible = false
             for _, tab in pairs(self.tabs) do
                 if not tab.neglectSelector and tab.topbarItem then
                     tab.topbarItem.Visible = false
@@ -1802,6 +1963,7 @@ function Window:_quickRestore()
     task.delay(growDuration * 0.63, function()
         self.topbar.Visible = true
         self.tabList.Visible = true
+        self.tabDock.Visible = true
         self.elements.Visible = true
 
         variables.tweenService:Create(self.windowShadow, fadeInfo, { Transparency = 0.6 }):Play()
@@ -1839,6 +2001,7 @@ function Window:_quickRestore()
                 tab:_applyVisual(if self.selectedTab == tab then "selected" else "unselected", fadeInfo)
             end
         end
+        self:_updateTabIndicator(self.selectedTab, false)
 
         self:_revealElements(0.035, 0.4)
     end)
@@ -1867,7 +2030,7 @@ function Window:_firstShow()
     -- Intro animation
     self.elements.Visible = true
     self.tabList.Visible = true
-
+    self.tabDock.Visible = true
     self.drag.drag.Visible = false
     self.main.Visible = true
     variables.tweenService
@@ -1950,7 +2113,9 @@ function Window:_firstShow()
                     if self.selectedTab == tab then "selected" else "unselected",
                     TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
                 )
-                tab:_spinGradients()
+                if self.selectedTab == tab then
+                    self:_updateTabIndicator(tab, false)
+                end
 
                 task.wait(0.15)
             end

@@ -36,6 +36,8 @@ export type WindowProps = {
     locale: string?, -- pin the UI language; defaults to the player's Roblox locale
     translations: Translations?, -- language tables keyed by locale id; the easy, table-first path
     translator: Translator?, -- resolve copy yourself; falls back to the built-in tables
+    tabStyle: ("white" | "accent")?, -- the shared tab pill's look (default "accent")
+    tabAccentGlow: boolean?, -- soft glow under the pill in accent mode (default true)
 }
 
 export type TabProps = {
@@ -479,6 +481,9 @@ export type Window = {
     ToggleMinimise: (self: Window) -> (),
     Navigate: (self: Window, tab: string | Tab) -> (),
     ChangeTheme: (self: Window, theme: Theme) -> (),
+    SetTabStyle: (self: Window, style: "white" | "accent") -> (), -- switch the shared tab pill live
+    SetTabAccentColor: (self: Window, color: Color3) -> (), -- recolour the accent pill + its glow
+    SetTabAccentGlow: (self: Window, shown: boolean) -> (), -- toggle the soft glow under the accent pill
     SetLocale: (self: Window, localeId: string) -> (),
     SetTranslator: (self: Window, translator: Translator?) -> (),
     RegisterTranslations: (self: Window, translations: Translations) -> (),

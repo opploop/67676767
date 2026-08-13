@@ -235,8 +235,28 @@ tab4:CreateButton({
     end,
 })
 
--- Devlog 5: HSV Color Picker rebuild, Gradient Picker, Glow control -----------
+-- Devlog 5: tab dock redesign, HSV Color Picker rebuild, Gradient Picker, Glow control -------
 local tab5 = window:CreateTab({ name = "Devlog 5", icon = 91452555903853 })
+
+tab5:CreateSection({ name = "Tabs" })
+
+tab5:CreateSegmentedPicker({
+    name = "Tab style",
+    options = { "Accent", "White" },
+    value = "Accent",
+    description = "The shared pill behind the active tab: tinted to the accent colour with a glow, or plain white.",
+    callback = function(value)
+        window:SetTabStyle(if value == "White" then "white" else "accent")
+    end,
+})
+
+tab5:CreateToggle({
+    name = "Tab accent glow",
+    value = true,
+    callback = function(value)
+        window:SetTabAccentGlow(value)
+    end,
+})
 
 tab5:CreateSection({ name = "Single color picker" })
 
@@ -259,12 +279,16 @@ tab5:CreateToggle({
 
 tab5:CreateSection({ name = "Gradient color picker" })
 
+local connectGradientToAccent = false
+
 local themeGradient = tab5:CreateGradientPicker({
     name = "Theme gradient",
     gradient = { Color3.fromRGB(52, 199, 89), Color3.fromRGB(10, 132, 255), Color3.fromRGB(175, 82, 222) },
     glow = true,
     callback = function(value)
-        print("Theme gradient updated")
+        if connectGradientToAccent then
+            window:SetTabAccentColor(value.Keypoints[1].Value)
+        end
     end,
 })
 
@@ -273,6 +297,18 @@ tab5:CreateToggle({
     value = true,
     callback = function(value)
         themeGradient:SetGlow(value)
+    end,
+})
+
+tab5:CreateToggle({
+    name = "Connect gradient to tab accent",
+    value = false,
+    description = "Live-ties the tab pill's accent colour to the gradient's first stop.",
+    callback = function(value)
+        connectGradientToAccent = value
+        if value then
+            window:SetTabAccentColor(themeGradient.value.Keypoints[1].Value)
+        end
     end,
 })
 
