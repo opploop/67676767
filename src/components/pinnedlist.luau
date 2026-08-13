@@ -389,15 +389,21 @@ local function flipReflow(list, mutate, primaryItem)
     -- library) - "before" and "after" would read identical, delta ~0, and every row would just
     -- snap with no visible glide. task.wait() already proved reliable for exactly this
     -- (_startLoop's follow loop), so use that instead of trusting deferral timing here too.
-    -- Pinning several rows in quick succession (real usage - someone clicking down a list) fires
-    -- overlapping flipReflow calls; without this, whichever call finishes first reattaches the
-    -- layout while an earlier call's tween is still mid-flight, and the reattached layout
-    -- immediately fights that still-running tween the same way it fought the very first,
-    -- undetached attempt. Reference-counted so the layout only reattaches once every overlapping
-    -- flip currently in flight has actually finished.
-    list._flipsInFlight = (list._flipsInFlight or 0) + 1
-
     task.spawn(function()
+        -- Serialize the animation phase: clicking multiple rows quickly (completely normal
+        -- usage) fires overlapping flipReflow calls, and a reference count on the detach/
+        -- reattach alone wasn't enough - each call was ALSO freezing the containers' Size from
+        -- their own AbsoluteSize.Y, so a second call starting mid-animation would freeze from a
+        -- first call's still-mid-tween (not yet settled) height, locking in a wrong value for
+        -- both. That's the "everything piles up, then leaves gaps where rows used to be" - each
+        -- overlapping call was capturing and freezing a different, momentarily-wrong height.
+        -- Only one flip may own the shared layout/container state at a time; mutate() above
+        -- still always runs immediately so pin state and button visuals never wait on this.
+        while list._flipping do
+            task.wait()
+        end
+        list._flipping = true
+
         -- two frames, not one: this reflow can move a row across containers (pinned <-> all
         -- items) plus toggle the section headers' visibility, more for the layout to settle
         -- than the single-container reorder task.wait() was first proven against
@@ -413,8 +419,7 @@ local function flipReflow(list, mutate, primaryItem)
         -- but never actually ran the loop below it), so detach the layout instead: unparenting
         -- it stops it managing children just as well, and reparenting it back afterward makes
         -- it recompute fresh - AddItem/_reorder already set every child's final LayoutOrder
-        -- before this runs, so that recompute just confirms the same positions. Idempotent if
-        -- an overlapping call already detached it.
+        -- before this runs, so that recompute just confirms the same positions.
         --
         -- Both containers use AutomaticSize.Y, which measures its UIListLayout's content
         -- height - detach that layout and there's nothing left to measure, so the container
@@ -465,14 +470,11 @@ local function flipReflow(list, mutate, primaryItem)
         end
 
         task.delay(flipInfo.Time + maxStagger, function()
-            list._flipsInFlight -= 1
-            if list._flipsInFlight <= 0 then
-                list._flipsInFlight = 0
-                list.pinnedLayout.Parent = list.pinnedContainer
-                list.allLayout.Parent = list.allContainer
-                list.pinnedContainer.AutomaticSize = Enum.AutomaticSize.Y
-                list.allContainer.AutomaticSize = Enum.AutomaticSize.Y
-            end
+            list.pinnedLayout.Parent = list.pinnedContainer
+            list.allLayout.Parent = list.allContainer
+            list.pinnedContainer.AutomaticSize = Enum.AutomaticSize.Y
+            list.allContainer.AutomaticSize = Enum.AutomaticSize.Y
+            list._flipping = false
         end)
     end)
 end
