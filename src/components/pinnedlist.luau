@@ -7,9 +7,10 @@
 
 -- A list of icon/title/subtitle rows. Hovering an unpinned row reveals its pin control; a
 -- pinned row's stays visible. Pinning moves the row between two sub-sections ("Pinned list"
--- above, "All Items" below) and every currently-visible row glides to its new spot (a FLIP
--- animation: capture positions, reparent/reorder, then tween from the old spot to the layout's
--- new one) rather than snapping. Pinning also works from code via an item handle's Set().
+-- above, "All Items" below) - the toggled row glides from its old screen position to its new
+-- one (see Item:SetPinned for why that's a floating visual clone rather than the real row's
+-- Position), while any other row it displaces just snaps to its new spot. Pinning also works
+-- from code via an item handle's Set().
 
 local PinnedList = {}
 PinnedList.__index = PinnedList
@@ -78,9 +79,9 @@ function PinnedList:_build()
     })
 
     self.pinnedHeader = self:_buildHeader(self.main, "Pinned list", 0)
-    self.pinnedContainer, self.pinnedLayout = self:_buildContainer(self.main, 1)
+    self.pinnedContainer = self:_buildContainer(self.main, 1)
     self.allHeader = self:_buildHeader(self.main, "All Items", 2)
-    self.allContainer, self.allLayout = self:_buildContainer(self.main, 3)
+    self.allContainer = self:_buildContainer(self.main, 3)
 end
 
 -- A muted section-style label. Hidden (both header and its own top spacing) while its group
@@ -128,7 +129,7 @@ function PinnedList:_buildContainer(parent, layoutOrder)
         Parent = parent,
     })
 
-    local layout = window:Create("UIListLayout", {
+    window:Create("UIListLayout", {
         FillDirection = Enum.FillDirection.Vertical,
         SortOrder = Enum.SortOrder.LayoutOrder,
         Padding = UDim.new(0, 7),
@@ -136,7 +137,7 @@ function PinnedList:_buildContainer(parent, layoutOrder)
         Parent = container,
     })
 
-    return container, layout
+    return container
 end
 
 -- Show a group's header only once it holds something - an empty "Pinned list" above nothing
@@ -361,155 +362,90 @@ function Item:_buildRow(list)
     self:_setShown(not window.hidden, not window.hidden)
 end
 
--- Snapshot every visible row's AbsolutePosition, run `mutate` (a reparent + reorder), then
--- glide every row that actually moved from its old spot to wherever the layout settled it -
--- the FLIP technique: capture, reparent (layout jumps instantly), tween the resulting jump away.
--- primaryItem (the one that was actually clicked/Set) leads immediately; every other displaced
--- row starts a little behind it, staggered by how far down the list it sits from the primary -
--- so the reorder reads as that row pushing the rest of the stack out of its way, not everything
--- just teleporting into a new spot at once.
-local function flipReflow(list, mutate, primaryItem)
-    local before = {}
-    local indexOf = {}
-    local primaryIndex = 1
-    for index, item in list.items do
-        indexOf[item] = index
-        if item.main then
-            before[item] = item.main.AbsolutePosition
-        end
-        if item == primaryItem then
-            primaryIndex = index
-        end
-    end
-
-    mutate()
-
-    -- task.defer resumes before this executor's UIListLayout has actually recalculated the new
-    -- AbsolutePosition (same timing gap RenderStepped connections fall into elsewhere in this
-    -- library) - "before" and "after" would read identical, delta ~0, and every row would just
-    -- snap with no visible glide. task.wait() already proved reliable for exactly this
-    -- (_startLoop's follow loop), so use that instead of trusting deferral timing here too.
-    task.spawn(function()
-        -- Serialize the animation phase: clicking multiple rows quickly (completely normal
-        -- usage) fires overlapping flipReflow calls, and a reference count on the detach/
-        -- reattach alone wasn't enough - each call was ALSO freezing the containers' Size from
-        -- their own AbsoluteSize.Y, so a second call starting mid-animation would freeze from a
-        -- first call's still-mid-tween (not yet settled) height, locking in a wrong value for
-        -- both. That's the "everything piles up, then leaves gaps where rows used to be" - each
-        -- overlapping call was capturing and freezing a different, momentarily-wrong height.
-        -- Only one flip may own the shared layout/container state at a time; mutate() above
-        -- still always runs immediately so pin state and button visuals never wait on this.
-        while list._flipping do
-            task.wait()
-        end
-        list._flipping = true
-
-        -- two frames, not one: this reflow can move a row across containers (pinned <-> all
-        -- items) plus toggle the section headers' visibility, more for the layout to settle
-        -- than the single-container reorder task.wait() was first proven against
-        task.wait()
-        task.wait()
-
-        -- Confirmed live: a UIListLayout re-asserts its own children's Position essentially
-        -- every step, so the tween below was losing that fight instantly - the row would jump
-        -- straight to its settled spot within ~90ms and sit there for the rest of flipInfo's
-        -- duration, reading as no animation at all. UIListLayout.Enabled doesn't exist on this
-        -- client (setting it throws "not a valid member" - silently swallowed since this runs
-        -- inside task.spawn, which is why that fix looked like it worked in isolated testing
-        -- but never actually ran the loop below it), so detach the layout instead: unparenting
-        -- it stops it managing children just as well, and reparenting it back afterward makes
-        -- it recompute fresh - AddItem/_reorder already set every child's final LayoutOrder
-        -- before this runs, so that recompute just confirms the same positions.
-        --
-        -- Both containers use AutomaticSize.Y, which measures its UIListLayout's content
-        -- height - detach that layout and there's nothing left to measure, so the container
-        -- collapses for as long as it's gone. Confirmed live too: the whole list's height
-        -- shrinks mid-glide, clipping rows out and leaking the game world behind them, then
-        -- the clipped rows "pop" back in once the layout reattaches - not the rows disappearing,
-        -- the container they're clipped against disappearing out from under them. Freeze each
-        -- container at its own already-settled height (captured now, before detaching) and
-        -- switch off AutomaticSize for the same window, so nothing downstream even notices the
-        -- layout is briefly gone.
-        for _, entry in {
-            { container = list.pinnedContainer, layout = list.pinnedLayout },
-            { container = list.allContainer, layout = list.allLayout },
-        } do
-            entry.container.Size = UDim2.new(1, 0, 0, entry.container.AbsoluteSize.Y)
-            entry.container.AutomaticSize = Enum.AutomaticSize.None
-            entry.layout.Parent = nil
-        end
-
-        local maxStagger = 0
-        for item, fromPos in before do
-            if not item.main or not item.main.Parent then
-                continue -- removed mid-transition
-            end
-            local toPos = item.main.AbsolutePosition
-            -- Y only, never X: this is a vertical list, rows only ever reorder up/down. Also
-            -- confirmed live as the cause of a real glitch - rows sliding sideways off the edge
-            -- of the window mid-animation. Every row's Position is Scale-1 width (fills its
-            -- parent), so it has no real X of its own to speak of; capturing/replaying a stray
-            -- X delta (e.g. from the window itself moving/resizing between the "before" and
-            -- "after" reads) shifted rows sideways by that same stray amount instead of leaving
-            -- them alone.
-            local deltaY = fromPos.Y - toPos.Y
-            if math.abs(deltaY) > 0.5 then
-                local settled = item.main.Position
-                item.main.Position = settled + UDim2.fromOffset(0, deltaY)
-
-                -- the clicked row leads; everything it displaces follows a beat behind, later
-                -- the further down the list it sits from that row - reads as the click pushing
-                -- the rest of the stack out of the way rather than the whole list teleporting
-                local distance = math.abs((indexOf[item] or primaryIndex) - primaryIndex)
-                local stagger = item == primaryItem and 0 or math.min(distance * 0.035, 0.18)
-                maxStagger = math.max(maxStagger, stagger)
-
-                if stagger == 0 then
-                    variables.tweenService:Create(item.main, flipInfo, { Position = settled }):Play()
-                else
-                    task.delay(stagger, function()
-                        if item.main and item.main.Parent then
-                            variables.tweenService:Create(item.main, flipInfo, { Position = settled }):Play()
-                        end
-                    end)
-                end
-            end
-        end
-
-        task.delay(flipInfo.Time + maxStagger, function()
-            list.pinnedLayout.Parent = list.pinnedContainer
-            list.allLayout.Parent = list.allContainer
-            list.pinnedContainer.AutomaticSize = Enum.AutomaticSize.Y
-            list.allContainer.AutomaticSize = Enum.AutomaticSize.Y
-            list._flipping = false
-        end)
-    end)
-end
-
--- Move this item between the Pinned list and All Items groups, gliding every visible row
--- (not just this one) to its new spot. skipAnimation snaps instead, for a caller restoring a
--- known state rather than reacting to a user/dev action.
+-- Move this item between the Pinned list and All Items groups. skipAnimation snaps instead,
+-- for a caller restoring a known state rather than reacting to a user/dev action.
+--
+-- Several attempts at a true FLIP reorder (animating the real row's Position, or every
+-- displaced row's) all fought UIListLayout in one way or another - re-asserting Position on
+-- top of the tween, breaking AutomaticSize on the containers when detached (collapsing them
+-- and clipping rows/leaking the game world behind), and racing when two rows were toggled in
+-- quick succession (completely normal usage) despite queuing attempts. Each fix confirmed live
+-- only to surface the next failure mode under real interaction (rapid clicks, window drags/
+-- resizes mid-animation).
+--
+-- This never touches a layout at all: the real row reparents and re-sorts instantly through
+-- the layouts it was already always attached to (which cannot get that wrong - there's nothing
+-- to fight when nothing is disabled or detached), hidden for one frame while that settles. A
+-- plain visual clone, parented outside any layout, glides from the row's old screen position to
+-- its new one on top of where the hidden real row will land. Other displaced rows still just
+-- snap to their new spot with no glide of their own - a real trade-off against the fully
+-- animated reorder that kept breaking, but a stable one.
 function Item:SetPinned(pinned, skipAnimation)
     if self.pinned == pinned or not self.list then
         return
     end
 
     local list = self.list
-    local function mutate()
+    local window = list.window
+
+    if skipAnimation then
         self.pinned = pinned
         self.main.Parent = pinned and list.pinnedContainer or list.allContainer
         list:_reorder(list.pinnedContainer, true)
         list:_reorder(list.allContainer, false)
         list:_updateHeaders()
-    end
-
-    if skipAnimation then
-        mutate()
     else
-        flipReflow(list, mutate, self)
+        local fromPos = self.main.AbsolutePosition
+        local size = self.main.AbsoluteSize
+
+        local ghost = self.main:Clone()
+        ghost.Name = "PinGhost"
+        ghost.AnchorPoint = Vector2.zero
+        ghost.Position = UDim2.fromOffset(fromPos.X, fromPos.Y)
+        ghost.Size = UDim2.fromOffset(size.X, size.Y)
+        -- the window uses ZIndexBehavior.Global, so a descendant's ZIndex is compared against
+        -- every other GuiObject in the whole tree regardless of nesting - setting only the
+        -- ghost's own ZIndex does nothing for its (mostly default-ZIndex-1) children, which
+        -- would still render wherever ZIndex 1 falls among the rest of the window's content.
+        -- Bump every descendant by the same offset instead, preserving their relative stacking
+        -- (e.g. pinInteract's own +10 over its siblings) just shifted as a whole into the clear.
+        ghost.ZIndex += constants.zIndex.pinnedListGhost
+        for _, descendant in ghost:GetDescendants() do
+            if descendant:IsA("GuiObject") then
+                descendant.ZIndex += constants.zIndex.pinnedListGhost
+            end
+        end
+        ghost.Parent = window.screenGui
+
+        self.main.Visible = false
+        self.pinned = pinned
+        self.main.Parent = pinned and list.pinnedContainer or list.allContainer
+        list:_reorder(list.pinnedContainer, true)
+        list:_reorder(list.allContainer, false)
+        list:_updateHeaders()
+
+        task.spawn(function()
+            -- two frames for the (untouched, still fully in control) layout to settle the real
+            -- row into its new spot before reading it back as the glide's target
+            task.wait()
+            task.wait()
+
+            if self.main and self.main.Parent then
+                local toPos = self.main.AbsolutePosition
+                variables.tweenService
+                    :Create(ghost, flipInfo, { Position = UDim2.fromOffset(toPos.X, toPos.Y) })
+                    :Play()
+            end
+
+            task.delay(flipInfo.Time, function()
+                ghost:Destroy()
+                if self.main then
+                    self.main.Visible = true
+                end
+            end)
+        end)
     end
 
-    local window = list.window
     -- unpinning while still hovered (the common case - this is usually reached by clicking the
     -- button itself) rests at the hover-faint level rather than vanishing out from under the
     -- cursor; unpinning from code with nothing hovering it goes fully hidden, like at rest.

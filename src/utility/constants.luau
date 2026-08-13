@@ -67,6 +67,10 @@ constants.zIndex = {
     -- top-centre and bottom-centre toasts float over the whole window
     toast = 2000,
     toastContent = 2001,
+    -- PinnedList's floating pin/unpin animation clone - above ordinary window content (it needs
+    -- to visibly glide over whatever else is on the tab page) but well below toasts/restore/
+    -- tooltip, which should never be obscured by it
+    pinnedListGhost = 2500,
     restoreContent = 100001,
     restoreInteract = 100002,
     tooltip = 100003,
