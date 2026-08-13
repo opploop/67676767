@@ -492,15 +492,21 @@ function Window.new(properties)
     -- overlay" shape segmentedpicker.luau's sliding indicator already uses successfully.
     self.tabDock = self:Create("Frame", {
         Name = "TabDock",
-        Size = UDim2.new(1, 0, 0, 38),
+        -- 20px total inset, same margin every other card-shaped element on the window uses -
+        -- flush edge-to-edge (the original tabList's own sizing) read as glued to the window's
+        -- corner once it had a visible fill behind it
+        Size = UDim2.new(1, -40, 0, 38),
         Position = UDim2.new(0.5, 0, 0, 65),
         AnchorPoint = Vector2.new(0.5, 0),
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
         ClipsDescendants = true, -- the indicator now lives in here, not inside tabList's own
         -- scroll-clipped viewport (see its creation below) - keep it from poking out past the
         -- dock's rounded corners when a tab near the strip's edge is selected
 
+        -- BackgroundColor3 deliberately isn't in this table: Window:Create applies themed
+        -- properties first and literal ones after, so a literal Color3 here would permanently
+        -- win over the themed StatBackground below instead of just seeding an animation
+        -- start-state - which is exactly what made this render flat white/grey instead of dark
         BackgroundTransparency = 0.55,
 
         Parent = self.main,
@@ -552,9 +558,9 @@ function Window.new(properties)
     -- once it's nested inside a ScrollingFrame - the property itself updates, AbsolutePosition
     -- (and the real on-screen render) just silently never follows it again after the first
     -- placement. tabDock is a plain Frame with no such quirk. Position is computed relative to
-    -- tabDock's own AbsolutePosition instead of tabList's, which still stays correct as the
-    -- strip scrolls since tab.topbarItem's own AbsolutePosition already reflects the current
-    -- scroll position.
+    -- tabDock's own AbsolutePosition instead of tabList's; since the indicator is no longer a
+    -- scrolling-frame child itself, it also needs the CanvasPosition listener below to keep
+    -- riding along when the strip is scrolled without a new tab being selected.
     self.tabIndicator = self:Create("Frame", {
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
@@ -575,6 +581,15 @@ function Window.new(properties)
         then properties.tabAccentGlow
         elseif properties.TabAccentGlow ~= nil then properties.TabAccentGlow
         else true
+
+    -- The indicator only tracks the selected tab's AbsolutePosition at the moment it's told to
+    -- (_updateTabIndicator) - now that it lives outside tabList (see above), it no longer rides
+    -- along automatically as a real scrolling-frame child would when the strip is dragged to
+    -- reveal tabs that don't fit. Re-snap (no animation - this is just following the scroll,
+    -- not a new selection) whenever the visible window shifts.
+    self:Connect(self.tabList:GetPropertyChangedSignal("CanvasPosition"), function()
+        self:_updateTabIndicator(self.selectedTab, false)
+    end)
 
     -- Actions
     self.actionContainer = self:Create("Frame", {
