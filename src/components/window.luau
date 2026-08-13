@@ -258,6 +258,15 @@ function Window.new(properties)
         Parent = self.screenGui,
     })
 
+    -- Self-calibrating mouse position (see _mouseAbsolutePosition below): learned from the
+    -- whole window rather than any one card, so it's ready well before a CursorTag's own
+    -- small area is ever hovered - by the time anything in the window has been clicked at
+    -- all, the mouse has necessarily crossed this frame first.
+    self._mouseCalibration = Vector2.zero
+    self:ConnectFor(self, self.main.MouseMoved, function(x, y)
+        self._mouseCalibration = Vector2.new(x, y) - variables.userInputService:GetMouseLocation()
+    end)
+
     self.drag = require(script.Parent.drag).new(self)
 
     self.windowCorner = self:Create("UICorner", {
@@ -2197,12 +2206,15 @@ local tooltipFadeOut = TweenInfo.new(0.12, Enum.EasingStyle.Quint, Enum.EasingDi
 local tooltipMaxWidth = 220
 local tooltipCursorGap = 14 -- clears the cursor's own hotspot/hand icon
 
--- Screen-space mouse position, in the same coordinate space as our GuiObjects' AbsolutePosition
--- (confirmed empirically against a live client: GetMouseLocation() already matches
--- screenGui.AbsoluteSize/the camera's ViewportSize directly here - no GuiInset adjustment
--- needed on top of it, despite screenGui.IgnoreGuiInset being set).
+-- Screen-space mouse position, in the same coordinate space as our GuiObjects' AbsolutePosition.
+-- GetMouseLocation() alone turned out not to reliably already be in that space - the gap to
+-- AbsolutePosition varies by client/executor in a way no fixed GuiInset correction covered - so
+-- this applies a calibration learned at runtime instead: self.main.MouseMoved reports (x, y)
+-- already correct by construction (it's Roblox's own hit-test, not ours to get wrong), and
+-- comparing it against GetMouseLocation() at the same instant gives the exact delta to apply
+-- everywhere else in the window that needs a mouse position (tooltips, CursorTag, ripples).
 function Window:_mouseAbsolutePosition()
-    return variables.userInputService:GetMouseLocation()
+    return variables.userInputService:GetMouseLocation() + self._mouseCalibration
 end
 
 function Window:_ensureTooltip()

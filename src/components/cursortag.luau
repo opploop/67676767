@@ -105,18 +105,6 @@ function CursorTag:_build()
         Parent = self.main,
     })
 
-    -- Self-calibrating mouse position: GuiObject.MouseMoved reports (x, y) already in
-    -- AbsolutePosition's coordinate space by construction (it's Roblox's own hit-test, not
-    -- ours to get wrong), so comparing it against GetMouseLocation() at the same instant gives
-    -- the exact correction needed - whatever it is on this client/executor - without hardcoding
-    -- a GuiInset guess that turned out to be wrong here. Learned fresh each time the mouse
-    -- crosses the card; good enough to carry outside it for window/screen scope afterward.
-    self._calibration = Vector2.zero
-    window:ConnectFor(self, self.interact.MouseMoved, function(x, y)
-        local raw = variables.userInputService:GetMouseLocation()
-        self._calibration = Vector2.new(x, y) - raw
-    end)
-
     -- The chip lives at the top of the screenGui, not nested under main: a tab page is a
     -- ScrollingFrame and clips its own content, which would cut the chip off the moment
     -- window/screen scope lets it roam past the page's edge.
@@ -200,17 +188,13 @@ function CursorTag:_startLoop()
     end)
 end
 
-function CursorTag:_mousePos()
-    return self.window:_mouseAbsolutePosition() + self._calibration
-end
-
 function CursorTag:_tick()
     if not self.window:_interactive() or not self.main.Visible or self.main.AbsoluteSize.Magnitude == 0 then
         self:_setActive(false) -- e.g. its tab isn't the one on screen, or the window's hidden
         return
     end
 
-    local mouse = self:_mousePos()
+    local mouse = self.window:_mouseAbsolutePosition()
     local boundsPos, boundsSize = self:_bounds()
 
     -- _forced is nil (no override, hover over the card decides), true (follow anywhere within
@@ -258,7 +242,7 @@ function CursorTag:_setActive(active)
 
     if active then
         -- land on the mouse immediately rather than easing in from wherever it last was
-        local mouse = self:_mousePos()
+        local mouse = self.window:_mouseAbsolutePosition()
         self.chip.Position = UDim2.fromOffset(mouse.X + self.offset.X, mouse.Y + self.offset.Y)
         self.chip.Visible = true
         self.chip.BackgroundTransparency = 1

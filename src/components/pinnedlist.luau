@@ -40,12 +40,6 @@ function PinnedList.new(tab, properties)
     local self = setmetatable({
         tab = assert(tab, "Missing argument #1 (Tab expected)"),
         window = tab.window,
-        -- no built-in pin glyph asset ships with the library, so this renders as text rather
-        -- than an ImageLabel - a Unicode pin (matching lucide.dev's "pin"), same glyph whether
-        -- pinned or not; only the button's own background/transparency tells them apart. Pass
-        -- pinIcon/unpinIcon to swap in a different character.
-        pinIcon = properties.pinIcon or properties.PinIcon or "📌",
-        unpinIcon = properties.unpinIcon or properties.UnpinIcon or "📌",
 
         items = {},
     }, PinnedList)
@@ -187,7 +181,7 @@ function Item:_buildRow(list)
         -- a well behind the icon, same idea as the copy button's - a raised circle so the
         -- glyph doesn't just float bare against the row
         self.iconWell = window:Create("Frame", {
-            Size = UDim2.fromOffset(38, 38),
+            Size = UDim2.fromOffset(34, 34),
             Position = UDim2.new(0, 16, 0.5, 0),
             AnchorPoint = Vector2.new(0, 0.5),
             BorderSizePixel = 0,
@@ -204,7 +198,7 @@ function Item:_buildRow(list)
 
         self.iconLabel = window:Create("ImageLabel", {
             Image = self.icon,
-            Size = UDim2.fromOffset(18, 18),
+            Size = UDim2.fromOffset(16, 16),
             Position = UDim2.fromScale(0.5, 0.5),
             AnchorPoint = Vector2.new(0.5, 0.5),
             BorderSizePixel = 0,
@@ -216,9 +210,11 @@ function Item:_buildRow(list)
         }, { ImageColor3 = "ContentColor" })
     end
 
+    -- well ends at 16 + 34 = 50; text starts at 68, an 18px gap so the title/subtitle don't
+    -- crowd the well the way a flush 56 (barely clearing the old, smaller bare icon) did
     self.textContainer = window:Create("Frame", {
-        Position = UDim2.new(0, self.icon and 56 or 16, 0.5, 0),
-        Size = UDim2.new(1, (self.icon and -56 or -16) - 50, 0, 34),
+        Position = UDim2.new(0, self.icon and 68 or 16, 0.5, 0),
+        Size = UDim2.new(1, (self.icon and -68 or -16) - 50, 0, 34),
         AnchorPoint = Vector2.new(0, 0.5),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
@@ -285,20 +281,46 @@ function Item:_buildRow(list)
         Parent = self.pinButton,
     })
 
-    self.pinIconLabel = window:Create("TextLabel", {
-        Text = self.pinned and list.pinIcon or list.unpinIcon,
-        Size = UDim2.fromOffset(16, 16),
-        Position = UDim2.fromScale(0.5, 0.5),
+    -- Vector pin glyph (a rounded head over a pointed tip), built from two plain Frames rather
+    -- than a font character - no thumbtack asset ships with the library, and the Windows emoji
+    -- fallback for a text glyph read as out of place next to the rest of the icon set. The
+    -- CanvasGroup composites both pieces so one GroupTransparency fades them together like a
+    -- single icon, the same as ImageTransparency does for iconLabel above.
+    self.pinIconLabel = window:Create("CanvasGroup", {
+        Size = UDim2.fromOffset(14, 14),
+        Position = UDim2.new(0.5, 0, 0.5, -1),
         AnchorPoint = Vector2.new(0.5, 0.5),
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
-        TextSize = 13,
-        Font = Enum.Font.SourceSansBold,
 
-        TextTransparency = 1,
+        GroupTransparency = 1, -- In = 0
 
         Parent = self.pinButton,
-    }, { TextColor3 = "ContentColor" })
+    })
+
+    local pinHead = window:Create("Frame", {
+        Size = UDim2.fromOffset(9, 9),
+        Position = UDim2.new(0.5, 0, 0, 0),
+        AnchorPoint = Vector2.new(0.5, 0),
+        BorderSizePixel = 0,
+        ZIndex = 2,
+
+        Parent = self.pinIconLabel,
+    }, { BackgroundColor3 = "ContentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = pinHead })
+
+    -- the diamond's top half tucks behind the head (lower ZIndex) so only its bottom point
+    -- pokes out, reading as one rounded-head, pointed-tip pin rather than two shapes
+    window:Create("Frame", {
+        Size = UDim2.fromOffset(6, 6),
+        Position = UDim2.new(0.5, 0, 0, 7),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Rotation = 45,
+        BorderSizePixel = 0,
+        ZIndex = 1,
+
+        Parent = self.pinIconLabel,
+    }, { BackgroundColor3 = "ContentColor" })
 
     self.pinInteract = window:Create("TextButton", {
         Size = UDim2.fromScale(1, 1),
@@ -334,7 +356,7 @@ function Item:_buildRow(list)
             })
             :Play()
         if not self.pinned then
-            variables.tweenService:Create(self.pinIconLabel, pinFadeInfo, { TextTransparency = 0.3 }):Play()
+            variables.tweenService:Create(self.pinIconLabel, pinFadeInfo, { GroupTransparency = 0.3 }):Play()
             variables.tweenService:Create(self.pinButton, pinFadeInfo, {
                 BackgroundTransparency = window.theme.ToggleKnobOffTransparency,
             }):Play()
@@ -356,7 +378,7 @@ function Item:_buildRow(list)
             })
             :Play()
         if not self.pinned then
-            variables.tweenService:Create(self.pinIconLabel, pinFadeInfo, { TextTransparency = 1 }):Play()
+            variables.tweenService:Create(self.pinIconLabel, pinFadeInfo, { GroupTransparency = 1 }):Play()
             variables.tweenService:Create(self.pinButton, pinFadeInfo, { BackgroundTransparency = 1 }):Play()
         end
     end)
@@ -429,9 +451,8 @@ function Item:SetPinned(pinned, skipAnimation)
         BackgroundTransparency = restTransparency,
     }):Play()
     variables.tweenService
-        :Create(self.pinIconLabel, pinFadeInfo, { TextTransparency = pinned and 0 or 1 })
+        :Create(self.pinIconLabel, pinFadeInfo, { GroupTransparency = pinned and 0 or 1 })
         :Play()
-    self.pinIconLabel.Text = pinned and list.pinIcon or list.unpinIcon
 end
 
 function Item:Pin()
@@ -458,7 +479,7 @@ function Item:_setShown(shown, animate)
         w:_reveal(self.pinButton, {
             BackgroundTransparency = self.pinned and w.theme.FieldTransparency or 1,
         }, animate)
-        w:_reveal(self.pinIconLabel, { TextTransparency = self.pinned and 0 or 1 }, animate)
+        w:_reveal(self.pinIconLabel, { GroupTransparency = self.pinned and 0 or 1 }, animate)
     else
         w:_reveal(self.stroke, { Transparency = 1 }, animate)
         w:_reveal(self.main, { BackgroundTransparency = 1 }, animate)
@@ -469,7 +490,7 @@ function Item:_setShown(shown, animate)
             w:_reveal(self.iconLabel, { ImageTransparency = 1 }, animate)
         end
         w:_reveal(self.pinButton, { BackgroundTransparency = 1 }, animate)
-        w:_reveal(self.pinIconLabel, { TextTransparency = 1 }, animate)
+        w:_reveal(self.pinIconLabel, { GroupTransparency = 1 }, animate)
     end
 end
 
