@@ -5,10 +5,11 @@
 -- License, v. 2.0. If a copy of the MPL was not distributed with this
 -- file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
--- Devlog 5 rebuild: a permanently-open card (no more header-pill morph) with a hex field, RGB
--- number boxes, a live swatch and quick-pick presets on the left, and a Saturation/Value square
--- + horizontal Hue rail (hsvEditor.luau, shared with GradientPicker) on the right. Reflows to a
--- single stacked column under narrowWidth, same idea as every other width-aware element here.
+-- Devlog 5 rebuild: a collapsed header row (name + a live colour swatch pill) that taps open
+-- into a hex field, RGB number boxes, a big swatch bar and quick-pick presets on the left, and a
+-- Saturation/Value square + horizontal Hue rail (hsvEditor.luau, shared with GradientPicker) on
+-- the right - same open/close shape as GradientPicker so the two pickers behave identically.
+-- Reflows to a single stacked column under narrowWidth.
 
 local ColorPicker = {}
 ColorPicker.__index = ColorPicker
@@ -26,12 +27,13 @@ local hapticEngine = require(utility.HapticEngine)
 local hsvEditor = require(utility.hsvEditor)
 
 local headerHeight = 44
-local squareSize = 140
+local squareSize = 150
 local rowGap = 8
 local narrowWidth = 380
 local glowOnTransparency = 0.55
 
 local fadeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local openInfo = TweenInfo.new(0.5, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
 
 local function clampByte(n)
     return math.clamp(math.round(n), 0, 255)
@@ -142,6 +144,7 @@ function ColorPicker.new(tab, properties)
 
         callback = properties.callback or properties.Callback or function() end,
 
+        _isOpen = false,
         showGlow = if properties.glow ~= nil
             then properties.glow
             elseif properties.Glow ~= nil then properties.Glow
@@ -163,7 +166,7 @@ function ColorPicker.new(tab, properties)
     self.window:_registerControl(self)
 
     self.main = self.window:Create("Frame", {
-        Size = UDim2.new(1, -20, 0, 260),
+        Size = UDim2.new(1, -20, 0, headerHeight),
         BorderSizePixel = 0,
         Name = self.name,
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -173,10 +176,41 @@ function ColorPicker.new(tab, properties)
     }, { BackgroundTransparency = "ElementTransparency" })
 
     self.stroke = self.window:StyleElementBody(self.main)
+    self.hoverOverlay = self.window:CreateHoverOverlay(self.main)
     self.previewGlow = self.window:CreateGlow(self.main, self.value, 26, 1) -- In = glowOnTransparency (if showGlow)
 
     self:_buildHeader()
     self:_buildBody()
+
+    self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
+        hapticEngine.click()
+        if self._isOpen then
+            self:_close()
+        else
+            self:_open()
+        end
+    end)
+
+    self.window:ConnectFor(self, self.main.MouseEnter, function()
+        if self._isOpen or not self.window:_interactive() then
+            return
+        end
+        local theme = self.window.theme
+        variables.tweenService
+            :Create(self.stroke, fadeInfo, { Transparency = theme.ElementStrokeHoverTransparency, Color = theme.ElementStrokeHover })
+            :Play()
+        variables.tweenService:Create(self.title, fadeInfo, { TextColor3 = theme.ElementTextHoverColor }):Play()
+        variables.tweenService:Create(self.hoverOverlay, fadeInfo, { BackgroundTransparency = 0.97 }):Play()
+    end)
+
+    self.window:ConnectFor(self, self.main.MouseLeave, function()
+        local theme = self.window.theme
+        variables.tweenService
+            :Create(self.stroke, fadeInfo, { Transparency = theme.ElementStrokeTransparency, Color = theme.ElementStroke })
+            :Play()
+        variables.tweenService:Create(self.title, fadeInfo, { TextColor3 = theme.ContentColor }):Play()
+        variables.tweenService:Create(self.hoverOverlay, fadeInfo, { BackgroundTransparency = 1 }):Play()
+    end)
 
     self.window:ConnectFor(self, self.main:GetPropertyChangedSignal("AbsoluteSize"), function()
         if self.window.animating or (self.window.hidden and self.window.hasShownOnce) then
@@ -192,6 +226,9 @@ function ColorPicker.new(tab, properties)
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })
     end
 
+    self:_applyBodyVisibility(false, false)
+    self:_setControlsVisible(false)
+
     self:_render("instant")
 
     return self
@@ -199,11 +236,12 @@ end
 
 function ColorPicker:_buildHeader()
     local container = self.window:Create("Frame", {
-        Size = UDim2.new(1, -40, 0, 16),
+        Size = UDim2.new(1, -90, 0, 16),
         Position = UDim2.new(0, 20, 0, headerHeight / 2),
         AnchorPoint = Vector2.new(0, 0.5),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
+        ZIndex = 5,
 
         Parent = self.main,
     })
@@ -223,6 +261,7 @@ function ColorPicker:_buildHeader()
             Size = UDim2.fromOffset(16, 16),
             BorderSizePixel = 0,
             BackgroundTransparency = 1,
+            ZIndex = 5,
 
             ImageTransparency = 1, -- In = 0
 
@@ -239,11 +278,39 @@ function ColorPicker:_buildHeader()
         TextSize = 16,
         TextXAlignment = Enum.TextXAlignment.Left,
         LayoutOrder = 1,
+        ZIndex = 5,
 
         TextTransparency = 1, -- In = 0
 
         Parent = container,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
+
+    -- small always-on colour pill in the header, live even while collapsed - mirrors
+    -- GradientPicker's header swatch so both pickers read the same way at a glance
+    self.swatch = self.window:Create("Frame", {
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -16, 0, headerHeight / 2),
+        Size = UDim2.fromOffset(40, 22),
+        BackgroundColor3 = self.value,
+        BorderSizePixel = 0,
+        ZIndex = 3,
+
+        BackgroundTransparency = 1, -- In = 0
+
+        Parent = self.main,
+    })
+    self.window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.swatch })
+
+    self.interact = self.window:Create("TextButton", {
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, headerHeight),
+        BorderSizePixel = 0,
+        Text = "",
+        AutoButtonColor = false,
+        ZIndex = 10,
+
+        Parent = self.main,
+    })
 end
 
 -- A small rounded field: an optional single-letter label (R/G/B) left, a TextBox filling the
@@ -253,8 +320,9 @@ function ColorPicker:_buildField(label, placeholder)
         Size = UDim2.fromOffset(0, 34),
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
+        ZIndex = 2,
 
-        BackgroundTransparency = 1, -- Shown = 0.92
+        BackgroundTransparency = 1, -- Open = 0.85
 
         Parent = self.main,
     })
@@ -262,7 +330,7 @@ function ColorPicker:_buildField(label, placeholder)
     local stroke = self.window:Create("UIStroke", {
         Color = Color3.fromRGB(255, 255, 255),
 
-        Transparency = 1, -- Shown = 0.88
+        Transparency = 1, -- Open = 0.75
 
         Parent = box,
     })
@@ -278,8 +346,9 @@ function ColorPicker:_buildField(label, placeholder)
         TextSize = 15,
         TextXAlignment = Enum.TextXAlignment.Left,
         ClearTextOnFocus = false,
+        ZIndex = 3,
 
-        TextTransparency = 1, -- Shown = 0
+        TextTransparency = 1, -- Open = 0
 
         Parent = box,
     }, { TextColor3 = "ContentColor", FontFace = "Font", PlaceholderColor3 = "PlaceholderColor" })
@@ -294,8 +363,9 @@ function ColorPicker:_buildField(label, placeholder)
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
             TextSize = 13,
+            ZIndex = 3,
 
-            TextTransparency = 1, -- Shown = 0.4
+            TextTransparency = 1, -- Open = 0.4
 
             Parent = box,
         }, { TextColor3 = "PlaceholderColor", FontFace = "Font" })
@@ -315,6 +385,7 @@ function ColorPicker:_buildBody()
         Size = UDim2.fromOffset(0, 34),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
+        ZIndex = 2,
 
         Parent = self.main,
     })
@@ -330,23 +401,25 @@ function ColorPicker:_buildBody()
     self.gBox, self.gInput, self.gBoxStroke, self.gBoxText = self:_buildRgbField("G")
     self.bBox, self.bInput, self.bBoxStroke, self.bBoxText = self:_buildRgbField("B")
 
-    -- live swatch preview
-    self.swatch = self.window:Create("Frame", {
+    -- big live swatch bar
+    self.swatchBar = self.window:Create("Frame", {
         Size = UDim2.fromOffset(0, 34),
         BackgroundColor3 = self.value,
         BorderSizePixel = 0,
+        ZIndex = 2,
 
-        BackgroundTransparency = 1, -- Shown = 0
+        BackgroundTransparency = 1, -- Open = 0
 
         Parent = self.main,
     })
-    self.window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.swatch })
+    self.window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.swatchBar })
 
     -- preset swatches row
     self.presetsRow = self.window:Create("Frame", {
         Size = UDim2.fromOffset(0, 26),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
+        ZIndex = 2,
 
         Parent = self.main,
     })
@@ -366,8 +439,9 @@ function ColorPicker:_buildBody()
             BorderSizePixel = 0,
             Text = "",
             AutoButtonColor = false,
+            ZIndex = 2,
 
-            BackgroundTransparency = 1, -- Shown = 0
+            BackgroundTransparency = 1, -- Open = 0
 
             Parent = self.presetsRow,
         })
@@ -375,7 +449,7 @@ function ColorPicker:_buildBody()
         local ring = self.window:Create("UIStroke", {
             Color = Color3.fromRGB(255, 255, 255),
             Thickness = 2,
-            Transparency = 1, -- managed by _render (selection ring), forced shut while hidden
+            Transparency = 1, -- managed by _render (selection ring), forced shut while closed
 
             Parent = dot,
         })
@@ -433,8 +507,9 @@ function ColorPicker:_buildRgbField(label)
     local box = self.window:Create("Frame", {
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
+        ZIndex = 2,
 
-        BackgroundTransparency = 1, -- Shown = 0.92
+        BackgroundTransparency = 1, -- Open = 0.85
 
         Parent = self.rgbRow,
     })
@@ -442,7 +517,7 @@ function ColorPicker:_buildRgbField(label)
     local stroke = self.window:Create("UIStroke", {
         Color = Color3.fromRGB(255, 255, 255),
 
-        Transparency = 1, -- Shown = 0.88
+        Transparency = 1, -- Open = 0.75
 
         Parent = box,
     })
@@ -455,8 +530,9 @@ function ColorPicker:_buildRgbField(label)
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         TextSize = 13,
+        ZIndex = 3,
 
-        TextTransparency = 1, -- Shown = 0.4
+        TextTransparency = 1, -- Open = 0.4
 
         Parent = box,
     }, { TextColor3 = "PlaceholderColor", FontFace = "Font" })
@@ -470,8 +546,9 @@ function ColorPicker:_buildRgbField(label)
         TextSize = 15,
         TextXAlignment = Enum.TextXAlignment.Left,
         ClearTextOnFocus = false,
+        ZIndex = 3,
 
-        TextTransparency = 1, -- Shown = 0
+        TextTransparency = 1, -- Open = 0
 
         Parent = box,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
@@ -481,6 +558,7 @@ end
 
 function ColorPicker:_render(mode)
     self.swatch.BackgroundColor3 = self.value
+    self.swatchBar.BackgroundColor3 = self.value
     self.hsv:SetColor(self.hue, self.sat, self.val, mode ~= "instant")
 
     if not self.hexInput:IsFocused() then
@@ -498,12 +576,66 @@ function ColorPicker:_render(mode)
 
     self.previewGlow.Color = self.value
     for _, entry in self.presetButtons do
-        entry.ring.Transparency = if entry.color == self.value then 0 else 1
+        entry.ring.Transparency = if entry.color == self.value and self._isOpen then 0 else 1
     end
 end
 
 function ColorPicker:_fireCallback()
     self.window:_runGuarded(self, self.callback, self.value, self.alpha)
+end
+
+function ColorPicker:_open()
+    if self._isOpen then
+        return
+    end
+    self._isOpen = true
+    self:_setControlsVisible(true)
+
+    if self._outsideClickConn then
+        self.window:Disconnect(self._outsideClickConn)
+    end
+    self._outsideClickConn = self.window:Connect(variables.userInputService.InputBegan, function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+        local pos = input.Position
+        local mainPos = self.main.AbsolutePosition
+        local mainSize = self.main.AbsoluteSize
+        if pos.X < mainPos.X or pos.X > mainPos.X + mainSize.X or pos.Y < mainPos.Y or pos.Y > mainPos.Y + mainSize.Y then
+            self:_close()
+        end
+    end)
+
+    variables.tweenService:Create(self.main, openInfo, { Size = UDim2.new(1, -20, 0, self._openHeight) }):Play()
+    self:_applyBodyVisibility(true, true)
+    self.hsv:SetVisible(true, true)
+    self:_render("animate")
+end
+
+function ColorPicker:_close()
+    if not self._isOpen then
+        return
+    end
+    self._isOpen = false
+
+    if self._outsideClickConn then
+        self.window:Disconnect(self._outsideClickConn)
+        self._outsideClickConn = nil
+    end
+    if self.hexInput:IsFocused() then
+        self.hexInput:ReleaseFocus()
+    end
+
+    self:_applyBodyVisibility(false, true)
+    self.hsv:SetVisible(false, true)
+    self:_render("animate") -- also drops the preset ring now that _isOpen is false
+    variables.tweenService:Create(self.main, openInfo, { Size = UDim2.new(1, -20, 0, headerHeight) }):Play()
+
+    task.delay(fadeInfo.Time, function()
+        if not self._isOpen then
+            self:_setControlsVisible(false)
+        end
+    end)
 end
 
 -- Wide: hex/RGB/swatch/presets left, square+hue right, side by side.
@@ -526,8 +658,8 @@ function ColorPicker:_applyLayout()
     self.rgbRow.Size = UDim2.new(leftWidth.Scale, leftWidth.Offset, 0, 34)
     y += 34 + rowGap
 
-    self.swatch.Position = UDim2.new(0, 20, 0, y)
-    self.swatch.Size = UDim2.new(leftWidth.Scale, leftWidth.Offset, 0, 34)
+    self.swatchBar.Position = UDim2.new(0, 20, 0, y)
+    self.swatchBar.Size = UDim2.new(leftWidth.Scale, leftWidth.Offset, 0, 34)
     y += 34 + rowGap + 2
 
     self.presetsRow.Position = UDim2.new(0, 20, 0, y)
@@ -536,11 +668,15 @@ function ColorPicker:_applyLayout()
 
     if mode == "wide" then
         self.hsv.root.Position = UDim2.new(1, -20 - squareSize, 0, headerHeight)
-        self.main.Size = UDim2.new(1, -20, 0, math.max(leftBottom, headerHeight + squareSize + 14 + 14) + 20)
+        self._openHeight = math.max(leftBottom, headerHeight + squareSize + 14 + 14) + 20
     else
         local hsvY = leftBottom + 16
         self.hsv.root.Position = UDim2.new(0.5, -squareSize / 2, 0, hsvY)
-        self.main.Size = UDim2.new(1, -20, 0, hsvY + squareSize + 14 + 14 + 20)
+        self._openHeight = hsvY + squareSize + 14 + 14 + 20
+    end
+
+    if self._isOpen then
+        variables.tweenService:Create(self.main, openInfo, { Size = UDim2.new(1, -20, 0, self._openHeight) }):Play()
     end
 end
 
@@ -587,28 +723,29 @@ function ColorPicker:_deserialize(raw)
     self:Set(Color3.fromHex(hex))
 end
 
--- Every body part (hex/RGB fields, swatch, presets), listed once so both the initial hidden
--- state at build and every later show/hide pull from the same table - same idea as the old
--- picker's _applyPickerVisibility. The HSV editor manages its own instances via SetVisible.
-function ColorPicker:_applyVisibility(shown, animate)
+-- Every OPEN-only body part (hex/RGB fields, swatch bar, presets), listed once so both the
+-- initial hidden state at build and every later open/close pull from the same table - same
+-- idea as the old picker's _applyPickerVisibility. The header swatch pill is NOT in here since
+-- it stays visible whether the card is open or closed. hsvEditor manages its own instances.
+function ColorPicker:_applyBodyVisibility(open, animate)
     local set = {
-        [self.hexBox] = { BackgroundTransparency = if shown then 0.92 else 1 },
-        [self.hexBoxStroke] = { Transparency = if shown then 0.88 else 1 },
-        [self.hexInput] = { TextTransparency = if shown then 0 else 1 },
-        [self.swatch] = { BackgroundTransparency = if shown then 0 else 1 },
+        [self.hexBox] = { BackgroundTransparency = if open then 0.85 else 1 },
+        [self.hexBoxStroke] = { Transparency = if open then 0.75 else 1 },
+        [self.hexInput] = { TextTransparency = if open then 0 else 1 },
+        [self.swatchBar] = { BackgroundTransparency = if open then 0 else 1 },
     }
     for _, field in { { self.rBox, self.rBoxStroke, self.rBoxText, self.rInput },
         { self.gBox, self.gBoxStroke, self.gBoxText, self.gInput },
         { self.bBox, self.bBoxStroke, self.bBoxText, self.bInput } } do
         local box, stroke, text, input = field[1], field[2], field[3], field[4]
-        set[box] = { BackgroundTransparency = if shown then 0.92 else 1 }
-        set[stroke] = { Transparency = if shown then 0.88 else 1 }
-        set[text] = { TextTransparency = if shown then 0.4 else 1 }
-        set[input] = { TextTransparency = if shown then 0 else 1 }
+        set[box] = { BackgroundTransparency = if open then 0.85 else 1 }
+        set[stroke] = { Transparency = if open then 0.75 else 1 }
+        set[text] = { TextTransparency = if open then 0.4 else 1 }
+        set[input] = { TextTransparency = if open then 0 else 1 }
     end
     for _, entry in self.presetButtons do
-        set[entry.dot] = { BackgroundTransparency = if shown then 0 else 1 }
-        if not shown then
+        set[entry.dot] = { BackgroundTransparency = if open then 0 else 1 }
+        if not open then
             set[entry.ring] = { Transparency = 1 }
         end
     end
@@ -624,19 +761,28 @@ function ColorPicker:_applyVisibility(shown, animate)
     end
 end
 
+-- The open-only controls sit below the header even while collapsed (the card doesn't clip), so
+-- a transparent TextBox/button down there would still catch the cursor. Toggling them off drops
+-- the whole cluster out of input while closed - the header swatch pill is separate, stays put.
+function ColorPicker:_setControlsVisible(visible)
+    for _, frame in { self.hexBox, self.rgbRow, self.swatchBar, self.presetsRow, self.hsv.root } do
+        frame.Visible = visible
+    end
+end
+
 function ColorPicker:_setShown(shown, animate)
     local w = self.window
     if shown then
         w:_revealCommon(self, animate)
+        w:_reveal(self.swatch, { BackgroundTransparency = 0 }, animate)
         w:_reveal(self.previewGlow, { Transparency = if self.showGlow then glowOnTransparency else 1 }, animate)
-        self:_applyVisibility(true, animate)
-        self.hsv:SetVisible(true, animate)
-        self:_render("instant") -- restore the correct preset ring now that rings are unmasked
     else
         w:_hideCommon(self, animate)
+        w:_reveal(self.swatch, { BackgroundTransparency = 1 }, animate)
         w:_reveal(self.previewGlow, { Transparency = 1 }, animate)
-        self:_applyVisibility(false, animate)
-        self.hsv:SetVisible(false, animate)
+        if self._isOpen then
+            self:_close()
+        end
     end
 end
 
