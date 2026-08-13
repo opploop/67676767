@@ -26,7 +26,6 @@ local moveable = require(utility.moveable)
 local locale = require(utility.locale)
 local hapticEngine = require(utility.HapticEngine)
 
-local slideInfo = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local fadeInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local barHeight = 48
 -- text sitting directly on the white indicator (a selected top-level segment, or an inactive
@@ -35,6 +34,47 @@ local barHeight = 48
 local darkTextColor = Color3.fromRGB(20, 20, 20)
 local childIndicatorColor = Color3.fromRGB(20, 20, 20)
 local childIndicatorInset = 3 -- px of white margin left showing around the childIndicator
+
+-- Squish & stretch, in two tweens rather than one: a quick stretch into a shape spanning both
+-- the old and new bounds (so the pill briefly smears in the direction of travel, like it's
+-- being dragged rather than teleported), then a springy settle - Back overshoots slightly past
+-- the exact target size before easing back, reading as a soft bounce rather than a hard stop.
+local stretchInfo = TweenInfo.new(0.12, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+local settleInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+local function slideIndicator(pill, targetPos, targetSize, skipAnimation)
+    if skipAnimation then
+        pill.Position, pill.Size = targetPos, targetSize
+        return
+    end
+
+    local fromPos, fromSize = pill.Position, pill.Size
+    local fromLeft = fromPos.X.Scale
+    local fromRight = fromLeft + fromSize.X.Scale
+    local toLeft = targetPos.X.Scale
+    local toRight = toLeft + targetSize.X.Scale
+
+    local stretchLeft = math.min(fromLeft, toLeft)
+    local stretchRight = math.max(fromRight, toRight)
+
+    -- offset components (the childIndicator's inset margin) carry over unchanged - only the
+    -- scale portion actually needs to stretch across the gap between old and new position
+    local stretchPos = UDim2.new(stretchLeft, targetPos.X.Offset, targetPos.Y.Scale, targetPos.Y.Offset)
+    local stretchSize =
+        UDim2.new(stretchRight - stretchLeft, targetSize.X.Offset, targetSize.Y.Scale, targetSize.Y.Offset)
+
+    local stretchTween =
+        variables.tweenService:Create(pill, stretchInfo, { Position = stretchPos, Size = stretchSize })
+    stretchTween:Play()
+
+    -- :Once() isn't guaranteed on every client this session has run into - :Connect() + manual
+    -- disconnect is the one form of "run this once" every client here has actually supported
+    local connection
+    connection = stretchTween.Completed:Connect(function()
+        connection:Disconnect()
+        variables.tweenService:Create(pill, settleInfo, { Position = targetPos, Size = targetSize }):Play()
+    end)
+end
 
 -- Accepts a bare string ("Low") or a table ({ text = "Premium", options = {...} }); always
 -- returns the table shape internally so every other function only has one case to handle.
@@ -411,25 +451,22 @@ function SegmentedPicker:_render(skipAnimation)
     -- not - expanded, that's exactly the shared white background the reference shows behind both
     -- children; the childIndicator (below) is what actually marks which one is picked
     local goalPosition, goalSize = self:_indicatorGoal(index)
-    if skipAnimation then
-        self.indicator.Position, self.indicator.Size = goalPosition, goalSize
-    else
-        variables.tweenService:Create(self.indicator, slideInfo, { Position = goalPosition, Size = goalSize }):Play()
-    end
+    slideIndicator(self.indicator, goalPosition, goalSize, skipAnimation)
 
     local expandedSegment = index and self.segments[index]
     if expandedSegment and expandedSegment.option.options then
         local childPosition, childSize = self:_childIndicatorGoal(index, childIndex)
+        -- going from hidden to shown, snap straight to the target instead of stretching - it was
+        -- last positioned wherever it happened to be left (or its layout default, 0,0/0,0) and
+        -- has no meaningful "old spot" to smear from yet
+        local wasHidden = not self.childIndicator.Visible
         self.childIndicator.Visible = true
-        if skipAnimation then
+        if skipAnimation or wasHidden then
             self.childIndicator.Position, self.childIndicator.Size = childPosition, childSize
-            self.childIndicator.BackgroundTransparency = 0
         else
-            variables.tweenService
-                :Create(self.childIndicator, slideInfo, { Position = childPosition, Size = childSize })
-                :Play()
-            variables.tweenService:Create(self.childIndicator, fadeInfo, { BackgroundTransparency = 0 }):Play()
+            slideIndicator(self.childIndicator, childPosition, childSize, false)
         end
+        self.window:_reveal(self.childIndicator, { BackgroundTransparency = 0 }, not skipAnimation, fadeInfo)
     elseif self.childIndicator.BackgroundTransparency == 0 then
         local tween = variables.tweenService:Create(self.childIndicator, fadeInfo, { BackgroundTransparency = 1 })
         tween:Play()
