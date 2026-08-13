@@ -34,6 +34,13 @@ local rowHeight = 54
 local flipInfo = TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local pinFadeInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
+-- The pin glyph is two plain Frames (see Item:_buildRow), not one CanvasGroup, so every fade
+-- has to drive both of their BackgroundTransparency in lockstep to read as a single icon fading.
+local function tweenPinGlyph(item, transparency)
+    variables.tweenService:Create(item.pinHead, pinFadeInfo, { BackgroundTransparency = transparency }):Play()
+    variables.tweenService:Create(item.pinPoint, pinFadeInfo, { BackgroundTransparency = transparency }):Play()
+end
+
 function PinnedList.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
 
@@ -283,41 +290,45 @@ function Item:_buildRow(list)
 
     -- Vector pin glyph (a rounded head over a pointed tip), built from two plain Frames rather
     -- than a font character - no thumbtack asset ships with the library, and the Windows emoji
-    -- fallback for a text glyph read as out of place next to the rest of the icon set. The
-    -- CanvasGroup composites both pieces so one GroupTransparency fades them together like a
-    -- single icon, the same as ImageTransparency does for iconLabel above.
-    self.pinIconLabel = window:Create("CanvasGroup", {
+    -- fallback for a text glyph read as out of place next to the rest of the icon set. A
+    -- CanvasGroup would let one GroupTransparency fade both pieces as a unit, but it didn't
+    -- render at all on the test client despite its property reading back correctly - so this
+    -- is a plain positioning Frame instead, and every fade below drives both children's own
+    -- BackgroundTransparency together.
+    self.pinIconLabel = window:Create("Frame", {
         Size = UDim2.fromOffset(14, 14),
         Position = UDim2.new(0.5, 0, 0.5, -1),
         AnchorPoint = Vector2.new(0.5, 0.5),
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
 
-        GroupTransparency = 1, -- In = 0
-
         Parent = self.pinButton,
     })
 
-    local pinHead = window:Create("Frame", {
+    self.pinHead = window:Create("Frame", {
         Size = UDim2.fromOffset(9, 9),
         Position = UDim2.new(0.5, 0, 0, 0),
         AnchorPoint = Vector2.new(0.5, 0),
         BorderSizePixel = 0,
         ZIndex = 2,
 
+        BackgroundTransparency = 1, -- In = 0
+
         Parent = self.pinIconLabel,
     }, { BackgroundColor3 = "ContentColor" })
-    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = pinHead })
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = self.pinHead })
 
     -- the diamond's top half tucks behind the head (lower ZIndex) so only its bottom point
     -- pokes out, reading as one rounded-head, pointed-tip pin rather than two shapes
-    window:Create("Frame", {
+    self.pinPoint = window:Create("Frame", {
         Size = UDim2.fromOffset(6, 6),
         Position = UDim2.new(0.5, 0, 0, 7),
         AnchorPoint = Vector2.new(0.5, 0.5),
         Rotation = 45,
         BorderSizePixel = 0,
         ZIndex = 1,
+
+        BackgroundTransparency = 1, -- In = 0
 
         Parent = self.pinIconLabel,
     }, { BackgroundColor3 = "ContentColor" })
@@ -356,7 +367,7 @@ function Item:_buildRow(list)
             })
             :Play()
         if not self.pinned then
-            variables.tweenService:Create(self.pinIconLabel, pinFadeInfo, { GroupTransparency = 0.3 }):Play()
+            tweenPinGlyph(self, 0.3)
             variables.tweenService:Create(self.pinButton, pinFadeInfo, {
                 BackgroundTransparency = window.theme.ToggleKnobOffTransparency,
             }):Play()
@@ -378,7 +389,7 @@ function Item:_buildRow(list)
             })
             :Play()
         if not self.pinned then
-            variables.tweenService:Create(self.pinIconLabel, pinFadeInfo, { GroupTransparency = 1 }):Play()
+            tweenPinGlyph(self, 1)
             variables.tweenService:Create(self.pinButton, pinFadeInfo, { BackgroundTransparency = 1 }):Play()
         end
     end)
@@ -399,7 +410,13 @@ local function flipReflow(list, mutate)
 
     mutate()
 
-    task.defer(function()
+    -- task.defer resumes before this executor's UIListLayout has actually recalculated the new
+    -- AbsolutePosition (same timing gap RenderStepped connections fall into elsewhere in this
+    -- library) - "before" and "after" would read identical, delta ~0, and every row would just
+    -- snap with no visible glide. task.wait() already proved reliable for exactly this
+    -- (_startLoop's follow loop), so use that instead of trusting deferral timing here too.
+    task.spawn(function()
+        task.wait()
         for item, fromPos in before do
             if not item.main or not item.main.Parent then
                 continue -- removed mid-transition
@@ -450,9 +467,7 @@ function Item:SetPinned(pinned, skipAnimation)
         BackgroundColor3 = pinned and window.theme.FieldBackground or window.theme.ToggleKnobOff,
         BackgroundTransparency = restTransparency,
     }):Play()
-    variables.tweenService
-        :Create(self.pinIconLabel, pinFadeInfo, { GroupTransparency = pinned and 0 or 1 })
-        :Play()
+    tweenPinGlyph(self, pinned and 0 or 1)
 end
 
 function Item:Pin()
@@ -479,7 +494,9 @@ function Item:_setShown(shown, animate)
         w:_reveal(self.pinButton, {
             BackgroundTransparency = self.pinned and w.theme.FieldTransparency or 1,
         }, animate)
-        w:_reveal(self.pinIconLabel, { GroupTransparency = self.pinned and 0 or 1 }, animate)
+        local pinGlyphT = self.pinned and 0 or 1
+        w:_reveal(self.pinHead, { BackgroundTransparency = pinGlyphT }, animate)
+        w:_reveal(self.pinPoint, { BackgroundTransparency = pinGlyphT }, animate)
     else
         w:_reveal(self.stroke, { Transparency = 1 }, animate)
         w:_reveal(self.main, { BackgroundTransparency = 1 }, animate)
@@ -490,7 +507,8 @@ function Item:_setShown(shown, animate)
             w:_reveal(self.iconLabel, { ImageTransparency = 1 }, animate)
         end
         w:_reveal(self.pinButton, { BackgroundTransparency = 1 }, animate)
-        w:_reveal(self.pinIconLabel, { GroupTransparency = 1 }, animate)
+        w:_reveal(self.pinHead, { BackgroundTransparency = 1 }, animate)
+        w:_reveal(self.pinPoint, { BackgroundTransparency = 1 }, animate)
     end
 end
 
