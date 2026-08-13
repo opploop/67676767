@@ -282,15 +282,10 @@ function SegmentedPicker:_buildSegment(option, index)
         Parent = slot,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
-    -- tapping the collapsed label: if this segment is already the selected one, reveal its
-    -- siblings instead of re-picking the same value; otherwise just select it (still collapsed,
-    -- using whichever child it last remembered) - a second tap is what reveals the alternatives
+    -- tapping the collapsed label both selects this segment and reveals its siblings in the
+    -- same tap - selecting "Monthly" is what makes "Annual" appear, not a separate second tap
     window:ConnectFor(self, segment.collapsedLabel.MouseButton1Click, function()
-        if self.selectedIndex == index then
-            self:_setExpanded(index, true)
-        else
-            self:_pick(index, segment.activeChild)
-        end
+        self:_pick(index, segment.activeChild, true)
     end)
 
     segment.expandedRow = window:Create("Frame", {
@@ -461,7 +456,9 @@ function SegmentedPicker:_render(skipAnimation)
     end
 end
 
-function SegmentedPicker:_pick(index, childIndex)
+-- autoExpand: only the collapsed-label entry point passes this - picking a specific child (or a
+-- plain non-nested segment) should finalize and collapse, not immediately expand back open.
+function SegmentedPicker:_pick(index, childIndex, autoExpand)
     local segment = self.segments[index]
     if segment.option.options and childIndex then
         segment.activeChild = childIndex
@@ -469,15 +466,18 @@ function SegmentedPicker:_pick(index, childIndex)
     end
 
     if self.selectedIndex == index and self.selectedChildIndex == childIndex then
-        -- already this exact value - still collapse if it was showing expanded (re-tapping the
-        -- active child, or the collapsed label of an already-selected non-nested segment)
-        if self._expandedIndex == index then
-            self:_setExpanded(index, false)
+        -- already this exact value - a collapsed-label tap toggles the expand instead of
+        -- re-picking; anything else (re-tapping the already-active child) leaves it alone
+        if autoExpand then
+            self:_setExpanded(index, self._expandedIndex ~= index)
         end
         return
     end
     hapticEngine.click()
     self:_select(index, childIndex)
+    if autoExpand and segment.option.options then
+        self:_setExpanded(index, true)
+    end
 
     local value = segment.option.text
     if childIndex and segment.option.options then
