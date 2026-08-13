@@ -516,7 +516,7 @@ function ColorPicker:_applyLayout()
     end
     self._layoutMode = mode
 
-    local leftWidth = if mode == "wide" then UDim2.new(1, -(20 + squareSize + 16 + 20)) else UDim2.new(1, -40)
+    local leftWidth = if mode == "wide" then UDim.new(1, -(20 + squareSize + 16 + 20)) else UDim.new(1, -40)
     local y = headerHeight
     self.hexBox.Position = UDim2.new(0, 20, 0, y)
     self.hexBox.Size = UDim2.new(leftWidth.Scale, leftWidth.Offset, 0, 34)

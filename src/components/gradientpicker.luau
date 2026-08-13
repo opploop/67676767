@@ -766,7 +766,7 @@ function GradientPicker:_applyLayout()
     end
     self._layoutMode = mode
 
-    local leftWidth = if mode == "wide" then UDim2.new(1, -(20 + squareSize + 16 + 20)) else UDim2.new(1, -40)
+    local leftWidth = if mode == "wide" then UDim.new(1, -(20 + squareSize + 16 + 20)) else UDim.new(1, -40)
     local y = headerHeight + 44 + 16 -- under the preview bar
 
     self.rail.Position = UDim2.new(0, 20 + 10, 0, y + 13)
