@@ -33,7 +33,7 @@ local barHeight = 40
 -- on the dark bar itself, or on the childIndicator's own dark inset, needs the theme's light one
 local darkTextColor = Color3.fromRGB(20, 20, 20)
 local childIndicatorColor = Color3.fromRGB(20, 20, 20)
-local childIndicatorInset = 3 -- px of white margin left showing around the childIndicator
+local childIndicatorInset = 6 -- px of white margin left showing around the childIndicator
 
 -- Squish & stretch, in two tweens rather than one: a quick stretch into a shape spanning both
 -- the old and new bounds (so the pill briefly smears in the direction of travel, like it's
