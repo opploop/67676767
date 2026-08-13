@@ -282,10 +282,11 @@ function SegmentedPicker:_buildSegment(option, index)
         Parent = slot,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
-    -- tapping the collapsed label both selects this segment and reveals its siblings in the
-    -- same tap - selecting "Monthly" is what makes "Annual" appear, not a separate second tap
+    -- selecting this segment (from the collapsed label, only ever shown/clickable while it
+    -- isn't the active one) is what reveals its siblings - _render expands it automatically
+    -- for as long as it stays the selected top-level segment
     window:ConnectFor(self, segment.collapsedLabel.MouseButton1Click, function()
-        self:_pick(index, segment.activeChild, true)
+        self:_pick(index, segment.activeChild)
     end)
 
     segment.expandedRow = window:Create("Frame", {
@@ -353,27 +354,19 @@ function SegmentedPicker:_childIndicatorGoal(index, childIndex)
     return UDim2.new(x, inset, 0, inset), UDim2.new(childScale, -inset * 2, 1, -inset * 2)
 end
 
--- Selecting always lands collapsed (a nested segment reads as a plain "Free | Monthly" pair at
--- rest) - _setExpanded is the separate, explicit step that reveals a nested segment's siblings.
+-- No separate "expanded" toggle state anymore - a nested segment is expanded exactly when it's
+-- the selected one, full stop. Selecting it (from anywhere else) is what reveals its siblings;
+-- picking a specific child inside it changes which one's marked without collapsing anything;
+-- only picking a genuinely different top-level segment collapses it back to its remembered
+-- child's name. Matches the actual ask: click "Monthly", "Annual" appears and stays right there
+-- until you pick "Free" again.
 function SegmentedPicker:_select(index, childIndex, skipAnimation)
     self.selectedIndex, self.selectedChildIndex = index, childIndex
-    self._expandedIndex = nil
     self:_render(skipAnimation)
 end
 
--- Only the currently-selected segment can expand - it doesn't make sense to reveal a nested
--- segment's siblings without also making it the active choice first.
-function SegmentedPicker:_setExpanded(index, expanded)
-    if self.selectedIndex ~= index then
-        return
-    end
-    self._expandedIndex = expanded and index or nil
-    self:_render(false)
-end
-
 function SegmentedPicker:_render(skipAnimation)
-    local index, childIndex, expandedIndex = self.selectedIndex, self.selectedChildIndex, self._expandedIndex
-    local anyExpanded = expandedIndex ~= nil
+    local index, childIndex = self.selectedIndex, self.selectedChildIndex
 
     for i, segment in self.segments do
         local active = i == index
@@ -382,15 +375,12 @@ function SegmentedPicker:_render(skipAnimation)
                 TextColor3 = active and darkTextColor or self.window.theme.ContentColor,
             }, not skipAnimation, fadeInfo)
         else
-            local expanded = active and expandedIndex == i
+            local expanded = active
             if expanded then
                 segment.expandedRow.Visible = true
             end
             self.window:_reveal(segment.collapsedLabel, {
                 TextTransparency = expanded and 1 or 0,
-                -- dark (matches the indicator underneath) only while collapsed and selected -
-                -- expanded hands that treatment to whichever child is actually active instead
-                TextColor3 = (active and not expanded) and darkTextColor or self.window.theme.ContentColor,
             }, not skipAnimation, fadeInfo)
             for j, childButton in segment.children do
                 local childActive = expanded and childIndex == j
@@ -403,10 +393,9 @@ function SegmentedPicker:_render(skipAnimation)
                 }, not skipAnimation, fadeInfo)
             end
             if not expanded then
-                -- a generation token, not just "this segment isn't expanded" (always true here) -
-                -- guards against collapsing then re-expanding the same segment within
-                -- fadeInfo.Time, where this delayed hide would otherwise fire after the re-expand
-                -- already turned Visible back on and yank it away again
+                -- a generation token guards against collapsing then re-expanding the same
+                -- segment within fadeInfo.Time, where this delayed hide would otherwise fire
+                -- after the re-expand already turned Visible back on and yank it away again
                 segment._collapseGen = (segment._collapseGen or 0) + 1
                 local gen = segment._collapseGen
                 task.delay(if skipAnimation then 0 else fadeInfo.Time, function()
@@ -428,8 +417,9 @@ function SegmentedPicker:_render(skipAnimation)
         variables.tweenService:Create(self.indicator, slideInfo, { Position = goalPosition, Size = goalSize }):Play()
     end
 
-    if anyExpanded then
-        local childPosition, childSize = self:_childIndicatorGoal(expandedIndex, childIndex)
+    local expandedSegment = index and self.segments[index]
+    if expandedSegment and expandedSegment.option.options then
+        local childPosition, childSize = self:_childIndicatorGoal(index, childIndex)
         self.childIndicator.Visible = true
         if skipAnimation then
             self.childIndicator.Position, self.childIndicator.Size = childPosition, childSize
@@ -449,16 +439,16 @@ function SegmentedPicker:_render(skipAnimation)
         local connection
         connection = tween.Completed:Connect(function()
             connection:Disconnect()
-            if self._expandedIndex == nil then
+            local stillCollapsed = not (self.segments[self.selectedIndex] or {}).option
+                or not self.segments[self.selectedIndex].option.options
+            if stillCollapsed then
                 self.childIndicator.Visible = false
             end
         end)
     end
 end
 
--- autoExpand: only the collapsed-label entry point passes this - picking a specific child (or a
--- plain non-nested segment) should finalize and collapse, not immediately expand back open.
-function SegmentedPicker:_pick(index, childIndex, autoExpand)
+function SegmentedPicker:_pick(index, childIndex)
     local segment = self.segments[index]
     if segment.option.options and childIndex then
         segment.activeChild = childIndex
@@ -466,18 +456,10 @@ function SegmentedPicker:_pick(index, childIndex, autoExpand)
     end
 
     if self.selectedIndex == index and self.selectedChildIndex == childIndex then
-        -- already this exact value - a collapsed-label tap toggles the expand instead of
-        -- re-picking; anything else (re-tapping the already-active child) leaves it alone
-        if autoExpand then
-            self:_setExpanded(index, self._expandedIndex ~= index)
-        end
         return
     end
     hapticEngine.click()
     self:_select(index, childIndex)
-    if autoExpand and segment.option.options then
-        self:_setExpanded(index, true)
-    end
 
     local value = segment.option.text
     if childIndex and segment.option.options then
