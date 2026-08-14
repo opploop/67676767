@@ -203,6 +203,9 @@ function SegmentedPicker:_build()
         BorderSizePixel = 0,
         Name = "Bar",
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        -- lets _indicatorGoal below overize the sliding pill by a couple px on every edge without
+        -- it ever actually poking out past the bar's own rounded silhouette - see that comment
+        ClipsDescendants = true,
 
         BackgroundTransparency = 1, -- In = ElementTransparency
 
@@ -406,7 +409,16 @@ end
 -- segment width, expanded or not.
 function SegmentedPicker:_indicatorGoal(index)
     local segmentScale = 1 / #self.options
-    return UDim2.new((index - 1) * segmentScale, 0, 0, 0), UDim2.new(segmentScale, 0, 1, 0)
+    -- overized by a couple px on every edge on purpose: Scale-based Position/Size rounds to the
+    -- nearest pixel independently for the indicator and for self.bar underneath it, so even
+    -- identical fraction math can land them a pixel apart - right at a rounded end (only the
+    -- first/last segment has one), that shows as a hairline of the bar's own background peeking
+    -- through the corner. self.bar's own ClipsDescendants (see its Create() call) trims this
+    -- margin back to the bar's exact pill silhouette, so the overize only ever closes the gap,
+    -- never actually pokes out past the true edge.
+    local edgeBleed = 2
+    return UDim2.new((index - 1) * segmentScale, -edgeBleed, 0, -edgeBleed),
+        UDim2.new(segmentScale, edgeBleed * 2, 1, edgeBleed * 2)
 end
 
 -- Where the inset childIndicator belongs: the same sub-fraction math as the old single-indicator

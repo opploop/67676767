@@ -22,16 +22,19 @@ local moveable = require(utility.moveable)
 local locale = require(utility.locale)
 
 -- Semantic tag colours, git-status-log convention: green add, blue fix, amber change, red remove.
+-- Kept soft/pastel on purpose - the original fully-saturated set read as neon against the card.
 -- A custom tag not in this table falls back to the theme's own accent colour.
 local tagColors = {
-    ADDED = Color3.fromRGB(48, 209, 88),
-    FIXED = Color3.fromRGB(64, 156, 255),
-    CHANGED = Color3.fromRGB(255, 159, 10),
-    REMOVED = Color3.fromRGB(255, 69, 58),
+    ADDED = Color3.fromRGB(125, 209, 155),
+    FIXED = Color3.fromRGB(130, 179, 235),
+    CHANGED = Color3.fromRGB(230, 178, 110),
+    REMOVED = Color3.fromRGB(224, 130, 128),
 }
 
 local rowGap = 10
 local entryGap = 14
+local prefixWidth = 80
+local dotSize = 6
 
 function Changelog.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
@@ -172,9 +175,39 @@ function Changelog:_buildEntry(entry, order)
         Parent = self.main,
     })
 
+    -- fixed-width prefix so every row's description starts at the same x regardless of how
+    -- long its own tag word is - dot + tag flow left inside it via their own mini row
+    local prefix = self.window:Create("Frame", {
+        Size = UDim2.fromOffset(prefixWidth, 20),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+
+        Parent = row,
+    })
+
+    self.window:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        Padding = UDim.new(0, 6),
+
+        Parent = prefix,
+    })
+
+    local dot = self.window:Create("Frame", {
+        Size = UDim2.fromOffset(dotSize, dotSize),
+        BackgroundColor3 = color,
+        BorderSizePixel = 0,
+
+        BackgroundTransparency = 1, -- In = 0
+
+        Parent = prefix,
+    })
+    self.window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = dot })
+
     local tagLabel = self.window:Create("TextLabel", {
         Text = locale.t(tag),
-        Size = UDim2.fromOffset(72, 20),
+        Size = UDim2.fromOffset(0, 20),
+        AutomaticSize = Enum.AutomaticSize.X,
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         TextSize = 12,
@@ -184,13 +217,13 @@ function Changelog:_buildEntry(entry, order)
 
         TextTransparency = 1, -- In = 0
 
-        Parent = row,
+        Parent = prefix,
     })
 
     local desc = self.window:Create("TextLabel", {
         Text = locale.t(text),
-        Position = UDim2.fromOffset(72 + entryGap, 0),
-        Size = UDim2.new(1, -(72 + entryGap), 0, 20),
+        Position = UDim2.fromOffset(prefixWidth + entryGap, 0),
+        Size = UDim2.new(1, -(prefixWidth + entryGap), 0, 20),
         AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
@@ -203,7 +236,7 @@ function Changelog:_buildEntry(entry, order)
         Parent = row,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
-    table.insert(self._rows, { row = row, tagLabel = tagLabel, desc = desc })
+    table.insert(self._rows, { row = row, dot = dot, tagLabel = tagLabel, desc = desc })
 end
 
 function Changelog:_setShown(shown, animate)
@@ -216,6 +249,7 @@ function Changelog:_setShown(shown, animate)
     end
     w:_reveal(self.divider, { BackgroundTransparency = if shown then 0.9 else 1 }, animate)
     for _, entry in self._rows do
+        w:_reveal(entry.dot, { BackgroundTransparency = if shown then 0 else 1 }, animate)
         w:_reveal(entry.tagLabel, { TextTransparency = if shown then 0 else 1 }, animate)
         w:_reveal(entry.desc, { TextTransparency = if shown then 0 else 1 }, animate)
     end

@@ -924,6 +924,37 @@ function Window:_paintTabIndicator(animate)
     end
 end
 
+-- Fade the shared accent pill in/out alongside the tab strip itself. It lives outside tabList
+-- (see its creation above, and _paintTabIndicator never touches its transparency) so hiding
+-- tabList/tabDock alone left it sitting fully opaque through a search-open swap or a minimise/
+-- hide's mid-shrink, ghosting over whatever ended up on top of it.
+function Window:_setTabIndicatorVisible(shown, info)
+    local pill = self.tabIndicator
+    if not pill then
+        return
+    end
+    if shown then
+        pill.Visible = true
+        local glowOn = self.tabStyle == "accent" and self.tabAccentGlow
+        variables.tweenService:Create(pill, info, { BackgroundTransparency = 0 }):Play()
+        if self.tabIndicatorGlow then
+            variables.tweenService
+                :Create(self.tabIndicatorGlow, info, { Transparency = if glowOn then 0.5 else 1 })
+                :Play()
+        end
+    else
+        variables.tweenService:Create(pill, info, { BackgroundTransparency = 1 }):Play()
+        if self.tabIndicatorGlow then
+            variables.tweenService:Create(self.tabIndicatorGlow, info, { Transparency = 1 }):Play()
+        end
+        task.delay(info.Time, function()
+            if pill then
+                pill.Visible = false
+            end
+        end)
+    end
+end
+
 -- Slide the pill to `tab`'s own resolved geometry. Reads AbsolutePosition/AbsoluteSize rather
 -- than the tab's own Position/Size - confirmed live that this executor's UIListLayout updates
 -- the Absolute* read-outs correctly but never actually writes the settable Position property
@@ -1315,6 +1346,7 @@ function Window:Hide()
             tab:_applyVisual("hidden", fadeInfo)
         end
     end
+    self:_setTabIndicatorVisible(false, fadeInfo)
 
     self:_fadeSelectedElementsOut()
 
@@ -1407,6 +1439,8 @@ function Window:ToggleMinimise()
                     tab:_applyVisual(if self.selectedTab == tab then "selected" else "unselected", fadeInfo)
                 end
             end
+            self:_setTabIndicatorVisible(true, fadeInfo)
+
             -- one extra step so UIListLayout actually resolves Position/AbsoluteSize for tabs
             -- that just went Visible = true, before the indicator reads them
             task.wait()
@@ -1430,6 +1464,7 @@ function Window:ToggleMinimise()
                 tab:_applyVisual("hidden", fadeInfo)
             end
         end
+        self:_setTabIndicatorVisible(false, fadeInfo)
 
         task.delay(0.3, function()
             if not self.minimised then
@@ -2048,6 +2083,7 @@ function Window:_quickRestore()
         self.tabList.Visible = true
         self.tabDock.Visible = true
         self.elements.Visible = true
+        self:_setTabIndicatorVisible(true, fadeInfo)
 
         variables.tweenService:Create(self.windowShadow, fadeInfo, { Transparency = 0.6 }):Play()
         variables.tweenService:Create(self.bottomFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
@@ -2541,16 +2577,15 @@ local tooltipMaxWidth = 220
 local tooltipCursorGap = 14 -- clears the cursor's own hotspot/hand icon
 
 -- Screen-space mouse position, in the same coordinate space as our GuiObjects' AbsolutePosition.
--- GetMouseLocation() reports Y including the Roblox topbar inset, while AbsolutePosition (for a
--- GuiObject under an IgnoreGuiInset ScreenGui, which ours is) does not - so the topbar's own
--- height leaks in as a constant downward offset unless it's subtracted back out here. Runtime
--- self-calibration (comparing GetMouseLocation() against a GuiObject's own MouseMoved/MouseEnter)
--- was tried instead of this and didn't hold up: on the test client neither event reliably fired
--- from this executor's injected code, so the calibration just stayed at zero.
+-- GetMouseLocation() is already reported in that space (unlike the legacy Mouse.X/Y, which
+-- includes the Roblox topbar inset and needs it subtracted back out for a GuiObject that isn't
+-- ignoring it) - our own ScreenGui sets IgnoreGuiInset = true, so its children's AbsolutePosition
+-- is already inset-free and matches GetMouseLocation() as-is. Subtracting GetGuiInset() here on
+-- top of that double-corrected the tooltip a full inset's worth too high above the cursor - live
+-- confirmed against the test client's own GetGuiInset().Y (58px, matching the visible gap).
 function Window:_mouseAbsolutePosition()
     local mouse = variables.userInputService:GetMouseLocation()
-    local topLeftInset = variables.guiService:GetGuiInset()
-    return Vector2.new(mouse.X, mouse.Y - topLeftInset.Y)
+    return Vector2.new(mouse.X, mouse.Y)
 end
 
 function Window:_ensureTooltip()
@@ -2742,6 +2777,136 @@ function Window:StyleElementBody(main)
 
         Parent = main,
     }, { Color = "ElementStroke", Transparency = "ElementStrokeTransparency" })
+end
+
+-- Devlog 6 lock system -------------------------------------------------------------------
+-- A small padlock drawn from two plain frames (no icon asset needed): a rounded body and a
+-- thin rounded shackle arc sitting above it. Shared by every lockable element (Button, Toggle,
+-- Dropdown, Tab, HoldButton) so the glyph and its math live in exactly one place.
+function Window:_buildLockIcon(parent, position, anchorPoint)
+    local holder = self:Create("Frame", {
+        AnchorPoint = anchorPoint or Vector2.new(1, 0.5),
+        Position = position or UDim2.new(1, -16, 0.5, 0),
+        Size = UDim2.fromOffset(14, 14),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = 5,
+        Visible = false,
+
+        Parent = parent,
+    })
+
+    local body = self:Create("Frame", {
+        Position = UDim2.new(0.5, 0, 1, 0),
+        AnchorPoint = Vector2.new(0.5, 1),
+        Size = UDim2.fromOffset(14, 9),
+        BorderSizePixel = 0,
+        ZIndex = 5,
+
+        Parent = holder,
+    }, { BackgroundColor3 = "PlaceholderColor" })
+    self:Create("UICorner", { CornerRadius = UDim.new(0, 3), Parent = body })
+
+    local shackle = self:Create("Frame", {
+        Position = UDim2.new(0.5, 0, 1, -8),
+        AnchorPoint = Vector2.new(0.5, 1),
+        Size = UDim2.fromOffset(9, 8),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = 5,
+
+        Parent = holder,
+    })
+    self:Create("UIStroke", {
+        Thickness = 2,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+
+        Parent = shackle,
+    }, { Color = "PlaceholderColor" })
+    self:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = shackle })
+
+    return holder
+end
+
+-- The "no entry" glyph shown to the left of a locked element's title (ring + diagonal slash,
+-- same draw-it-from-frames approach as the padlock above - no icon asset for it either). A
+-- plain flowed child of `parent`'s own icon/title row: toggling .Visible re-flows the row
+-- around it automatically, no absolute positioning to keep in sync.
+function Window:_buildProhibitedIcon(parent, layoutOrder)
+    local holder = self:Create("Frame", {
+        Size = UDim2.fromOffset(14, 14),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        LayoutOrder = layoutOrder or -1,
+        Visible = false,
+
+        Parent = parent,
+    })
+
+    local ring = self:Create("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+
+        Parent = holder,
+    })
+    self:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = ring })
+    self:Create("UIStroke", {
+        Thickness = 2,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+
+        Parent = ring,
+    }, { Color = "PlaceholderColor" })
+
+    self:Create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(16, 2),
+        Rotation = 45,
+        BorderSizePixel = 0,
+
+        Parent = holder,
+    }, { BackgroundColor3 = "PlaceholderColor" })
+
+    return holder
+end
+
+-- Dim title/icon, show/hide the padlock built above (and the "no entry" glyph, if the caller
+-- built one too). `element` needs .locked, .title, .lockIcon, and optionally .iconLabel/
+-- .prohibitedIcon. Doesn't touch input - callers guard their own click/drag handlers with
+-- `if element.locked then return end`.
+function Window:_applyLockedVisual(element, animate)
+    local info = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    local set = function(instance, props)
+        if not instance then
+            return
+        end
+        if animate then
+            variables.tweenService:Create(instance, info, props):Play()
+        else
+            for prop, value in props do
+                instance[prop] = value
+            end
+        end
+    end
+
+    if element.lockIcon then
+        element.lockIcon.Visible = true
+    end
+    if element.prohibitedIcon then
+        element.prohibitedIcon.Visible = element.locked
+    end
+    set(element.title, { TextTransparency = if element.locked then 0.6 else 0 })
+    if element.iconLabel then
+        set(element.iconLabel, { ImageTransparency = if element.locked then 0.6 else 0 })
+    end
+    if not element.locked and element.lockIcon then
+        task.delay(if animate then info.Time else 0, function()
+            if not element.locked and element.lockIcon then
+                element.lockIcon.Visible = false
+            end
+        end)
+    end
 end
 
 -- Shared scaffold for the compact button/toggle row: the white body + stroke, the fill flex

@@ -29,6 +29,11 @@ local hapticEngine = require(utility.HapticEngine)
 local heightInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local chevronInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 
+-- breathing room around the nested group: without it, the first child sits glued to the header
+-- and the last one gets squeezed against the clip's bottom edge the instant the section opens
+local contentPadTop = 8
+local contentPadBottom = 8
+
 function Collapsible.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
 
@@ -74,6 +79,13 @@ function Collapsible.new(tab, properties)
         Parent = self.main,
     })
 
+    self.window:Create("UIPadding", {
+        PaddingTop = UDim.new(0, contentPadTop),
+        PaddingBottom = UDim.new(0, contentPadBottom),
+
+        Parent = self.contentWrapper,
+    })
+
     self.tabPage = self.contentWrapper
 
     -- children build through here - see file header. Requiring by relative path (not a name
@@ -83,18 +95,24 @@ function Collapsible.new(tab, properties)
     self.window:ConnectFor(self, self._group.main:GetPropertyChangedSignal("AbsoluteSize"), function()
         if self.expanded then
             variables.tweenService
-                :Create(self.contentWrapper, heightInfo, { Size = UDim2.new(1, 0, 0, self._group.main.AbsoluteSize.Y) })
+                :Create(self.contentWrapper, heightInfo, { Size = UDim2.new(1, 0, 0, self:_contentHeight()) })
                 :Play()
         end
     end)
 
     -- start at the right height instantly - no animating in from 0 on first build
     if self.expanded then
-        self.contentWrapper.Size = UDim2.new(1, 0, 0, self._group.main.AbsoluteSize.Y)
+        self.contentWrapper.Size = UDim2.new(1, 0, 0, self:_contentHeight())
         self.chevron.Rotation = 0
     end
 
     return self
+end
+
+-- the group's own real height plus the breathing room above/below it (UIPadding doesn't count
+-- toward a sibling's AbsoluteSize, so it has to be added back in by hand here)
+function Collapsible:_contentHeight()
+    return self._group.main.AbsoluteSize.Y + contentPadTop + contentPadBottom
 end
 
 function Collapsible:_buildHeader()
@@ -204,7 +222,7 @@ function Collapsible:SetExpanded(expanded)
     end
     self.expanded = expanded
 
-    local targetHeight = if expanded then self._group.main.AbsoluteSize.Y else 0
+    local targetHeight = if expanded then self:_contentHeight() else 0
     variables.tweenService:Create(self.contentWrapper, heightInfo, { Size = UDim2.new(1, 0, 0, targetHeight) }):Play()
     variables.tweenService:Create(self.chevron, chevronInfo, { Rotation = if expanded then 0 else 180 }):Play()
 end

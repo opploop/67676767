@@ -31,6 +31,7 @@ function Toggle.new(tab, properties)
         tooltip = properties.tooltip or properties.Tooltip,
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState, -- dont save config for this element if true.
         compact = tab.compact or false, -- true when the host is a Row
+        locked = properties.locked or properties.Locked or false,
 
         flag = properties.flag
             or properties.Flag
@@ -53,6 +54,12 @@ function Toggle.new(tab, properties)
     else
         self:_buildFull()
     end
+
+    -- centred on the switch pill itself (works for both the fixed-offset full layout and the
+    -- flex-positioned compact one, since functionContainer's own position tracks either way)
+    self.lockIcon = self.window:_buildLockIcon(self.functionContainer, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+    self.prohibitedIcon = self.window:_buildProhibitedIcon(self.container)
+    self:_applyLocked(false)
 
     self.window:_wireTooltip(self)
 
@@ -243,6 +250,9 @@ function Toggle:_buildFull()
     self.window:_wireElementHover(self)
 
     self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
+        if self.locked then
+            return
+        end
         variables.tweenService
             :Create(
                 self.stroke,
@@ -372,6 +382,9 @@ function Toggle:_buildCompact()
     self.window:_wireElementHover(self)
 
     self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
+        if self.locked then
+            return
+        end
         variables.tweenService
             :Create(
                 self.stroke,
@@ -392,6 +405,19 @@ function Toggle:_buildCompact()
             )
             :Play()
     end)
+end
+
+function Toggle:_applyLocked(animate)
+    self.window:_applyLockedVisual(self, animate)
+end
+
+function Toggle:SetLocked(locked)
+    locked = locked and true or false
+    if locked == self.locked then
+        return
+    end
+    self.locked = locked
+    self:_applyLocked(true)
 end
 
 function Toggle:_animateIndicator()

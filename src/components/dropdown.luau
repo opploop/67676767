@@ -91,6 +91,31 @@ function Dropdown.new(tab, properties)
     local options = properties.options or properties.Options or {}
     local multiSelect = properties.multiSelect or properties.MultiSelect or properties.MultipleOptions or false
 
+    -- Optional section headers: { {name="MELEE", options={"Sword","Axe"}}, {name="RANGED", ...} }.
+    -- When given, they take over from a flat `options` list - self.options is derived by
+    -- flattening them in order, and every option is mapped back to its section name so
+    -- rendering can insert a header before the first option of each run and re-group on filter.
+    local sections = properties.sections or properties.Sections
+    local sectionStarts = {} -- optionName -> section name, only the FIRST option of each section
+    local sectionOf = {} -- optionName -> section name, every option
+    if sections then
+        local flat = {}
+        for _, section in sections do
+            local sectionName = section.name or section.Name or ""
+            local sectionOptions = section.options or section.Options or {}
+            local startedSection = false
+            for _, optName in sectionOptions do
+                table.insert(flat, optName)
+                sectionOf[optName] = sectionName
+                if not startedSection then
+                    sectionStarts[optName] = sectionName
+                    startedSection = true
+                end
+            end
+        end
+        options = flat
+    end
+
     local self = setmetatable({
         tab = assert(tab, "Missing argument #1 (Tab expected)"),
         window = tab.window,
@@ -99,6 +124,7 @@ function Dropdown.new(tab, properties)
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState, -- dont save config for this element if true.
+        locked = properties.locked or properties.Locked or false,
 
         flag = properties.flag
             or properties.Flag
@@ -120,6 +146,9 @@ function Dropdown.new(tab, properties)
 
         _isOpen = false,
         _optionFrames = {},
+        _headerFrames = {},
+        _sectionStarts = sectionStarts,
+        _sectionOf = sectionOf,
     }, Dropdown)
 
     -- Remember the full intent so a selection survives options that only load later (via

@@ -162,6 +162,7 @@ function search.open(window)
 
     -- strip swaps for the field
     setTabsShown(window, false, swapInfo)
+    window:_setTabIndicatorVisible(false, swapInfo)
     task.delay(swapInfo.Time, function()
         if window._searching then
             window.tabList.Visible = false
@@ -204,6 +205,8 @@ function search.close(window, config)
     if config.showTabs then
         window.tabList.Visible = true
         setTabsShown(window, true, swapInfo)
+        window:_setTabIndicatorVisible(true, swapInfo)
+        window:_updateTabIndicator(window.selectedTab, false)
     end
 
     variables.tweenService:Create(window.searchAction.iconLabel, swapInfo, { ImageTransparency = iconRest }):Play()

@@ -93,7 +93,33 @@ function HoldButton:_buildFillLayer(parent)
         Parent = self.fillClip,
     }, { BackgroundColor3 = if self.danger then "ErrorColor" else "AccentColor" })
 
+    -- ClipsDescendants clips to fillClip's plain rectangular bounds regardless of its own
+    -- UICorner - a UICorner only shapes how a frame draws ITSELF, not the clip region it casts
+    -- on children - so without a matching UICorner here too, the fill's own square corners still
+    -- render past the card's rounded edge whenever it isn't fully empty or full.
+    self.window:Create("UICorner", {
+        Parent = self.fill,
+    }, { CornerRadius = "ElementCornerRadius" })
+
     return self.fillClip
+end
+
+-- Every fill-size change funnels through here so a new tween always cancels whatever's still
+-- running first - two simultaneous TweenService tweens on the same property fight each other
+-- frame to frame instead of one cleanly superseding the other, which was leaving the bar stuck
+-- mid-animation when a completion and a release landed close together.
+function HoldButton:_setFill(size, tweenInfo)
+    if self._fillTween then
+        self._fillTween:Cancel()
+        self._fillTween = nil
+    end
+    if tweenInfo then
+        local tween = variables.tweenService:Create(self.fill, tweenInfo, { Size = size })
+        self._fillTween = tween
+        tween:Play()
+    else
+        self.fill.Size = size
+    end
 end
 
 function HoldButton:_beginHold()
@@ -101,9 +127,7 @@ function HoldButton:_beginHold()
         return
     end
     self._holding = true
-    variables.tweenService:Create(self.fill, TweenInfo.new(self.holdDuration, Enum.EasingStyle.Linear), {
-        Size = UDim2.fromScale(1, 1),
-    }):Play()
+    self:_setFill(UDim2.fromScale(1, 1), TweenInfo.new(self.holdDuration, Enum.EasingStyle.Linear))
 
     local holdToken = (self._holdToken or 0) + 1
     self._holdToken = holdToken
@@ -111,9 +135,9 @@ function HoldButton:_beginHold()
         -- still the same hold, and it wasn't released early - completes it
         if self._holding and self._holdToken == holdToken then
             self._holding = false
-            self.fill.Size = UDim2.new(0, 0, 1, 0)
             hapticEngine.click()
             self:_runCallback()
+            self:_setFill(UDim2.new(0, 0, 1, 0), cancelInfo) -- smooth reset, not an instant snap
         end
     end)
 end
@@ -124,7 +148,7 @@ function HoldButton:_cancelHold()
     end
     self._holding = false
     self._holdToken = (self._holdToken or 0) + 1 -- invalidate the pending completion above
-    variables.tweenService:Create(self.fill, cancelInfo, { Size = UDim2.new(0, 0, 1, 0) }):Play()
+    self:_setFill(UDim2.new(0, 0, 1, 0), cancelInfo)
 end
 
 function HoldButton:_wireHold()
@@ -209,7 +233,8 @@ function HoldButton:_buildFull()
         Parent = self.container,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
-    self.lockIcon = self:_buildLockIcon(self.main)
+    self.lockIcon = self.window:_buildLockIcon(self.main)
+    self.prohibitedIcon = self.window:_buildProhibitedIcon(self.container or self.interact)
 
     self.interact = self.window:Create("TextButton", {
         BackgroundTransparency = 1,
@@ -285,90 +310,18 @@ function HoldButton:_buildCompact()
         Parent = self.title,
     })
 
-    self.lockIcon = self:_buildLockIcon(self.main)
+    self.lockIcon = self.window:_buildLockIcon(self.main)
+    self.prohibitedIcon = self.window:_buildProhibitedIcon(self.container or self.interact)
 
     self.window:_wireElementHover(self)
     self:_wireHold()
 end
 
--- A small padlock, drawn from two plain frames (no icon asset needed): a rounded body and a
--- thin rounded shackle arc sitting above it. Sits pinned to the row's right edge, only shown
--- while locked.
-function HoldButton:_buildLockIcon(parent)
-    local holder = self.window:Create("Frame", {
-        AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -16, 0.5, 0),
-        Size = UDim2.fromOffset(14, 14),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = 5,
-        Visible = false,
-
-        Parent = parent,
-    })
-
-    local body = self.window:Create("Frame", {
-        Position = UDim2.new(0.5, 0, 1, 0),
-        AnchorPoint = Vector2.new(0.5, 1),
-        Size = UDim2.fromOffset(14, 9),
-        BorderSizePixel = 0,
-        ZIndex = 5,
-
-        Parent = holder,
-    }, { BackgroundColor3 = "PlaceholderColor" })
-    self.window:Create("UICorner", { CornerRadius = UDim.new(0, 3), Parent = body })
-
-    local shackle = self.window:Create("Frame", {
-        Position = UDim2.new(0.5, 0, 1, -8),
-        AnchorPoint = Vector2.new(0.5, 1),
-        Size = UDim2.fromOffset(9, 8),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = 5,
-
-        Parent = holder,
-    })
-    self.window:Create("UIStroke", {
-        Thickness = 2,
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-
-        Parent = shackle,
-    }, { Color = "PlaceholderColor" })
-    self.window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = shackle })
-
-    return holder
-end
-
--- Dim the content, show the padlock, and stop new holds from starting - any hold already in
--- progress is cancelled outright rather than left to finish.
+-- Dim the content, show the padlock (see window.luau's shared _buildLockIcon/_applyLockedVisual),
+-- and stop new holds from starting - any hold already in progress is cancelled outright rather
+-- than left to finish.
 function HoldButton:_applyLocked(animate)
-    local info = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-    local set = function(instance, props)
-        if not instance then
-            return
-        end
-        if animate then
-            variables.tweenService:Create(instance, info, props):Play()
-        else
-            for prop, value in props do
-                instance[prop] = value
-            end
-        end
-    end
-
-    self.lockIcon.Visible = true
-    set(self.title, { TextTransparency = if self.locked then 0.6 else 0 })
-    if self.iconLabel then
-        set(self.iconLabel, { ImageTransparency = if self.locked then 0.6 else 0 })
-    end
-    if not self.locked then
-        task.delay(if animate then info.Time else 0, function()
-            if not self.locked then
-                self.lockIcon.Visible = false
-            end
-        end)
-    end
-
+    self.window:_applyLockedVisual(self, animate)
     if self.locked and self._holding then
         self:_cancelHold()
     end

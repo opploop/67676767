@@ -170,6 +170,7 @@ local tab4 = window:CreateTab({ name = "Devlog 4", icon = 87024289287775 })
 tab4:CreateSection({ name = "Segmented Picker" })
 
 tab4:CreateSegmentedPicker({
+    name = "Plan",
     options = {
         "Free",
         { text = "Premium", options = { "Monthly", "Annual" } },
@@ -181,6 +182,7 @@ tab4:CreateSegmentedPicker({
 })
 
 tab4:CreateSegmentedPicker({
+    name = "Difficulty",
     options = { "Low", "Medium", "High" },
     value = "Medium",
     description = "A plain three way split, no nested options.",

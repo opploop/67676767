@@ -30,6 +30,7 @@ function Button.new(tab, properties)
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
         compact = tab.compact or false, -- true when the host is a Row
+        locked = properties.locked or properties.Locked or false,
 
         callback = properties.callback or properties.Callback or function() end,
     }, Button)
@@ -40,6 +41,10 @@ function Button.new(tab, properties)
         self:_buildFull()
     end
 
+    self.lockIcon = self.window:_buildLockIcon(self.main)
+    -- compact mode has no separate self.container - icon/title parent straight to self.interact
+    self.prohibitedIcon = self.window:_buildProhibitedIcon(self.container or self.interact)
+    self:_applyLocked(false)
     self.window:_wireTooltip(self)
 
     -- Descriptions don't belong on a compact row element.
@@ -138,6 +143,9 @@ function Button:_buildFull()
 
     -- press: ghost the stroke + squeeze the width around the callback
     self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
+        if self.locked then
+            return
+        end
         hapticEngine.click()
         variables.tweenService
             :Create(
@@ -238,6 +246,9 @@ function Button:_buildCompact()
 
     -- press: ghost the stroke around the callback
     self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
+        if self.locked then
+            return
+        end
         hapticEngine.click()
         variables.tweenService
             :Create(
@@ -259,6 +270,19 @@ function Button:_buildCompact()
             )
             :Play()
     end)
+end
+
+function Button:_applyLocked(animate)
+    self.window:_applyLockedVisual(self, animate)
+end
+
+function Button:SetLocked(locked)
+    locked = locked and true or false
+    if locked == self.locked then
+        return
+    end
+    self.locked = locked
+    self:_applyLocked(true)
 end
 
 function Button:_setShown(shown, animate)
