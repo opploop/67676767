@@ -559,8 +559,10 @@ function Dropdown.new(tab, properties)
         table.insert(
             data.connections,
             self.window:ConnectFor(self, interact.MouseButton1Click, function()
-                -- options stay visible through the close tween; a click mid-fade must not land
-                if not self._isOpen then
+                -- options stay visible through the close tween; a click mid-fade must not land.
+                -- locked forces the panel closed itself (see _applyLocked), but guard here too
+                -- in case a click is already in flight the same frame it locks.
+                if not self._isOpen or self.locked then
                     return
                 end
                 hapticEngine.click()
@@ -609,16 +611,60 @@ function Dropdown.new(tab, properties)
 
     self._buildOption = buildOption
 
-    for _, opt in self.options do
-        local data = buildOption(opt)
-        table.insert(self._optionFrames, data)
+    -- Non-interactive section header row - only built for an option that's the first of its
+    -- section (see self._sectionStarts above). Static transparency rather than tracking open/
+    -- close like an option's own title does: self.main clips everything below 41px while
+    -- closed regardless, so there's nothing to actually leak while collapsed.
+    local function buildHeader(sectionName)
+        local frame = self.window:Create("Frame", {
+            Size = UDim2.new(1, -12, 0, 24),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+
+            Parent = self.list,
+        })
+        local label = self.window:Create("TextLabel", {
+            Text = locale.t(sectionName),
+            Size = UDim2.new(1, -14, 1, 0),
+            Position = UDim2.fromOffset(14, 0),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            TextSize = 12,
+            Font = Enum.Font.GothamBold,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTransparency = 0.55,
+
+            Parent = frame,
+        }, { TextColor3 = "PlaceholderColor" })
+        return { name = sectionName, frame = frame, label = label }
     end
+
+    -- Builds every option (and, when sectioned, the header ahead of each section's first
+    -- option) from self.options/self._sectionStarts, in order. Doesn't paint open/closed state
+    -- or resize anything - callers (the initial build below, and Refresh) do that themselves
+    -- afterward since they need it at different points in their own sequence.
+    local function buildAllOptions()
+        for _, opt in self.options do
+            local sectionName = self._sectionStarts[opt]
+            if sectionName then
+                table.insert(self._headerFrames, buildHeader(sectionName))
+            end
+            local data = buildOption(opt)
+            table.insert(self._optionFrames, data)
+        end
+    end
+    self._buildAllOptions = buildAllOptions
+
+    buildAllOptions()
 
     updateSelectedLabel()
     self:_updateCorners()
 
     -- Function
     self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
+        if self.locked then
+            return
+        end
         hapticEngine.click()
         if self._isOpen then
             self:_close()
@@ -668,6 +714,12 @@ function Dropdown.new(tab, properties)
     end)
 
     self.window:_wireTooltip(self)
+
+    -- pinned to the header's right edge, same spot the chevron sits - _applyLocked hides the
+    -- chevron/selected-value text in favour of this + the padlock, there isn't room for both
+    self.lockIcon = self.window:_buildLockIcon(self.top, UDim2.new(1, -18, 0.5, 0), Vector2.new(1, 0.5))
+    self.prohibitedIcon = self.window:_buildProhibitedIcon(self.container)
+    self:_applyLocked(false)
 
     if self.description then
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })
@@ -833,6 +885,17 @@ function Dropdown:_applyFilter(query)
     for _, data in self._optionFrames do
         data.frame.Visible = query == "" or string.find(string.lower(data.name), query, 1, true) ~= nil
     end
+    -- a header shows only while at least one option in its own section still matches
+    for _, header in self._headerFrames do
+        local anyVisible = false
+        for _, data in self._optionFrames do
+            if self._sectionOf[data.name] == header.name and data.frame.Visible then
+                anyVisible = true
+                break
+            end
+        end
+        header.frame.Visible = anyVisible
+    end
     self:_updateCorners()
     self:_resizeToOptions()
 end
@@ -848,7 +911,9 @@ end
 -- Per-corner rounding: an option's top corners round off only when nothing sits above it,
 -- and its bottom corners only when nothing sits below - so a run of options reads as one
 -- grouped block with rounded outer edges and sharp seams (a lone option is fully rounded).
--- Runs over the currently VISIBLE options, so it re-groups correctly while searching.
+-- Runs over the currently VISIBLE options, so it re-groups correctly while searching. A
+-- section header breaks the run too (self._sectionStarts), so each section rounds off on its
+-- own instead of reading as one continuous block across a header.
 function Dropdown:_updateCorners()
     local visible = {}
     for _, data in self._optionFrames do
@@ -858,8 +923,11 @@ function Dropdown:_updateCorners()
     end
 
     for i, data in visible do
-        local topR = if i == 1 then roundRadius else flatRadius
-        local botR = if i == #visible then roundRadius else flatRadius
+        local startsRun = i == 1 or self._sectionStarts[data.name] ~= nil
+        local nextStartsRun = visible[i + 1] and self._sectionStarts[visible[i + 1].name] ~= nil
+        local endsRun = i == #visible or nextStartsRun
+        local topR = if startsRun then roundRadius else flatRadius
+        local botR = if endsRun then roundRadius else flatRadius
         data.corner.TopLeftRadius = topR
         data.corner.TopRightRadius = topR
         data.corner.BottomLeftRadius = botR
@@ -867,10 +935,10 @@ function Dropdown:_updateCorners()
     end
 end
 
--- Open height sized to the options (header + search + paddings + rows), capped so long lists
--- scroll instead of running off the window. Short lists open just tall enough, no dead space.
--- sized from the options actually on screen, so a search filter (or an Add/Remove while
--- open) grows and shrinks the panel to fit rather than leaving dead space
+-- Open height sized to the options (header + search + paddings + rows + any section headers),
+-- capped so long lists scroll instead of running off the window. Short lists open just tall
+-- enough, no dead space. Sized from what's actually on screen, so a search filter (or an
+-- Add/Remove while open) grows and shrinks the panel to fit rather than leaving dead space.
 function Dropdown:_openHeight()
     local n = 0
     for _, data in self._optionFrames do
@@ -878,7 +946,13 @@ function Dropdown:_openHeight()
             n += 1
         end
     end
-    local rows = n * 38 + math.max(0, n - 1) * 5 + 2
+    local h = 0
+    for _, header in self._headerFrames do
+        if header.frame.Visible then
+            h += 1
+        end
+    end
+    local rows = n * 38 + h * 24 + math.max(0, n + h - 1) * 5 + 2
     return math.min(180, 95 + rows)
 end
 
@@ -1024,13 +1098,23 @@ function Dropdown:_destroyOption(data)
     self.window:DestroySubtree(data.frame)
 end
 
+-- Replaces the option pool with a plain flat list. Any section grouping the dropdown was built
+-- with is dropped here, since a bare name list gives no way to know which section a name
+-- belongs to - a sectioned dropdown that needs to reload its options would need a dedicated
+-- API this doesn't attempt to be.
 function Dropdown:Refresh(newOptions)
     self.options = dedupStrings(newOptions or {})
+    self._sectionStarts = {}
+    self._sectionOf = {}
 
     for _, data in self._optionFrames do
         self:_destroyOption(data)
     end
     table.clear(self._optionFrames)
+    for _, header in self._headerFrames do
+        self.window:DestroySubtree(header.frame)
+    end
+    table.clear(self._headerFrames)
 
     -- re-derive the visible selection from the full intent: an option that loads now (or
     -- comes back) re-selects, one that's genuinely gone drops out. self.value only ever holds
@@ -1039,12 +1123,11 @@ function Dropdown:Refresh(newOptions)
     self.value = intersectWithOptions(self._desiredValue or self.value, self.options)
     local selectionChanged = not sameSelection(self.value, previous)
 
-    for _, opt in self.options do
-        local data = self._buildOption(opt)
-        table.insert(self._optionFrames, data)
-        -- fresh frames default to the closed look, so paint the open state if the
-        -- panel is already open (otherwise they'd sit blank until hovered)
-        if self._isOpen then
+    self:_buildAllOptions()
+    -- fresh frames default to the closed look, so paint the open state if the panel is
+    -- already open (otherwise they'd sit blank until hovered)
+    if self._isOpen then
+        for _, data in self._optionFrames do
             self._renderOptionState(data, false)
         end
     end
@@ -1126,6 +1209,43 @@ function Dropdown:Set(value, skipCallback)
         self.window:_runGuarded(self, self.callback, self:_callbackValue())
         self.window:_persist(self) -- skipCallback means apply quietly, so dont autosave either
     end
+end
+
+-- Clears the active selection back to the placeholder - a plain Set(nil) under the hood, since
+-- an empty self.value is exactly what already makes updateSelectedLabel fall back to it.
+function Dropdown:Reset(skipCallback)
+    self:Set(nil, skipCallback)
+end
+
+-- Dim the header, show the padlock (see window.luau's shared _buildLockIcon/_applyLockedVisual)
+-- and the "no entry" glyph, hide the chevron/selected-value text in favour of the padlock (no
+-- room for both), and force-close if it's open when locked.
+function Dropdown:_applyLocked(animate)
+    self.window:_applyLockedVisual(self, animate)
+    local info = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    local set = function(instance, props)
+        if animate then
+            variables.tweenService:Create(instance, info, props):Play()
+        else
+            for prop, value in props do
+                instance[prop] = value
+            end
+        end
+    end
+    set(self.chevron, { ImageTransparency = if self.locked then 1 else 0.5 })
+    set(self.selectedLabel, { TextTransparency = if self.locked then 1 else 0.5 })
+    if self.locked and self._isOpen then
+        self:_close()
+    end
+end
+
+function Dropdown:SetLocked(locked)
+    locked = locked and true or false
+    if locked == self.locked then
+        return
+    end
+    self.locked = locked
+    self:_applyLocked(true)
 end
 
 function Dropdown:_setShown(shown, animate)

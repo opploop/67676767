@@ -69,6 +69,7 @@ export type ButtonProps = {
     description: string?,
     icon: (string | number)?,
     tooltip: string?,
+    locked: boolean?,
     callback: (() -> ())?,
 }
 
@@ -79,6 +80,7 @@ export type ToggleProps = {
     tooltip: string?,
     flag: string?,
     value: boolean?,
+    locked: boolean?,
     forgetState: boolean?,
     callback: ((value: boolean) -> ())?,
 }
@@ -178,6 +180,11 @@ export type SliderProps = {
     callback: ((value: number) -> ())?,
 }
 
+export type DropdownSection = {
+    name: string?,
+    options: { string }?,
+}
+
 export type DropdownProps = {
     name: string?,
     description: string?,
@@ -185,9 +192,13 @@ export type DropdownProps = {
     tooltip: string?,
     flag: string?,
     options: { string }?,
+    -- section headers (e.g. "MELEE"/"RANGED") - when given, takes over from `options` above,
+    -- which is instead derived by flattening every section's own option list in order
+    sections: { DropdownSection }?,
     value: (string | { string })?,
     multiSelect: boolean?,
     placeholder: string?,
+    locked: boolean?,
     forgetState: boolean?,
     callback: ((value: any) -> ())?,
 }
@@ -347,7 +358,10 @@ export type Moveable = {
     MoveDown: (self: any) -> (),
 }
 
-export type Button = Moveable & {}
+export type Button = Moveable & {
+    locked: boolean,
+    SetLocked: (self: Button, locked: boolean) -> (),
+}
 
 export type RippleButton = Moveable & {}
 
@@ -385,7 +399,9 @@ export type FlipButton = Moveable & {
 
 export type Toggle = Moveable & {
     value: boolean,
+    locked: boolean,
     Set: (self: Toggle, value: boolean, skipCallback: boolean?) -> (),
+    SetLocked: (self: Toggle, locked: boolean) -> (),
 }
 
 export type Checkbox = Moveable & {
@@ -400,7 +416,10 @@ export type Slider = Moveable & {
 
 export type Dropdown = Moveable & {
     value: { string }, -- always stored pruned to the current options, even single-select
+    locked: boolean,
     Set: (self: Dropdown, value: string | { string }, skipCallback: boolean?) -> (),
+    Reset: (self: Dropdown, skipCallback: boolean?) -> (), -- clears back to the placeholder
+    SetLocked: (self: Dropdown, locked: boolean) -> (),
 }
 
 export type Input = Moveable & {

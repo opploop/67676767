@@ -352,6 +352,41 @@ local advanced = tab6:CreateCollapsible({ name = "Advanced" })
 advanced:CreateToggle({ name = "Nested toggle", value = false })
 advanced:CreateSlider({ name = "Nested slider", range = { 0, 100 }, value = 50 })
 
+tab6:CreateSection({ name = "Dropdown" })
+
+local weaponDropdown = tab6:CreateDropdown({
+    name = "Weapon",
+    placeholder = "Choose a weapon",
+    sections = {
+        { name = "Melee", options = { "Sword", "Axe" } },
+        { name = "Ranged", options = { "Bow", "Rifle" } },
+    },
+    callback = function(value)
+        print("Weapon:", value)
+    end,
+})
+
+tab6:CreateButton({
+    name = "Reset dropdown",
+    callback = function()
+        weaponDropdown:Reset()
+    end,
+})
+
+local lockedDropdown = tab6:CreateDropdown({
+    name = "Locked dropdown",
+    options = { "One", "Two", "Three" },
+    locked = true,
+})
+
+tab6:CreateToggle({
+    name = "Unlock the dropdown above",
+    value = false,
+    callback = function(value)
+        lockedDropdown:SetLocked(not value)
+    end,
+})
+
 tab6:CreateSection({ name = "Update log" })
 
 tab6:CreateChangelog({

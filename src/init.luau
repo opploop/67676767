@@ -29,6 +29,7 @@ export type RippleButtonProps = types.RippleButtonProps
 export type ToggleProps = types.ToggleProps
 export type CheckboxProps = types.CheckboxProps
 export type SliderProps = types.SliderProps
+export type DropdownSection = types.DropdownSection
 export type DropdownProps = types.DropdownProps
 export type InputProps = types.InputProps
 export type KeybindProps = types.KeybindProps
