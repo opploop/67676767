@@ -499,12 +499,12 @@ function Window.new(properties)
         Position = UDim2.new(0.5, 0, 0, 65),
         AnchorPoint = Vector2.new(0.5, 0),
         BorderSizePixel = 0,
-        -- NOT ClipsDescendants: tried that to keep the indicator from poking out past the
-        -- dock's rounded corners at the strip's edges, but it hard-clips the glow's blur
-        -- (BlurRadius reaches past the pill's own bounds by design) into a visible straight
-        -- edge - the reported line under the dock and the square near the last tab. The pill
-        -- itself only very slightly overshoots the rounded corners at the extreme edges, which
-        -- reads far better than a clipped-off glow.
+        -- Without this, selecting (or scrolling to) a tab near either end of the strip let the
+        -- indicator render fully outside the dock - even outside the window entirely, not just
+        -- past the rounded corners. The un-clipped glow's own hard-edged blur line was the
+        -- lesser problem; brought clipping back and shrank the glow instead (see CreateGlow
+        -- call below) so its blur has less reach to clip in the first place.
+        ClipsDescendants = true,
 
         -- BackgroundColor3 deliberately isn't in this table: Window:Create applies themed
         -- properties first and literal ones after, so a literal Color3 here would permanently
@@ -580,7 +580,11 @@ function Window.new(properties)
     -- tabAccentColor (Color3 or ColorSequence) always goes through this - a flat colour just
     -- becomes a uniform "gradient", indistinguishable from a plain fill.
     self.tabIndicatorGradient = self:Create("UIGradient", { Parent = self.tabIndicator })
-    self.tabIndicatorGlow = self:CreateGlow(self.tabIndicator, Color3.fromRGB(255, 255, 255), 18, 1)
+    -- Smaller blur than most glows in this file on purpose: tabDock clips its children (see
+    -- above) and the dock only has ~2px of margin above/below the pill, so a wide blur has
+    -- nowhere to fade out before hitting that clip and would just redraw the same hard-edge
+    -- line problem clipping was reintroduced to fix.
+    self.tabIndicatorGlow = self:CreateGlow(self.tabIndicator, Color3.fromRGB(255, 255, 255), 6, 1)
 
     self.tabStyle = properties.tabStyle or properties.TabStyle or "accent"
     self.tabAccentColor = self.theme.AccentColor
