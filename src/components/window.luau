@@ -2577,15 +2577,20 @@ local tooltipMaxWidth = 220
 local tooltipCursorGap = 14 -- clears the cursor's own hotspot/hand icon
 
 -- Screen-space mouse position, in the same coordinate space as our GuiObjects' AbsolutePosition.
--- GetMouseLocation() is already reported in that space (unlike the legacy Mouse.X/Y, which
--- includes the Roblox topbar inset and needs it subtracted back out for a GuiObject that isn't
--- ignoring it) - our own ScreenGui sets IgnoreGuiInset = true, so its children's AbsolutePosition
--- is already inset-free and matches GetMouseLocation() as-is. Subtracting GetGuiInset() here on
--- top of that double-corrected the tooltip a full inset's worth too high above the cursor - live
--- confirmed against the test client's own GetGuiInset().Y (58px, matching the visible gap).
+-- Sounds like it should just be GetMouseLocation() as-is: our ScreenGui sets IgnoreGuiInset =
+-- true, so its children's AbsolutePosition is inset-free, and GetMouseLocation() is documented
+-- to already exclude the inset too - two things already in the same space needing no correction
+-- between them. Measured wrong on the live test client though: with no correction at all, a
+-- GuiObject's rendered AbsolutePosition still comes out exactly GetGuiInset().Y (58px) SMALLER
+-- than the Y its own Position was set to - i.e. this ScreenGui is silently still applying the
+-- inset shift on this executor regardless of IgnoreGuiInset. Confirmed the fix the same way:
+-- placed the tooltip with no correction, read its real AbsolutePosition back, and it was short
+-- by exactly GetGuiInset().Y - so it has to be ADDED back on the way in to land where intended,
+-- the opposite of the subtraction this used to do (which made the shortfall twice as bad).
 function Window:_mouseAbsolutePosition()
     local mouse = variables.userInputService:GetMouseLocation()
-    return Vector2.new(mouse.X, mouse.Y)
+    local topLeftInset = variables.guiService:GetGuiInset()
+    return Vector2.new(mouse.X, mouse.Y + topLeftInset.Y)
 end
 
 function Window:_ensureTooltip()
