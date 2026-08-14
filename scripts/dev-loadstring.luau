@@ -96,6 +96,7 @@ local componentFiles = {
     "segmentedpicker",
     "shimmerlabel",
     "slider",
+    "spacer",
     "stat",
     "tab",
     "tag",

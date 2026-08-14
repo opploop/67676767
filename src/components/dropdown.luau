@@ -19,6 +19,7 @@ local image = require(utility.image)
 local constants = require(utility.constants)
 local locale = require(utility.locale)
 local hapticEngine = require(utility.HapticEngine)
+local moveable = require(utility.moveable)
 
 local chevronIcon = constants.icons.chevron
 local checkIcon = constants.icons.check
@@ -1279,30 +1280,8 @@ function Dropdown:_setShown(shown, animate)
     end
 end
 
-function Dropdown:MoveTo(index)
-    self.tab:_moveElement(self, index)
-end
-
-function Dropdown:MoveToTop()
-    self.tab:_moveElement(self, 1)
-end
-
-function Dropdown:MoveToBottom()
-    self.tab:_moveElement(self, #self.tab.elements)
-end
-
-function Dropdown:MoveUp()
-    local idx = table.find(self.tab.elements, self)
-    if idx then
-        self.tab:_moveElement(self, idx - 1)
-    end
-end
-
-function Dropdown:MoveDown()
-    local idx = table.find(self.tab.elements, self)
-    if idx then
-        self.tab:_moveElement(self, idx + 1)
-    end
-end
+-- Devlog 7: was five hand-rolled Move* methods identical to every other component's own
+-- copy-paste - consolidated onto the shared mixin (also picks up :SetVisible for free).
+moveable(Dropdown)
 
 return Dropdown

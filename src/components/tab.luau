@@ -127,15 +127,16 @@ function Tab.new(window, properties)
             Parent = self.topbarItem,
         })
 
+        -- Devlog 7: tighter, more "Segmented Picker"-style padding so tabs sit closer together
         self.window:Create("UIPadding", {
-            PaddingLeft = UDim.new(0, 13),
-            PaddingRight = UDim.new(0, 14),
+            PaddingLeft = UDim.new(0, 11),
+            PaddingRight = UDim.new(0, 11),
 
             Parent = self.topbarItemContainer,
         })
 
         self.topbarItemLayout = self.window:Create("UIListLayout", {
-            Padding = UDim.new(0, 6),
+            Padding = UDim.new(0, 5),
             FillDirection = Enum.FillDirection.Horizontal,
             VerticalAlignment = Enum.VerticalAlignment.Center,
             HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -221,7 +222,9 @@ function Tab.new(window, properties)
     })
 
     self.window:Create("UIPadding", {
-        PaddingTop = UDim.new(0, 10),
+        -- Devlog 7: the gap under the tab dock read as glued to it (13px measured live) -
+        -- widened so the first section/element always gets real breathing room below the dock.
+        PaddingTop = UDim.new(0, 22),
         PaddingBottom = UDim.new(0, 33),
 
         Parent = self.tabPage,
@@ -526,6 +529,12 @@ end
 -- REMOVED tagged entries. Static once built.
 function Tab:CreateChangelog(properties)
     return self:_register(require(script.Parent.changelog).new(self, properties))
+end
+
+-- Spacer: an invisible gap with a configurable height, for custom breathing room between
+-- elements/sections.
+function Tab:CreateSpacer(properties)
+    return self:_register(require(script.Parent.spacer).new(self, properties))
 end
 
 function Tab:_moveElement(element, targetIndex)

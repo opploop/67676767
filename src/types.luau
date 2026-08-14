@@ -297,6 +297,10 @@ export type CollapsibleProps = {
     expanded: boolean?, -- start open (default false)
 }
 
+export type SpacerProps = {
+    height: number?, -- pixel gap (default 12)
+}
+
 export type StatProps = {
     name: string?,
     description: string?,
@@ -360,6 +364,9 @@ export type Moveable = {
     MoveToBottom: (self: any) -> (),
     MoveUp: (self: any) -> (),
     MoveDown: (self: any) -> (),
+    -- Devlog 7: shows/hides the element at runtime, independent of tab switching or the window
+    -- itself hiding - pulls it out of layout entirely rather than just fading it.
+    SetVisible: (self: any, visible: boolean) -> (),
 }
 
 export type Button = Moveable & {
@@ -465,6 +472,11 @@ export type HoldButton = Moveable & {
 
 export type Changelog = Moveable & {}
 
+export type Spacer = Moveable & {
+    height: number,
+    SetHeight: (self: Spacer, height: number, animate: boolean?) -> (),
+}
+
 -- A collapsible section hosts its own nested elements through the same reduced CreateX surface
 -- as a Group (see Group above) - it wraps one internally.
 export type Collapsible = Moveable & {
@@ -542,6 +554,7 @@ export type Tab = {
     CreateHoldButton: (self: Tab, props: HoldButtonProps?) -> HoldButton,
     CreateCollapsible: (self: Tab, props: CollapsibleProps?) -> Collapsible,
     CreateChangelog: (self: Tab, props: ChangelogProps?) -> Changelog,
+    CreateSpacer: (self: Tab, props: SpacerProps?) -> Spacer,
     locked: boolean,
     SetLocked: (self: Tab, locked: boolean) -> (),
 }

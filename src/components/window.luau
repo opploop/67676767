@@ -578,7 +578,8 @@ function Window.new(properties)
     })
 
     self.tabListLayout = self:Create("UIListLayout", {
-        Padding = UDim.new(0, 4),
+        -- Devlog 7: tighter gap between tabs (was 4) - closer, more "Segmented Picker" feel
+        Padding = UDim.new(0, 2),
         FillDirection = Enum.FillDirection.Horizontal,
         VerticalAlignment = Enum.VerticalAlignment.Center,
         HorizontalAlignment = Enum.HorizontalAlignment.Left,

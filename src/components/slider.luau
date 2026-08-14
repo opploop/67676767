@@ -116,11 +116,12 @@ function Slider.new(tab, properties)
         self:_buildLabel()
     end
 
-    -- Right: the track
+    -- Right: the track. Devlog 7: thinner, more minimal (was 14px) - a slim rail with the
+    -- pill handle riding above it, rather than a chunky bar the handle sits flush inside.
     self.track = self.window:Create("Frame", {
         AnchorPoint = Vector2.new(1, 0.5),
         Position = UDim2.new(1, -15, 0.5, 0),
-        Size = UDim2.fromOffset(222, 14),
+        Size = UDim2.fromOffset(222, 6),
         BorderSizePixel = 0,
         BackgroundTransparency = 1, -- In = 0
 
@@ -128,7 +129,7 @@ function Slider.new(tab, properties)
     }, { BackgroundColor3 = "SliderBackground" })
 
     self.window:Create("UICorner", {
-        CornerRadius = UDim.new(0, 13),
+        CornerRadius = UDim.new(1, 0),
 
         Parent = self.track,
     })
@@ -146,7 +147,7 @@ function Slider.new(tab, properties)
     })
 
     self.window:Create("UICorner", {
-        CornerRadius = UDim.new(0, 13),
+        CornerRadius = UDim.new(1, 0),
 
         Parent = self.progress,
     })
@@ -165,11 +166,13 @@ function Slider.new(tab, properties)
     -- Green glow behind the filled progress (revealed on show)
     self.progressGlow = self.window:CreateGlow(self.progress, "AccentColor", 20, 1)
 
-    -- Handle blob: solid white at rest, ghosts + grows a stroke while held
+    -- Handle: a small solid-white circular pill riding on the thin track, sized independent
+    -- of the track's own (now much slimmer) height rather than filling it. Ghosts + grows a
+    -- stroke while held, same feel as before, just smaller so it still reads as minimal.
     self.handle = self.window:Create("Frame", {
         AnchorPoint = Vector2.new(1, 0.5),
         Position = UDim2.new(1, 20, 0.5, 0),
-        Size = UDim2.fromOffset(35, 20),
+        Size = UDim2.fromOffset(18, 18),
         BorderSizePixel = 0,
         ZIndex = 50,
         BackgroundTransparency = 1, -- In = 0
@@ -293,7 +296,7 @@ function Slider.new(tab, properties)
         self.main.Size = UDim2.new(1, -20, 0, 41)
         self.track.AnchorPoint = Vector2.new(0.5, 0.5)
         self.track.Position = UDim2.new(0.5, 0, 0.5, 0)
-        self.track.Size = UDim2.new(1, -30, 0, 14)
+        self.track.Size = UDim2.new(1, -30, 0, 6)
     end
 
     self:_renderProgress()
@@ -450,7 +453,7 @@ function Slider:_applyLayout()
 
         self.track.AnchorPoint = Vector2.new(0.5, 1)
         self.track.Position = UDim2.new(0.5, 0, 1, -14)
-        self.track.Size = UDim2.new(1, -30, 0, 14)
+        self.track.Size = UDim2.new(1, -30, 0, 6)
     else
         self:_setMainHeight(65)
 
@@ -464,7 +467,7 @@ function Slider:_applyLayout()
 
         self.track.AnchorPoint = Vector2.new(1, 0.5)
         self.track.Position = UDim2.new(1, -15, 0.5, 0)
-        self.track.Size = UDim2.new(0, 222, 0, 14)
+        self.track.Size = UDim2.new(0, 222, 0, 6)
     end
 end
 
@@ -511,12 +514,12 @@ end
 function Slider:_setHeld(held)
     if held then
         variables.tweenService
-            :Create(self.handle, heldInfo, { Size = UDim2.fromOffset(41, 22), BackgroundTransparency = 0.7 })
+            :Create(self.handle, heldInfo, { Size = UDim2.fromOffset(24, 24), BackgroundTransparency = 0.7 })
             :Play()
         variables.tweenService:Create(self.handleStroke, heldInfo, { Transparency = 0.6 }):Play()
     else
         variables.tweenService
-            :Create(self.handle, heldInfo, { Size = UDim2.fromOffset(35, 20), BackgroundTransparency = 0 })
+            :Create(self.handle, heldInfo, { Size = UDim2.fromOffset(18, 18), BackgroundTransparency = 0 })
             :Play()
         variables.tweenService:Create(self.handleStroke, heldInfo, { Transparency = 1 }):Play()
     end
