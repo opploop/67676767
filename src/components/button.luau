@@ -287,13 +287,9 @@ end
 
 function Button:_setShown(shown, animate)
     if shown then
+        -- _revealCommon is locked-aware (see window.luau) - it already dims title/icon
+        -- correctly by itself, no second tween needed to fix it up afterward
         self.window:_revealCommon(self, animate)
-        -- _revealCommon always sets title/icon back to fully visible - re-assert the locked
-        -- dim on top of that or a locked button undims itself the moment it's next revealed
-        -- (tab switch, window show, ...), even though .locked never actually changed.
-        if self.locked then
-            self:_applyLocked(animate)
-        end
     else
         self.window:_hideCommon(self, animate)
     end

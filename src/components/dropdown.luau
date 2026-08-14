@@ -1251,25 +1251,27 @@ end
 function Dropdown:_setShown(shown, animate)
     -- Custom reveal: main is a transparent wrapper, so reveal the header card (self.top)
     -- rather than main. The options card fades in on open, not here.
+    -- Locked-aware title/chevron/selected-value targets, computed as this call's own target
+    -- rather than a second tween chasing it in afterward - two simultaneous tweens on the same
+    -- property fight each other frame to frame instead of one cleanly winning (the same class
+    -- of bug as the tab indicator's own tween race).
     local w = self.window
+    local titleTransparency = if self.locked then 0.6 else 0
+    local sideTransparency = if self.locked then 1 else 0.5 -- chevron + selected-value text
     w:_reveal(self.stroke, { Transparency = if shown then w.theme.ElementStrokeTransparency else 1 }, animate)
-    w:_reveal(self.title, { TextTransparency = if shown then 0 else 1 }, animate)
+    w:_reveal(self.title, { TextTransparency = if shown then titleTransparency else 1 }, animate)
     w:_reveal(self.top, { BackgroundTransparency = if shown then (w.theme.ElementTransparency or 0) else 1 }, animate)
     if self.iconLabel then
-        w:_reveal(self.iconLabel, { ImageTransparency = if shown then 0 else 1 }, animate)
+        w:_reveal(self.iconLabel, { ImageTransparency = if shown then titleTransparency else 1 }, animate)
     end
     if self.descriptor then
         w:_reveal(self.descriptor.titleLabel, { TextTransparency = if shown then 0.7 else 1 }, animate)
     end
-    w:_reveal(self.selectedLabel, { TextTransparency = if shown then 0.5 else 1 }, animate)
-    w:_reveal(self.chevron, { ImageTransparency = if shown then 0.5 else 1 }, animate)
+    w:_reveal(self.selectedLabel, { TextTransparency = if shown then sideTransparency else 1 }, animate)
+    w:_reveal(self.chevron, { ImageTransparency = if shown then sideTransparency else 1 }, animate)
 
-    -- the lines above always set title/chevron/selectedLabel back to their normal shown
-    -- values - re-assert the locked look on top, or a locked dropdown undims itself the next
-    -- time it's revealed (tab switch, window show, ...) even though .locked never changed
-    if shown and self.locked then
-        self:_applyLocked(animate)
-    end
+    -- lockIcon/prohibitedIcon.Visible aren't touched by any of the above, so they don't need
+    -- re-asserting here - only _applyLocked/SetLocked ever change them
 
     -- if the window hides while we're open, collapse so we dont reopen mid-air
     if not shown and self._isOpen then

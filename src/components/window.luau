@@ -3015,11 +3015,17 @@ end
 
 -- Reveal the parts every non-Section element shares (fill/stroke/title/icon/descriptor).
 function Window:_revealCommon(element, animate)
+    -- locked-aware: an element flagged .locked dims to the same 0.6 _applyLockedVisual uses,
+    -- computed as this call's own target instead of a second tween chasing it in afterward -
+    -- two simultaneous tweens on the same property fight each other frame to frame instead of
+    -- one cleanly winning (the same class of bug as the tab indicator's own tween race), which
+    -- is exactly what calling _applyLocked right after this used to do.
+    local titleTransparency = if element.locked then 0.6 else 0
     self:_reveal(element.stroke, { Transparency = self.theme.ElementStrokeTransparency }, animate)
-    self:_reveal(element.title, { TextTransparency = 0 }, animate)
+    self:_reveal(element.title, { TextTransparency = titleTransparency }, animate)
     self:_reveal(element.main, { BackgroundTransparency = self.theme.ElementTransparency or 0 }, animate)
     if element.iconLabel then
-        self:_reveal(element.iconLabel, { ImageTransparency = 0 }, animate)
+        self:_reveal(element.iconLabel, { ImageTransparency = titleTransparency }, animate)
     end
     if element.descriptor then
         self:_reveal(element.descriptor.titleLabel, { TextTransparency = 0.7 }, animate)
