@@ -483,6 +483,12 @@ function Toggle:_setShown(shown, animate)
             animate,
             toggleReveal
         )
+        -- _revealCommon above always sets title back to fully visible - re-assert the locked
+        -- dim + lock icon on top, or a locked toggle undims itself the next time it's revealed
+        -- (tab switch, window show, ...) even though .locked never actually changed.
+        if self.locked then
+            self:_applyLocked(animate)
+        end
     else
         w:_hideCommon(self, animate)
         w:_reveal(self.indicator, { BackgroundTransparency = 1 }, animate, toggleReveal)

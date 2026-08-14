@@ -288,6 +288,12 @@ end
 function Button:_setShown(shown, animate)
     if shown then
         self.window:_revealCommon(self, animate)
+        -- _revealCommon always sets title/icon back to fully visible - re-assert the locked
+        -- dim on top of that or a locked button undims itself the moment it's next revealed
+        -- (tab switch, window show, ...), even though .locked never actually changed.
+        if self.locked then
+            self:_applyLocked(animate)
+        end
     else
         self.window:_hideCommon(self, animate)
     end

@@ -1264,6 +1264,13 @@ function Dropdown:_setShown(shown, animate)
     w:_reveal(self.selectedLabel, { TextTransparency = if shown then 0.5 else 1 }, animate)
     w:_reveal(self.chevron, { ImageTransparency = if shown then 0.5 else 1 }, animate)
 
+    -- the lines above always set title/chevron/selectedLabel back to their normal shown
+    -- values - re-assert the locked look on top, or a locked dropdown undims itself the next
+    -- time it's revealed (tab switch, window show, ...) even though .locked never changed
+    if shown and self.locked then
+        self:_applyLocked(animate)
+    end
+
     -- if the window hides while we're open, collapse so we dont reopen mid-air
     if not shown and self._isOpen then
         self:_close()
