@@ -5,7 +5,11 @@
 -- License, v. 2.0. If a copy of the MPL was not distributed with this
 -- file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
--- Community icon packs (github.com/Footagesus/Icons - the same source WindUI uses), fetched the
+-- Community icon packs, originally sourced from github.com/Footagesus/Icons (the same data
+-- WindUI uses) and mirrored into this project's own GitHub (opploop/97979797) so it isn't a
+-- stranger's repo this loads and executes code from at runtime - pinned to one exact commit,
+-- the same trust model the rest of this codebase already uses to load itself (see
+-- dev-loadstring.luau's own comments on why a commit SHA, never a branch name). Fetched the
 -- same way every other dev-loadstring asset in this codebase is: a plain HttpGet + loadstring,
 -- no server script or RemoteFunction involved (unlike WindUI's own loader, which leans on a
 -- server-side Script to hand icons to clients over a RemoteFunction - real for a dev who owns
@@ -19,7 +23,11 @@
 
 local icons = {}
 
-local baseUrl = "https://raw.githubusercontent.com/Footagesus/Icons/refs/heads/main/"
+-- Bump this (and re-verify every pack still resolves) to pick up a newer snapshot - never point
+-- this at a branch name instead, or every future fetch trusts whatever's there at the time
+-- without anyone having actually looked at it first.
+local pinnedCommit = "47b8b275ec886ceb58b074bf491d28be48427779"
+local baseUrl = "https://raw.githubusercontent.com/opploop/97979797/" .. pinnedCommit .. "/"
 
 icons.packNames = {
     lucide = true,

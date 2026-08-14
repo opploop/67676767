@@ -2875,11 +2875,12 @@ function Window:StyleElementBody(main)
 end
 
 -- Devlog 6 lock system -------------------------------------------------------------------
--- A small padlock. Tries the real Lucide "lock" icon first (see icons.luau - the same fetch
--- github.com/Footagesus/Icons + loadstring approach every other dev-loadstring asset in this
--- codebase already uses, not a server RemoteFunction like WindUI's own loader leans on, since
--- an executor-injected library can't stand one of those up in someone else's game). Falls back
--- to drawing one from two plain frames (a rounded body + a thin rounded shackle arc) if the
+-- A small padlock. Tries the real Lucide "lock" icon first (see icons.luau - fetched from this
+-- project's own pinned-commit GitHub mirror, the same HttpGet + loadstring approach every other
+-- dev-loadstring asset in this codebase already uses, not a server RemoteFunction like WindUI's
+-- own loader leans on, since an executor-injected library can't stand one of those up in
+-- someone else's game). Falls back to drawing one from two plain frames (a rounded body + a
+-- thin rounded shackle arc) if the
 -- pack isn't reachable, so a dead repo dims a locked element's glyph in quality, never removes
 -- it outright. Shared by every lockable element (Button, Toggle, Dropdown, Tab, HoldButton) so
 -- the glyph and its math live in exactly one place.
