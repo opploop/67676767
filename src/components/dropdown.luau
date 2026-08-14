@@ -957,7 +957,7 @@ function Dropdown:_openHeight()
 end
 
 function Dropdown:_open()
-    if self._isOpen then
+    if self._isOpen or self.locked then
         return
     end
     self._isOpen = true
