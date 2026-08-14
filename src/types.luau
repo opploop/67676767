@@ -38,6 +38,9 @@ export type WindowProps = {
     translator: Translator?, -- resolve copy yourself; falls back to the built-in tables
     tabStyle: ("white" | "accent")?, -- the shared tab pill's look (default "accent")
     tabAccentGlow: boolean?, -- soft glow under the pill in accent mode (default true)
+    -- initial window size (Vector2, a UDim2's offset component, or a {width,height}/{X,Y} table)
+    -- - still screen-fit the same way the built-in default is, see windowSizing.luau
+    size: (Vector2 | UDim2 | { [string]: number } | { number })?,
 }
 
 export type TabProps = {
@@ -566,6 +569,8 @@ export type Window = {
     SetTabStyle: (self: Window, style: "white" | "accent") -> (), -- switch the shared tab pill live
     SetTabAccentColor: (self: Window, color: Color3) -> (), -- recolour the accent pill + its glow
     SetTabAccentGlow: (self: Window, shown: boolean) -> (), -- toggle the soft glow under the accent pill
+    -- live font swap: "Auto" (brand font) | "Builder" | "Gotham" | "Monospace"
+    SetFont: (self: Window, name: string) -> (),
     SetLocale: (self: Window, localeId: string) -> (),
     SetTranslator: (self: Window, translator: Translator?) -> (),
     RegisterTranslations: (self: Window, translations: Translations) -> (),

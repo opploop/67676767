@@ -41,13 +41,24 @@ windowSizing.defaultSize = defaultSize
 windowSizing.minSize = minSize
 
 -- How much height we had to give up, 0 on a screen tall enough and 1 once pinned to the floor.
-local function heightDeficit(height: number): number
-    return math.clamp((defaultSize.Y - height) / (defaultSize.Y - minSize.Y), 0, 1)
+-- baseHeight is normally the module's own defaultSize.Y, but a dev-supplied custom size (see
+-- fit below) becomes the ceiling this scales from instead, so a custom size shrinks the same
+-- way the built-in default does on a short screen rather than ignoring the cap entirely.
+local function heightDeficit(height: number, baseHeight: number): number
+    if baseHeight <= minSize.Y then
+        return 1 -- a custom size at or under the floor is already fully "shrunk"
+    end
+    return math.clamp((baseHeight - height) / (baseHeight - minSize.Y), 0, 1)
 end
 
-function windowSizing.fit(viewport: Vector2?): UDim2
+-- target: a dev-supplied starting size (WindowProps.size) to fit from instead of the built-in
+-- default - it's still subject to the same screen-occupancy caps and floor below, so a custom
+-- size that's too big for the current screen still shrinks instead of hanging off the edge.
+function windowSizing.fit(viewport: Vector2?, target: Vector2?): UDim2
+    local baseSize = target or defaultSize
+
     if not viewport or viewport.X < minPlausibleViewport or viewport.Y < minPlausibleViewport then
-        return UDim2.fromOffset(defaultSize.X, defaultSize.Y)
+        return UDim2.fromOffset(baseSize.X, baseSize.Y)
     end
 
     local availableX = math.min(viewport.X * maxOccupancyX, viewport.X - marginFloorX)
@@ -57,9 +68,9 @@ function windowSizing.fit(viewport: Vector2?): UDim2
     -- rather than one hanging off the edge, so the occupancy caps hold at every size. settle the
     -- height to whole pixels first, so the aspect cap is measured against the height we ship
     -- rather than a fraction that rounds away underneath it.
-    local height = math.floor(math.min(math.clamp(availableY, minSize.Y, defaultSize.Y), availableY))
-    local deficit = heightDeficit(height)
-    local width = math.max(defaultSize.X + widthCompensation * deficit, minSize.X)
+    local height = math.floor(math.min(math.clamp(availableY, minSize.Y, baseSize.Y), availableY))
+    local deficit = heightDeficit(height, baseSize.Y)
+    local width = math.max(baseSize.X + widthCompensation * deficit, minSize.X)
 
     -- the screen and the aspect ceiling are the hard limits, so they are applied after the
     -- floor has lifted the width: a minimum that can push back past a cap is not a cap.

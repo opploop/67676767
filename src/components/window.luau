@@ -48,9 +48,45 @@ local viewportReconcileInterval = 2
 
 -- The size the current screen calls for. Everything downstream (the reveal target, drag
 -- clamp, collapse) reads self.size, so it all inherits whatever this returns.
-local function fitWindowSize(): UDim2
+local function fitWindowSize(customSize: Vector2?): UDim2
     local camera = variables.workspace.CurrentCamera
-    return windowSizing.fit(camera and camera.ViewportSize)
+    return windowSizing.fit(camera and camera.ViewportSize, customSize)
+end
+
+-- WindowProps.size: a dev-supplied starting size, still screen-fit the same way the built-in
+-- default is (see windowSizing.fit). Accepts a Vector2, a UDim2 (its offset component), or a
+-- plain {width, height}/{X, Y}/{x, y} table so a dev doesn't have to reach for Vector2.new.
+local function resolveCustomSize(value): Vector2?
+    if typeof(value) == "Vector2" then
+        return value
+    end
+    if typeof(value) == "UDim2" then
+        return Vector2.new(value.X.Offset, value.Y.Offset)
+    end
+    if typeof(value) == "table" then
+        local x = value.width or value.Width or value.X or value.x or value[1]
+        local y = value.height or value.Height or value.Y or value.y or value[2]
+        if typeof(x) == "number" and typeof(y) == "number" then
+            return Vector2.new(x, y)
+        end
+    end
+    return nil
+end
+
+-- Devlog 6 Settings > Font picker. "auto" is the brand font (the default - a custom-downloaded
+-- family via variables.brandFont); the rest are plain built-in Roblox font families. Keyed
+-- lowercase so SetFont can match case-insensitively the same way ChangeTheme's theme names do.
+local fontChoices = {
+    auto = true,
+    builder = Enum.Font.BuilderSans,
+    gotham = Enum.Font.Gotham,
+    monospace = Enum.Font.RobotoMono,
+}
+
+-- Same family, a different weight - Font.fromEnum only ever gives the enum's own default
+-- weight, so re-derive a Font at the weight we actually want from its family name instead.
+local function fontAtWeight(enumFont: Enum.Font, weight: Enum.FontWeight): Font
+    return Font.new(Font.fromEnum(enumFont).Family, weight)
 end
 
 -- Keys that drive a UIGradient and so want a ColorSequence. A dev may pass a plain Color3 for
@@ -169,10 +205,14 @@ function Window.new(properties)
         variables.setFallbackFont(fallbackFont)
     end
 
+    local customSize = resolveCustomSize(properties.size or properties.Size)
+
     local self = setmetatable({
         name = properties.name or properties.Name or "Rayfield Window",
         subheading = properties.subtitle or properties.Subtitle,
-        size = fitWindowSize(),
+        size = fitWindowSize(customSize),
+        customSize = customSize,
+        fontChoice = "auto",
         instances = {},
         connections = {},
 
@@ -787,6 +827,31 @@ function Window:ChangeTheme(theme)
     self:_paintTabIndicator(not self.hidden)
 
     self:_syncLiveAnimation()
+end
+
+-- Devlog 6 Settings > Font picker: "Auto" (the brand font), "Builder", "Gotham", or
+-- "Monospace". Just a partial ChangeTheme under the hood - Font/TitleFont are already ordinary
+-- themeProperties (every FontFace = "Font"/"TitleFont" binding made via Create), so swapping
+-- them through here reaches every live element the same way any other theme change does.
+function Window:SetFont(name)
+    local key = string.lower(tostring(name or "auto"))
+    if fontChoices[key] == nil then
+        log.warn("Rayfield: unknown font '" .. tostring(name) .. "', using Auto")
+        key = "auto"
+    end
+    self.fontChoice = key
+
+    local titleFont, bodyFont
+    if key == "auto" then
+        titleFont = variables.brandFont(Enum.FontWeight.SemiBold)
+        bodyFont = variables.brandFont(Enum.FontWeight.Medium)
+    else
+        local enumFont = fontChoices[key]
+        titleFont = fontAtWeight(enumFont, Enum.FontWeight.SemiBold)
+        bodyFont = fontAtWeight(enumFont, Enum.FontWeight.Medium)
+    end
+
+    self:ChangeTheme({ Font = bodyFont, TitleFont = titleFont })
 end
 
 function Window:_refreshElementThemes()
@@ -1551,7 +1616,7 @@ function Window:_applyWindowSize()
         return
     end
 
-    local size = fitWindowSize()
+    local size = fitWindowSize(self.customSize)
     local changed = size ~= self.size
     self.size = size
 
@@ -1824,6 +1889,30 @@ function Window:_buildSettingsUI()
             self.settings.haptics = state
             hapticEngine.setEnabled(state)
             self:SaveSettings()
+        end,
+    })
+
+    self.rfSettings:CreateSection({ name = "Appearance" })
+
+    -- "Amber" is the one preset name that doesn't match its theme file 1:1 (ember.luau) - every
+    -- other option here is both the picker label and the real theme name, case-insensitively.
+    local themeFileFor = { Amber = "ember" }
+
+    self.rfSettings:CreateDropdown({
+        name = "Color theme",
+        options = { "Default", "Ocean", "Amber", "Rose", "Emerald", "Amethyst", "Midnight" },
+        value = "Default",
+        callback = function(value)
+            self:ChangeTheme(themeFileFor[value] or value)
+        end,
+    })
+
+    self.rfSettings:CreateDropdown({
+        name = "Font",
+        options = { "Auto", "Builder", "Gotham", "Monospace" },
+        value = "Auto",
+        callback = function(value)
+            self:SetFont(value)
         end,
     })
 

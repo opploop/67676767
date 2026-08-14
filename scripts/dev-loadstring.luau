@@ -108,7 +108,7 @@ for _, name in componentFiles do
 end
 
 local themes = makeFolder("themes", Rayfield)
-local themeFiles = { "amethyst", "cobalt", "default", "ember", "frost", "rose" }
+local themeFiles = { "amethyst", "cobalt", "default", "ember", "emerald", "frost", "midnight", "ocean", "rose" }
 for _, name in themeFiles do
     makeModule(name, themes, fetch("src/themes/" .. name .. ".luau"))
 end
