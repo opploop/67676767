@@ -75,6 +75,7 @@ function Tab.new(window, properties)
         customOrder = properties.customOrder or properties.CustomOrder or 0,
         -- when true, controls on this tab default to not persisting to config (the settings tab)
         forgetState = properties.forgetState or properties.ForgetState or false,
+        locked = properties.locked or properties.Locked or false,
 
         elements = {},
         connections = {}, -- tracked so Remove can drop them without waiting for Unload
@@ -183,6 +184,12 @@ function Tab.new(window, properties)
                 Parent = self.topbarItemContainer,
             }, { TextColor3 = "TabColor", FontFace = "Font" })
         end
+
+        -- flows after icon/title via topbarItemContainer's own UIListLayout - the position/
+        -- anchor _buildLockIcon takes don't matter here, a list-managed child's Position is
+        -- overridden by the layout regardless of what it's created with
+        self.lockIcon = self.window:_buildLockIcon(self.topbarItemContainer)
+        self:_applyLocked()
     end
 
     -- Tab Page
@@ -224,6 +231,9 @@ function Tab.new(window, properties)
         table.insert(
             self.connections,
             self.window:Connect(self.topbarItemInteract.MouseButton1Click, function()
+                if self.locked then
+                    return
+                end
                 hapticEngine.click()
                 self:Select()
             end)
@@ -270,8 +280,14 @@ function Tab:_applyVisual(stateName, tweenInfo)
         return
     end
 
+    -- locked reads as (at least) unselected-dim no matter which state was actually asked for -
+    -- computed here rather than in a separate pass afterward, so there's only ever one tween
+    -- per property instead of two racing each other (the tab indicator/lock system both
+    -- learned this the hard way earlier)
+    local content = if self.locked then math.max(state.content, tabStates.unselected.content) else state.content
+
     local color
-    if stateName == "selected" then
+    if stateName == "selected" and not self.locked then
         -- defensive fallback: contrastText would error on a nil color, and a custom theme
         -- (or a window mid-construction) might not have an AccentColor to fall back on either
         local pillColor = if self.window.tabStyle == "white" then Color3.fromRGB(255, 255, 255) else self.window.tabAccentColor
@@ -286,24 +302,42 @@ function Tab:_applyVisual(stateName, tweenInfo)
     if tweenInfo then
         if self.topbarItemIcon then
             variables.tweenService
-                :Create(self.topbarItemIcon, tweenInfo, { ImageTransparency = state.content, ImageColor3 = color })
+                :Create(self.topbarItemIcon, tweenInfo, { ImageTransparency = content, ImageColor3 = color })
                 :Play()
         end
         if self.topbarItemTitle then
             variables.tweenService
-                :Create(self.topbarItemTitle, tweenInfo, { TextTransparency = state.content, TextColor3 = color })
+                :Create(self.topbarItemTitle, tweenInfo, { TextTransparency = content, TextColor3 = color })
                 :Play()
         end
     else
         if self.topbarItemIcon then
-            self.topbarItemIcon.ImageTransparency = state.content
+            self.topbarItemIcon.ImageTransparency = content
             self.topbarItemIcon.ImageColor3 = color
         end
         if self.topbarItemTitle then
-            self.topbarItemTitle.TextTransparency = state.content
+            self.topbarItemTitle.TextTransparency = content
             self.topbarItemTitle.TextColor3 = color
         end
     end
+end
+
+-- Show/hide the padlock and re-paint with whatever visual is already active, so the dim baked
+-- into _applyVisual above takes effect immediately.
+function Tab:_applyLocked()
+    if self.lockIcon then
+        self.lockIcon.Visible = self.locked
+    end
+    self:_applyVisual(if self.window.selectedTab == self then "selected" else "unselected")
+end
+
+function Tab:SetLocked(locked)
+    locked = locked and true or false
+    if locked == self.locked then
+        return
+    end
+    self.locked = locked
+    self:_applyLocked()
 end
 
 function Tab:Select(noAnimation)

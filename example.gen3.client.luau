@@ -316,8 +316,19 @@ tab5:CreateToggle({
 
 -- Devlog 6: Hold Button, Collapsible Section, Update Log --------------------------------------
 local tab6 = window:CreateTab({ name = "Devlog 6", icon = 125626312718314 })
+local lockedTab = window:CreateTab({ name = "Locked", icon = 91452555903853, locked = true })
+lockedTab:CreateSection({ name = "Unlocked!" })
+lockedTab:CreateButton({ name = "You made it in", callback = function() end })
 
 tab6:CreateSection({ name = "New buttons" })
+
+tab6:CreateToggle({
+    name = "Unlock the \"Locked\" tab",
+    value = false,
+    callback = function(value)
+        lockedTab:SetLocked(not value)
+    end,
+})
 
 tab6:CreateHoldButton({
     name = "Hold to wipe save",
@@ -343,6 +354,45 @@ tab6:CreateToggle({
     value = false,
     callback = function(value)
         lockedHold:SetLocked(not value)
+    end,
+})
+
+tab6:CreateSection({ name = "Confirmation dialog" })
+
+-- Window:Popup already covers this ask outright (title/description/buttons, dim backdrop,
+-- centred) - no new component needed, just wiring a couple of real dialogs to it.
+tab6:CreateButton({
+    name = "Ask me (dialog)",
+    description = "Cancel/Reset, Confirm/Decline - a two-choice confirmation.",
+    callback = function()
+        window:Popup({
+            title = "Reset save data?",
+            content = "This clears every saved setting and can't be undone.",
+            options = {
+                { text = "Cancel", style = "neutral" },
+                {
+                    text = "Reset",
+                    style = "danger",
+                    callback = function()
+                        print("Save data reset!")
+                    end,
+                },
+            },
+        })
+    end,
+})
+
+tab6:CreateButton({
+    name = "Single accept dialog",
+    description = "One acknowledge button, no cancel path.",
+    callback = function()
+        window:Popup({
+            title = "Update installed",
+            content = "Rayfield Gen 3 is now on Devlog 6.",
+            options = {
+                { text = "Got it", style = "primary" },
+            },
+        })
     end,
 })
 

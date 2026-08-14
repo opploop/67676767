@@ -43,6 +43,7 @@ export type WindowProps = {
 export type TabProps = {
     name: string?,
     icon: (string | number)?,
+    locked: boolean?,
 }
 
 export type TagProps = {
@@ -538,6 +539,8 @@ export type Tab = {
     CreateHoldButton: (self: Tab, props: HoldButtonProps?) -> HoldButton,
     CreateCollapsible: (self: Tab, props: CollapsibleProps?) -> Collapsible,
     CreateChangelog: (self: Tab, props: ChangelogProps?) -> Changelog,
+    locked: boolean,
+    SetLocked: (self: Tab, locked: boolean) -> (),
 }
 
 export type GreetingProps = {
