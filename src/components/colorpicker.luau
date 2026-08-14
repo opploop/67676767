@@ -37,10 +37,21 @@ local fadeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection
 -- closing fades faster than it opens, and faster than the card shrinks, so the content is
 -- gone before (or right as) the height tween finishes instead of visibly cutting off mid-fade
 local closeFadeInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
--- the card's own open/close height specifically - snappier and less springy than a generic
--- "openInfo" name implied
+-- closing height: Quart out, quick and clean, no overshoot
 local heightInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+-- opening height: Back out - grows slightly past the final height then eases back, matching
+-- GradientPicker's own open bounce
+local heightOpenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local chevronInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+-- header swatch "pop" on click
+local popOutInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local popBackInfo = TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+-- glow pulse on open: flashes brighter than the steady-state glow, then relaxes back down to it
+local glowPulseInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local glowRelaxInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+-- delay between each staggered reveal group when opening
+local staggerStep = 0.05
+local swatchSize = UDim2.fromOffset(40, 22)
 
 local function clampByte(n)
     return math.clamp(math.round(n), 0, 255)
@@ -191,6 +202,7 @@ function ColorPicker.new(tab, properties)
 
     self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
         hapticEngine.click()
+        self:_popSwatch()
         if self._isOpen then
             self:_close()
         else
@@ -297,7 +309,7 @@ function ColorPicker:_buildHeader()
     self.swatch = self.window:Create("Frame", {
         AnchorPoint = Vector2.new(1, 0.5),
         Position = UDim2.new(1, -16, 0, headerHeight / 2),
-        Size = UDim2.fromOffset(40, 22),
+        Size = swatchSize,
         BackgroundColor3 = self.value,
         BorderSizePixel = 0,
         ZIndex = 3,
@@ -607,11 +619,27 @@ function ColorPicker:_fireCallback()
     self.window:_runGuarded(self, self.callback, self.value, self.alpha)
 end
 
+-- Quick tactile feedback on the header swatch the instant it's clicked, independent of (and
+-- faster than) the open/close animation that follows - squashes narrower, then springs back
+-- past its resting width before settling (Back easing) for a little bounce.
+function ColorPicker:_popSwatch()
+    local squashed = UDim2.fromOffset(swatchSize.X.Offset * 0.85, swatchSize.Y.Offset * 0.85)
+    local outTween = variables.tweenService:Create(self.swatch, popOutInfo, { Size = squashed })
+    outTween:Play()
+    local connection
+    connection = outTween.Completed:Connect(function()
+        connection:Disconnect()
+        variables.tweenService:Create(self.swatch, popBackInfo, { Size = swatchSize }):Play()
+    end)
+end
+
 function ColorPicker:_open()
     if self._isOpen then
         return
     end
     self._isOpen = true
+    self._openSeq = (self._openSeq or 0) + 1
+    local seq = self._openSeq
     self:_setControlsVisible(true)
 
     if self._outsideClickConn then
@@ -629,10 +657,38 @@ function ColorPicker:_open()
         end
     end)
 
-    variables.tweenService:Create(self.main, heightInfo, { Size = UDim2.new(1, -20, 0, self._openHeight) }):Play()
+    -- card grows with a slight bounce past its final height instead of a flat stop
+    variables.tweenService:Create(self.main, heightOpenInfo, { Size = UDim2.new(1, -20, 0, self._openHeight) }):Play()
     variables.tweenService:Create(self.chevron, chevronInfo, { Rotation = 0 }):Play()
-    self:_applyBodyVisibility(true, fadeInfo)
-    self.hsv:SetVisible(true, true)
+
+    -- glow pulse: flashes past its steady-state glow, then relaxes back down to it
+    if self.showGlow then
+        variables.tweenService:Create(self.previewGlow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.3) }):Play()
+        task.delay(glowPulseInfo.Time, function()
+            if self._isOpen and self._openSeq == seq then
+                variables.tweenService:Create(self.previewGlow, glowRelaxInfo, { Transparency = glowOnTransparency }):Play()
+            end
+        end)
+    end
+
+    -- staggered reveal: hex first, then RGB, then swatch+presets, then the HSV editor
+    self:_revealHex(true, fadeInfo)
+    task.delay(staggerStep, function()
+        if self._isOpen and self._openSeq == seq then
+            self:_revealRgb(true, fadeInfo)
+        end
+    end)
+    task.delay(staggerStep * 2, function()
+        if self._isOpen and self._openSeq == seq then
+            self:_revealSwatchAndPresets(true, fadeInfo)
+        end
+    end)
+    task.delay(staggerStep * 3, function()
+        if self._isOpen and self._openSeq == seq then
+            self.hsv:SetVisible(true, true)
+        end
+    end)
+
     self:_render("animate")
 end
 
@@ -641,6 +697,7 @@ function ColorPicker:_close()
         return
     end
     self._isOpen = false
+    self._openSeq = (self._openSeq or 0) + 1 -- invalidates any staggered/delayed open steps still pending
 
     if self._outsideClickConn then
         self.window:Disconnect(self._outsideClickConn)
@@ -650,8 +707,8 @@ function ColorPicker:_close()
         self.hexInput:ReleaseFocus()
     end
 
-    -- fade out on the quicker closeFadeInfo so the content is gone before (or right as) the
-    -- slower height tween below finishes, instead of visibly cutting off mid-fade
+    -- everything fades out together (no stagger) on the quicker closeFadeInfo, so the content
+    -- is gone before (or right as) the height tween below finishes instead of cutting off mid-fade
     self:_applyBodyVisibility(false, closeFadeInfo)
     self.hsv:SetVisible(false, true)
     self:_render("animate") -- also drops the preset ring now that _isOpen is false
@@ -750,33 +807,7 @@ function ColorPicker:_deserialize(raw)
     self:Set(Color3.fromHex(hex))
 end
 
--- Every OPEN-only body part (hex/RGB fields, swatch bar, presets), listed once so both the
--- initial hidden state at build and every later open/close pull from the same table - same
--- idea as the old picker's _applyPickerVisibility. The header swatch pill is NOT in here since
--- it stays visible whether the card is open or closed. hsvEditor manages its own instances.
-function ColorPicker:_applyBodyVisibility(open, animate)
-    local set = {
-        [self.hexBox] = { BackgroundTransparency = if open then 0.85 else 1 },
-        [self.hexBoxStroke] = { Transparency = if open then 0.75 else 1 },
-        [self.hexInput] = { TextTransparency = if open then 0 else 1 },
-        [self.swatchBar] = { BackgroundTransparency = if open then 0 else 1 },
-    }
-    for _, field in { { self.rBox, self.rBoxStroke, self.rBoxText, self.rInput },
-        { self.gBox, self.gBoxStroke, self.gBoxText, self.gInput },
-        { self.bBox, self.bBoxStroke, self.bBoxText, self.bInput } } do
-        local box, stroke, text, input = field[1], field[2], field[3], field[4]
-        set[box] = { BackgroundTransparency = if open then 0.85 else 1 }
-        set[stroke] = { Transparency = if open then 0.75 else 1 }
-        set[text] = { TextTransparency = if open then 0.4 else 1 }
-        set[input] = { TextTransparency = if open then 0 else 1 }
-    end
-    for _, entry in self.presetButtons do
-        set[entry.dot] = { BackgroundTransparency = if open then 0 else 1 }
-        if not open then
-            set[entry.ring] = { Transparency = 1 }
-        end
-    end
-
+local function applySet(set, animate)
     for instance, props in set do
         if animate then
             variables.tweenService:Create(instance, animate, props):Play()
@@ -786,6 +817,50 @@ function ColorPicker:_applyBodyVisibility(open, animate)
             end
         end
     end
+end
+
+function ColorPicker:_revealHex(open, animate)
+    applySet({
+        [self.hexBox] = { BackgroundTransparency = if open then 0.85 else 1 },
+        [self.hexBoxStroke] = { Transparency = if open then 0.75 else 1 },
+        [self.hexInput] = { TextTransparency = if open then 0 else 1 },
+    }, animate)
+end
+
+function ColorPicker:_revealRgb(open, animate)
+    local set = {}
+    for _, field in { { self.rBox, self.rBoxStroke, self.rBoxText, self.rInput },
+        { self.gBox, self.gBoxStroke, self.gBoxText, self.gInput },
+        { self.bBox, self.bBoxStroke, self.bBoxText, self.bInput } } do
+        local box, stroke, text, input = field[1], field[2], field[3], field[4]
+        set[box] = { BackgroundTransparency = if open then 0.85 else 1 }
+        set[stroke] = { Transparency = if open then 0.75 else 1 }
+        set[text] = { TextTransparency = if open then 0.4 else 1 }
+        set[input] = { TextTransparency = if open then 0 else 1 }
+    end
+    applySet(set, animate)
+end
+
+function ColorPicker:_revealSwatchAndPresets(open, animate)
+    local set = { [self.swatchBar] = { BackgroundTransparency = if open then 0 else 1 } }
+    for _, entry in self.presetButtons do
+        set[entry.dot] = { BackgroundTransparency = if open then 0 else 1 }
+        if not open then
+            set[entry.ring] = { Transparency = 1 }
+        end
+    end
+    applySet(set, animate)
+end
+
+-- Every OPEN-only body part (hex/RGB fields, swatch bar, presets), all pulled from the same
+-- three group methods above so both the initial hidden state at build and a plain (non-
+-- staggered) open/close use exactly the same values the staggered _open() sequence does. The
+-- header swatch pill is NOT in here since it stays visible whether the card is open or closed.
+-- hsvEditor manages its own instances.
+function ColorPicker:_applyBodyVisibility(open, animate)
+    self:_revealHex(open, animate)
+    self:_revealRgb(open, animate)
+    self:_revealSwatchAndPresets(open, animate)
 end
 
 -- The open-only controls sit below the header even while collapsed (the card doesn't clip), so

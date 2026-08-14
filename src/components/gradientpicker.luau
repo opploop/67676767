@@ -32,18 +32,34 @@ local narrowWidth = 380
 local glowOnTransparency = 0.55
 local minStops = 2
 local maxStops = 8
+local swatchSize = UDim2.fromOffset(44, 22)
 
 local fadeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 -- closing fades faster than it opens, and faster than the card shrinks, so the content is
 -- gone before (or right as) the height tween finishes instead of visibly cutting off mid-fade
 local closeFadeInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local openInfo = TweenInfo.new(0.5, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
--- the card's own open/close height specifically - Quart out, not the springier Exponential
--- the stop handles use, and quick enough (0.3s) to read as snappy rather than languid
+-- closing height: Quart out, quick and clean, no overshoot (a shrink bouncing past its target
+-- and back would read as jittery, not springy)
 local heightInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+-- opening height: Back out - grows slightly past the final height then eases back, a little
+-- bounce of "life" instead of a mechanical stop
+local heightOpenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local chevronInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local dragInfo = TweenInfo.new(0.12, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local heldInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+-- header swatch "pop" on click - a quick squash out, a springier settle back
+local popOutInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local popBackInfo = TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+-- glow pulse on open: flashes brighter than the steady-state glow, then relaxes back down to it
+local glowPulseInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local glowRelaxInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+-- preview bar wipe-reveal cover
+local wipeInfo = TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+-- stop handles popping in with a spring, staggered per handle
+local handleSpringInfo = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+-- delay between each staggered reveal group/handle when opening
+local staggerStep = 0.05
 
 local function clamp01(n)
     return math.clamp(n, 0, 1)
@@ -202,6 +218,7 @@ function GradientPicker.new(tab, properties)
 
     self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
         hapticEngine.click()
+        self:_popSwatch()
         if self._isOpen then
             self:_close()
         else
@@ -308,7 +325,7 @@ function GradientPicker:_buildHeader()
     self.swatch = self.window:Create("Frame", {
         AnchorPoint = Vector2.new(1, 0.5),
         Position = UDim2.new(1, -16, 0, headerHeight / 2),
-        Size = UDim2.fromOffset(44, 22),
+        Size = swatchSize,
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
         ZIndex = 3,
@@ -370,6 +387,20 @@ function GradientPicker:_buildBody()
         Parent = self.preview,
     })
     self.previewGradient = self.window:Create("UIGradient", { Color = self.value, Parent = self.preview })
+
+    -- wipe-reveal cover: a plain surface sitting over the preview, right-anchored so shrinking
+    -- its width uncovers the gradient left-to-right instead of just fading in place. Reset to
+    -- fully-covering (no animation) whenever the card closes, ready for the next open.
+    self.previewCover = self.window:Create("Frame", {
+        AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.fromScale(1, 0),
+        Size = UDim2.fromScale(1, 1),
+        BorderSizePixel = 0,
+        ZIndex = 3,
+
+        Parent = self.preview,
+    }, { BackgroundColor3 = "StatBackground" })
+    self.window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = self.previewCover })
 
     -- stops rail: a thin track with a draggable circular handle per stop
     self.rail = self.window:Create("Frame", {
@@ -699,11 +730,68 @@ function GradientPicker:_fireCallback()
     self.window:_runGuarded(self, self.callback, self.value)
 end
 
+-- Quick tactile feedback on the header swatch the instant it's clicked, independent of (and
+-- faster than) the open/close animation that follows - squashes narrower, then springs back
+-- past its resting width before settling (Back easing) for a little bounce.
+function GradientPicker:_popSwatch()
+    local squashed = UDim2.fromOffset(swatchSize.X.Offset * 0.85, swatchSize.Y.Offset * 0.85)
+    local outTween = variables.tweenService:Create(self.swatch, popOutInfo, { Size = squashed })
+    outTween:Play()
+    local connection
+    connection = outTween.Completed:Connect(function()
+        connection:Disconnect()
+        variables.tweenService:Create(self.swatch, popBackInfo, { Size = swatchSize }):Play()
+    end)
+end
+
+-- Stop handles pop in from a tiny point with a spring (Back easing), staggered left-to-right
+-- by each stop's time so they read as a little cascade rather than popping in all at once.
+-- animate = false/nil snaps instantly (used for the initial hidden state and on close).
+function GradientPicker:_revealStopHandles(open, animate)
+    if not animate then
+        for _, handle in self.stopHandles do
+            handle.frame.BackgroundTransparency = if open then 0 else 1
+            handle.frame.Size = UDim2.fromOffset(20, 20)
+            if not open then
+                handle.ring.Transparency = 1
+            end
+        end
+        return
+    end
+
+    if not open then
+        for _, handle in self.stopHandles do
+            variables.tweenService:Create(handle.frame, animate, { BackgroundTransparency = 1 }):Play()
+            handle.ring.Transparency = 1
+        end
+        return
+    end
+
+    local sorted = table.clone(self.stops)
+    table.sort(sorted, function(a, b)
+        return a.time < b.time
+    end)
+    for i, stop in sorted do
+        local handle = self.stopHandles[stop]
+        if handle then
+            handle.frame.Size = UDim2.fromOffset(2, 2)
+            handle.frame.BackgroundTransparency = 0
+            task.delay((i - 1) * 0.04, function()
+                if self._isOpen then
+                    variables.tweenService:Create(handle.frame, handleSpringInfo, { Size = UDim2.fromOffset(20, 20) }):Play()
+                end
+            end)
+        end
+    end
+end
+
 function GradientPicker:_open()
     if self._isOpen then
         return
     end
     self._isOpen = true
+    self._openSeq = (self._openSeq or 0) + 1
+    local seq = self._openSeq
     self:_setControlsVisible(true)
 
     if self._outsideClickConn then
@@ -721,12 +809,49 @@ function GradientPicker:_open()
         end
     end)
 
-    variables.tweenService:Create(self.main, heightInfo, { Size = UDim2.new(1, -20, 0, self._openHeight) }):Play()
+    -- 1) card grows with a slight bounce past its final height instead of a flat stop
+    variables.tweenService:Create(self.main, heightOpenInfo, { Size = UDim2.new(1, -20, 0, self._openHeight) }):Play()
     if self.chevron then
         variables.tweenService:Create(self.chevron, chevronInfo, { Rotation = 0 }):Play()
     end
-    self:_applyBodyVisibility(true, fadeInfo)
-    self.hsv:SetVisible(true, true)
+
+    -- 4) glow pulse: flashes past its steady-state glow, then relaxes back down to it
+    if self.showGlow then
+        for _, glow in self.previewGlows do
+            variables.tweenService:Create(glow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.3) }):Play()
+        end
+        task.delay(glowPulseInfo.Time, function()
+            if self._isOpen and self._openSeq == seq then
+                for _, glow in self.previewGlows do
+                    variables.tweenService:Create(glow, glowRelaxInfo, { Transparency = glowOnTransparency }):Play()
+                end
+            end
+        end)
+    end
+
+    -- 2) + 5) staggered reveal: preview bar (wiping its cover away) first, then the rail +
+    -- buttons + stop handles (spring-popping in, see _revealStopHandles), then the HSV editor
+    variables.tweenService:Create(self.preview, fadeInfo, { BackgroundTransparency = 0 }):Play()
+    variables.tweenService:Create(self.previewStroke, fadeInfo, { Transparency = 0.9 }):Play()
+    variables.tweenService:Create(self.previewCover, wipeInfo, { Size = UDim2.fromScale(0, 1) }):Play()
+
+    task.delay(staggerStep, function()
+        if not self._isOpen or self._openSeq ~= seq then
+            return
+        end
+        variables.tweenService:Create(self.rail, fadeInfo, { BackgroundTransparency = 0.85 }):Play()
+        variables.tweenService:Create(self.addButton, fadeInfo, { BackgroundTransparency = 0.9, TextTransparency = 0.15 }):Play()
+        variables.tweenService:Create(self.removeButton, fadeInfo, { BackgroundTransparency = 0.9, TextTransparency = 0.15 }):Play()
+        self:_revealStopHandles(true, fadeInfo)
+    end)
+
+    task.delay(staggerStep * 2, function()
+        if not self._isOpen or self._openSeq ~= seq then
+            return
+        end
+        self.hsv:SetVisible(true, true)
+    end)
+
     self:_render("animate")
 end
 
@@ -735,6 +860,7 @@ function GradientPicker:_close()
         return
     end
     self._isOpen = false
+    self._openSeq = (self._openSeq or 0) + 1 -- invalidates any staggered/delayed open steps still pending
 
     if self._outsideClickConn then
         self.window:Disconnect(self._outsideClickConn)
@@ -744,9 +870,15 @@ function GradientPicker:_close()
         self:_endDrag()
     end
 
-    -- fade out on the quicker closeFadeInfo so the content is gone before (or right as) the
-    -- slower height tween below finishes, instead of visibly cutting off mid-fade
-    self:_applyBodyVisibility(false, closeFadeInfo)
+    -- everything fades out together (no stagger) on the quicker closeFadeInfo, so the content
+    -- is gone before (or right as) the height tween below finishes instead of cutting off mid-fade
+    variables.tweenService:Create(self.preview, closeFadeInfo, { BackgroundTransparency = 1 }):Play()
+    variables.tweenService:Create(self.previewStroke, closeFadeInfo, { Transparency = 1 }):Play()
+    variables.tweenService:Create(self.rail, closeFadeInfo, { BackgroundTransparency = 1 }):Play()
+    variables.tweenService:Create(self.addButton, closeFadeInfo, { BackgroundTransparency = 1, TextTransparency = 1 }):Play()
+    variables.tweenService:Create(self.removeButton, closeFadeInfo, { BackgroundTransparency = 1, TextTransparency = 1 }):Play()
+    self:_revealStopHandles(false, closeFadeInfo)
+    self.previewCover.Size = UDim2.fromScale(1, 1) -- reset instantly, ready to wipe again next open
     self.hsv:SetVisible(false, true)
     self:_render("animate") -- also drops the selection ring now that _isOpen is false
     variables.tweenService:Create(self.main, heightInfo, { Size = UDim2.new(1, -20, 0, headerHeight) }):Play()
@@ -761,8 +893,8 @@ function GradientPicker:_close()
     end)
 end
 
--- animate: false/nil snaps instantly; otherwise a TweenInfo to ease with (fadeInfo on open,
--- the quicker closeFadeInfo on close - see callers).
+-- Only the instant (open = init/close) snap path now - the animated open sequence lives inline
+-- in _open() so it can stagger; _close() plays its own (simultaneous, not staggered) tweens.
 function GradientPicker:_applyBodyVisibility(open, animate)
     local set = {
         [self.preview] = { BackgroundTransparency = if open then 0 else 1 },
@@ -771,12 +903,6 @@ function GradientPicker:_applyBodyVisibility(open, animate)
         [self.addButton] = { BackgroundTransparency = if open then 0.9 else 1, TextTransparency = if open then 0.15 else 1 },
         [self.removeButton] = { BackgroundTransparency = if open then 0.9 else 1, TextTransparency = if open then 0.15 else 1 },
     }
-    for _, handle in self.stopHandles do
-        set[handle.frame] = { BackgroundTransparency = if open then 0 else 1 }
-        if not open then
-            set[handle.ring] = { Transparency = 1 }
-        end
-    end
 
     for instance, props in set do
         if animate then
@@ -786,6 +912,10 @@ function GradientPicker:_applyBodyVisibility(open, animate)
                 instance[prop] = value
             end
         end
+    end
+    self:_revealStopHandles(open, animate)
+    if not open then
+        self.previewCover.Size = UDim2.fromScale(1, 1)
     end
 end
 
