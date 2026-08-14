@@ -326,7 +326,18 @@ function Tab:Select(noAnimation)
         if not skipAnimation then
             self:_applyVisual("selected", selectTweenInfo)
         end
+        self.window:_setTabIndicatorVisible(true, selectTweenInfo)
         self.window:_updateTabIndicator(self, not skipAnimation)
+    else
+        -- a neglectSelector page (the Settings tab) isn't a real tab to point the shared accent
+        -- pill at, and _updateTabIndicator already no-ops for a neglectSelector selectedTab (see
+        -- its own guard) - so without this, the pill just sits frozen wherever it last was. That
+        -- reads as fine until the strip gets scrolled while parked on Settings: the scroll
+        -- listener re-runs _updateTabIndicator(selectedTab, ...), still a no-op, so the pill
+        -- stays frozen in screen space while the tabs scroll underneath it - looks exactly like
+        -- it's "following the scroll" instead of staying on the tab it was last actually on.
+        -- Hiding it here instead avoids the drift entirely.
+        self.window:_setTabIndicatorVisible(false, selectTweenInfo)
     end
 
     for _, tab in self.window.tabs do

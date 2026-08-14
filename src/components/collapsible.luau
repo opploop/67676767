@@ -29,6 +29,8 @@ local hapticEngine = require(utility.HapticEngine)
 local heightInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local chevronInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 
+local headerHeight = 43
+
 -- breathing room around the nested group: without it, the first child sits glued to the header
 -- and the last one gets squeezed against the clip's bottom edge the instant the section opens
 local contentPadTop = 8
@@ -55,9 +57,14 @@ function Collapsible.new(tab, properties)
 
     -- the -20 inset happens once here (matches every other tabPage-level card, e.g.
     -- colorpicker.luau's own outer main) - header/contentWrapper below are full width of this.
+    -- No AutomaticSize here on purpose: confirmed live that main's AutomaticSize.Y doesn't
+    -- reliably follow a *tweened* child Size change on this executor (same class of bug as
+    -- UIListLayout never writing back a tweened child's Position) - main sat stuck at whatever
+    -- height it last was, collapsed or not, leaving dead space below the header forever. main's
+    -- own height is driven explicitly instead, in lockstep with contentWrapper's, by _setHeight
+    -- below - every call site that used to resize just contentWrapper resizes both together now.
     self.main = self.window:Create("Frame", {
-        Size = UDim2.new(1, -20, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
+        Size = UDim2.new(1, -20, 0, headerHeight),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         Name = self.name,
@@ -70,7 +77,7 @@ function Collapsible.new(tab, properties)
     -- content: clips so the collapse never shows a half-cut child, height tweens between 0 and
     -- the inner group's own real AbsoluteSize.Y
     self.contentWrapper = self.window:Create("Frame", {
-        Position = UDim2.fromOffset(0, 43),
+        Position = UDim2.fromOffset(0, headerHeight),
         Size = UDim2.new(1, 0, 0, 0),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
@@ -94,15 +101,13 @@ function Collapsible.new(tab, properties)
 
     self.window:ConnectFor(self, self._group.main:GetPropertyChangedSignal("AbsoluteSize"), function()
         if self.expanded then
-            variables.tweenService
-                :Create(self.contentWrapper, heightInfo, { Size = UDim2.new(1, 0, 0, self:_contentHeight()) })
-                :Play()
+            self:_setHeight(self:_contentHeight(), true)
         end
     end)
 
     -- start at the right height instantly - no animating in from 0 on first build
     if self.expanded then
-        self.contentWrapper.Size = UDim2.new(1, 0, 0, self:_contentHeight())
+        self:_setHeight(self:_contentHeight(), false)
         self.chevron.Rotation = 0
     end
 
@@ -113,6 +118,21 @@ end
 -- toward a sibling's AbsoluteSize, so it has to be added back in by hand here)
 function Collapsible:_contentHeight()
     return self._group.main.AbsoluteSize.Y + contentPadTop + contentPadBottom
+end
+
+-- Drives contentWrapper's height AND main's own height together (see the comment on self.main's
+-- own Create() call above for why main can't just auto-follow this itself). targetContentHeight
+-- is contentWrapper's own target - main's is headerHeight taller, header + content stacked.
+function Collapsible:_setHeight(targetContentHeight, animate)
+    local contentSize = UDim2.new(1, 0, 0, targetContentHeight)
+    local mainSize = UDim2.new(1, -20, 0, headerHeight + targetContentHeight)
+    if animate then
+        variables.tweenService:Create(self.contentWrapper, heightInfo, { Size = contentSize }):Play()
+        variables.tweenService:Create(self.main, heightInfo, { Size = mainSize }):Play()
+    else
+        self.contentWrapper.Size = contentSize
+        self.main.Size = mainSize
+    end
 end
 
 function Collapsible:_buildHeader()
@@ -222,8 +242,7 @@ function Collapsible:SetExpanded(expanded)
     end
     self.expanded = expanded
 
-    local targetHeight = if expanded then self:_contentHeight() else 0
-    variables.tweenService:Create(self.contentWrapper, heightInfo, { Size = UDim2.new(1, 0, 0, targetHeight) }):Play()
+    self:_setHeight(if expanded then self:_contentHeight() else 0, true)
     variables.tweenService:Create(self.chevron, chevronInfo, { Rotation = if expanded then 0 else 180 }):Play()
 end
 
