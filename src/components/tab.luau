@@ -466,6 +466,23 @@ function Tab:CreateGroup(properties)
     return self:_register(require(script.Parent.group).new(self, properties))
 end
 
+-- Hold button: press-and-hold confirm, fill bar completes the callback only at 100%
+function Tab:CreateHoldButton(properties)
+    return self:_register(require(script.Parent.holdbutton).new(self, properties))
+end
+
+-- Collapsible section: a header that expands/collapses to reveal its own nested elements,
+-- built via the same CreateX surface as a Tab or Group (collapsible:CreateToggle, etc).
+function Tab:CreateCollapsible(properties)
+    return self:_register(require(script.Parent.collapsible).new(self, properties))
+end
+
+-- Changelog / update log: a title + version/date header over a list of ADDED/FIXED/CHANGED/
+-- REMOVED tagged entries. Static once built.
+function Tab:CreateChangelog(properties)
+    return self:_register(require(script.Parent.changelog).new(self, properties))
+end
+
 function Tab:_moveElement(element, targetIndex)
     local idx = table.find(self.elements, element)
     if not idx then

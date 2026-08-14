@@ -252,6 +252,36 @@ export type GradientPickerProps = {
     callback: ((value: ColorSequence) -> ())?,
 }
 
+export type HoldButtonProps = {
+    name: string?,
+    description: string?,
+    icon: (string | number)?,
+    tooltip: string?,
+    flag: string?,
+    holdDuration: number?, -- seconds the fill takes to complete (default 1)
+    danger: boolean?, -- tint the fill red instead of the accent colour
+    locked: boolean?,
+    callback: (() -> ())?,
+}
+
+export type ChangelogEntry = {
+    tag: string?, -- "ADDED" | "FIXED" | "CHANGED" | "REMOVED", or any custom tag
+    text: string?,
+}
+
+export type ChangelogProps = {
+    name: string?, -- card title (default "Update Log")
+    version: string?,
+    date: string?,
+    entries: { ChangelogEntry }?,
+}
+
+export type CollapsibleProps = {
+    name: string?,
+    icon: (string | number)?,
+    expanded: boolean?, -- start open (default false)
+}
+
 export type StatProps = {
     name: string?,
     description: string?,
@@ -405,6 +435,33 @@ export type Stat = Moveable & {
 
 export type Section = Moveable & {}
 
+export type HoldButton = Moveable & {
+    locked: boolean,
+    SetLocked: (self: HoldButton, locked: boolean) -> (),
+}
+
+export type Changelog = Moveable & {}
+
+-- A collapsible section hosts its own nested elements through the same reduced CreateX surface
+-- as a Group (see Group above) - it wraps one internally.
+export type Collapsible = Moveable & {
+    expanded: boolean,
+    Toggle: (self: Collapsible) -> (),
+    SetExpanded: (self: Collapsible, expanded: boolean) -> (),
+    CreateButton: (self: Collapsible, props: ButtonProps) -> Button,
+    CreateFlipButton: (self: Collapsible, props: FlipButtonProps) -> FlipButton,
+    CreateCopyButton: (self: Collapsible, props: CopyButtonProps) -> CopyButton,
+    CreateRippleButton: (self: Collapsible, props: RippleButtonProps) -> RippleButton,
+    CreateToggle: (self: Collapsible, props: ToggleProps) -> Toggle,
+    CreateSwitch: (self: Collapsible, props: ToggleProps) -> Toggle,
+    CreateCheckbox: (self: Collapsible, props: CheckboxProps) -> Checkbox,
+    CreateStat: (self: Collapsible, props: StatProps) -> Stat,
+    CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,
+    CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,
+    CreateSection: (self: Collapsible, props: SectionProps) -> Section,
+    CreateGroup: (self: Collapsible, props: GroupProps?) -> Group,
+}
+
 -- Tags sit in the window's title bar and order themselves, so they aren't Moveable.
 export type Tag = {
     Set: (self: Tag, props: TagProps) -> (),
@@ -459,6 +516,9 @@ export type Tab = {
     CreateSegmentedPicker: (self: Tab, props: SegmentedPickerProps?) -> SegmentedPicker,
     CreateShimmerLabel: (self: Tab, props: ShimmerLabelProps?) -> ShimmerLabel,
     CreateGroup: (self: Tab, props: GroupProps?) -> Group,
+    CreateHoldButton: (self: Tab, props: HoldButtonProps?) -> HoldButton,
+    CreateCollapsible: (self: Tab, props: CollapsibleProps?) -> Collapsible,
+    CreateChangelog: (self: Tab, props: ChangelogProps?) -> Changelog,
 }
 
 export type GreetingProps = {

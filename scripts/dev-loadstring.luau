@@ -71,8 +71,10 @@ local components = makeFolder("components", Rayfield)
 local componentFiles = {
     "action",
     "button",
+    "changelog",
     "checkbox",
     "chrome",
+    "collapsible",
     "colorpicker",
     "copybutton",
     "descriptor",
@@ -81,6 +83,7 @@ local componentFiles = {
     "flipbutton",
     "gradientpicker",
     "group",
+    "holdbutton",
     "input",
     "keybind",
     "notification",

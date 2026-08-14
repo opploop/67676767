@@ -47,6 +47,10 @@ export type PopupBox = types.PopupBox
 export type PopupOption = types.PopupOption
 export type PopupProps = types.PopupProps
 export type GreetingProps = types.GreetingProps
+export type HoldButtonProps = types.HoldButtonProps
+export type ChangelogEntry = types.ChangelogEntry
+export type ChangelogProps = types.ChangelogProps
+export type CollapsibleProps = types.CollapsibleProps
 
 export type Moveable = types.Moveable
 export type Window = types.Window
@@ -72,6 +76,9 @@ export type SegmentedPicker = types.SegmentedPicker
 export type ShimmerLabel = types.ShimmerLabel
 export type Tag = types.Tag
 export type Popup = types.Popup
+export type HoldButton = types.HoldButton
+export type Changelog = types.Changelog
+export type Collapsible = types.Collapsible
 export type Rayfield = types.Rayfield
 
 -- the components are untyped luau, so this is where the window module meets the public contract

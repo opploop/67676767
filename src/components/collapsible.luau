@@ -1,0 +1,241 @@
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- Devlog 6: a clickable header (title + a chevron that rotates) that expands to reveal its own
+-- children, collapsing their height smoothly instead of a hard cut. Doesn't reimplement element
+-- building itself - it hosts an internal column Group (group.luau) and forwards every CreateX
+-- call to it, exposing the same Tab-like surface (window/tabPage/elements/compact/direction)
+-- Group itself expects from its own host. tabPage points at this collapsible's own inner frame,
+-- so the group's normal full-width column just becomes this section's expandable content.
+
+local Collapsible = {}
+Collapsible.__index = Collapsible
+Collapsible.__type = "Collapsible"
+
+-- Utility
+local utility = script.Parent.Parent.utility
+
+-- Variables
+local variables = require(utility.variables)
+local moveable = require(utility.moveable)
+local locale = require(utility.locale)
+local constants = require(utility.constants)
+local hapticEngine = require(utility.HapticEngine)
+
+local heightInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local chevronInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+
+function Collapsible.new(tab, properties)
+    properties = if typeof(properties) == "table" then properties else {}
+
+    local self = setmetatable({
+        tab = assert(tab, "Missing argument #1 (Tab expected)"),
+        window = tab.window,
+        name = properties.name or properties.Name or "Section",
+        icon = properties.icon or properties.Icon,
+        forgetState = tab.forgetState,
+        compact = false,
+        direction = nil,
+        elements = {}, -- the inner group's own elements list (Group fills this in)
+
+        expanded = if properties.expanded ~= nil
+            then properties.expanded
+            elseif properties.Expanded ~= nil then properties.Expanded
+            else false,
+    }, Collapsible)
+
+    self.main = self.window:Create("Frame", {
+        Size = UDim2.fromOffset(0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Name = self.name,
+
+        Parent = self.tab.tabPage,
+    })
+
+    self:_buildHeader()
+
+    -- content: clips so the collapse never shows a half-cut child, height tweens between 0 and
+    -- the inner group's own real AbsoluteSize.Y
+    self.contentWrapper = self.window:Create("Frame", {
+        Position = UDim2.fromOffset(0, 43),
+        Size = UDim2.new(1, -20, 0, 0),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+
+        Parent = self.main,
+    })
+
+    self.tabPage = self.contentWrapper
+
+    -- children build through here - see file header. Requiring by relative path (not a name
+    -- string) since this isn't Group's own _add dispatch table.
+    self._group = require(script.Parent.group).new(self, { direction = "column" })
+
+    self.window:ConnectFor(self, self._group.main:GetPropertyChangedSignal("AbsoluteSize"), function()
+        if self.expanded then
+            variables.tweenService
+                :Create(self.contentWrapper, heightInfo, { Size = UDim2.new(1, -20, 0, self._group.main.AbsoluteSize.Y) })
+                :Play()
+        end
+    end)
+
+    -- start at the right height instantly - no animating in from 0 on first build
+    if self.expanded then
+        self.contentWrapper.Size = UDim2.new(1, -20, 0, self._group.main.AbsoluteSize.Y)
+        self.chevron.Rotation = 0
+    end
+
+    return self
+end
+
+function Collapsible:_buildHeader()
+    self.header = self.window:Create("Frame", {
+        Size = UDim2.new(1, -20, 0, 43),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+
+        BackgroundTransparency = 1, -- In = ElementTransparency
+
+        Parent = self.main,
+    }, { BackgroundTransparency = "ElementTransparency" })
+
+    self.stroke = self.window:StyleElementBody(self.header)
+    self.hoverOverlay = self.window:CreateHoverOverlay(self.header)
+
+    self.container = self.window:Create("Frame", {
+        BorderSizePixel = 0,
+
+        Parent = self.header,
+        Size = UDim2.new(1, -70, 0, 16),
+        Position = UDim2.new(0, 20, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundTransparency = 1,
+    })
+
+    self.window:Create("UIListLayout", {
+        Padding = UDim.new(0, 5),
+        FillDirection = Enum.FillDirection.Horizontal,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        HorizontalAlignment = Enum.HorizontalAlignment.Left,
+
+        Parent = self.container,
+    })
+
+    if self.icon then
+        self.iconLabel = self.window:Create("ImageLabel", {
+            Image = self.icon,
+            Size = UDim2.fromOffset(16, 16),
+            BorderSizePixel = 0,
+            BackgroundTransparency = 1,
+
+            ImageTransparency = 1, -- In = 0
+
+            Parent = self.container,
+        }, { ImageColor3 = "ContentColor" })
+    end
+
+    self.title = self.window:Create("TextLabel", {
+        Text = locale.t(self.name),
+        Size = UDim2.fromOffset(0, 16),
+        AutomaticSize = Enum.AutomaticSize.X,
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+        TextSize = 16,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextWrapped = true,
+        LayoutOrder = 1,
+
+        TextTransparency = 1, -- In = 0
+
+        Parent = self.container,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+
+    -- chevron: 180deg = closed (matches dropdown.luau's own convention), tweens to 0 on open
+    self.chevron = self.window:Create("ImageLabel", {
+        Image = constants.icons.chevron,
+        Size = UDim2.fromOffset(12, 12),
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -20, 0.5, 0),
+        Rotation = 180,
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+
+        ImageTransparency = 1, -- In = 0.4
+
+        Parent = self.header,
+    }, { ImageColor3 = "ContentColor" })
+
+    self.interact = self.window:Create("TextButton", {
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        BorderSizePixel = 0,
+        Text = "",
+        AutoButtonColor = false,
+        ZIndex = 10,
+
+        Parent = self.header,
+    })
+
+    self.window:_wireElementHover({ main = self.header, stroke = self.stroke, title = self.title, hoverOverlay = self.hoverOverlay })
+
+    self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
+        hapticEngine.click()
+        self:Toggle()
+    end)
+end
+
+function Collapsible:Toggle()
+    self:SetExpanded(not self.expanded)
+end
+
+function Collapsible:SetExpanded(expanded)
+    expanded = expanded and true or false
+    if expanded == self.expanded then
+        return
+    end
+    self.expanded = expanded
+
+    local targetHeight = if expanded then self._group.main.AbsoluteSize.Y else 0
+    variables.tweenService:Create(self.contentWrapper, heightInfo, { Size = UDim2.new(1, -20, 0, targetHeight) }):Play()
+    variables.tweenService:Create(self.chevron, chevronInfo, { Rotation = if expanded then 0 else 180 }):Play()
+end
+
+-- Forward every CreateX to the inner column group, so a Collapsible reads exactly like a Tab
+-- or Group to a dev using it.
+for _, name in {
+    "CreateButton", "CreateFlipButton", "CreateCopyButton", "CreateRippleButton", "CreateToggle",
+    "CreateSwitch", "CreateCheckbox", "CreateStat", "CreateSlider", "CreateDropdown", "CreateSection",
+    "CreateGroup",
+} do
+    Collapsible[name] = function(self, properties)
+        return self._group[name](self._group, properties)
+    end
+end
+
+function Collapsible:_setShown(shown, animate)
+    local w = self.window
+    local proxy = { stroke = self.stroke, title = self.title, main = self.header, iconLabel = self.iconLabel }
+    if shown then
+        w:_revealCommon(proxy, animate)
+        w:_reveal(self.chevron, { ImageTransparency = 0.4 }, animate)
+    else
+        w:_hideCommon(proxy, animate)
+        w:_reveal(self.chevron, { ImageTransparency = 1 }, animate)
+    end
+    self._group:_setShown(shown, animate)
+end
+
+function Collapsible:_refreshTheme()
+    self._group:_refreshTheme()
+end
+
+moveable(Collapsible)
+
+return Collapsible

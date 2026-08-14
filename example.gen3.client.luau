@@ -312,4 +312,56 @@ tab5:CreateToggle({
     end,
 })
 
+-- Devlog 6: Hold Button, Collapsible Section, Update Log --------------------------------------
+local tab6 = window:CreateTab({ name = "Devlog 6", icon = 125626312718314 })
+
+tab6:CreateSection({ name = "New buttons" })
+
+tab6:CreateHoldButton({
+    name = "Hold to wipe save",
+    description = "Press and hold to confirm.",
+    danger = true,
+    holdDuration = 1.2,
+    callback = function()
+        print("Save wiped!")
+    end,
+})
+
+local lockedHold = tab6:CreateHoldButton({
+    name = "Locked hold button",
+    description = "Locked - try holding it, nothing should happen.",
+    locked = true,
+    callback = function()
+        print("this should never fire while locked")
+    end,
+})
+
+tab6:CreateToggle({
+    name = "Unlock the button above",
+    value = false,
+    callback = function(value)
+        lockedHold:SetLocked(not value)
+    end,
+})
+
+tab6:CreateSection({ name = "Sections" })
+
+local advanced = tab6:CreateCollapsible({ name = "Advanced" })
+advanced:CreateToggle({ name = "Nested toggle", value = false })
+advanced:CreateSlider({ name = "Nested slider", range = { 0, 100 }, value = 50 })
+
+tab6:CreateSection({ name = "Update log" })
+
+tab6:CreateChangelog({
+    version = "v6",
+    date = "Jul 13",
+    entries = {
+        { tag = "ADDED", text = "Hold button, collapsible sections, and an inline update log" },
+        { tag = "ADDED", text = "Section headers and a live search bar inside dropdowns" },
+        { tag = "FIXED", text = "Locked elements now block input from every angle, not just clicks" },
+        { tag = "CHANGED", text = "Preset color themes and a global font picker" },
+        { tag = "REMOVED", text = "The old fixed window-size assumption at startup" },
+    },
+})
+
 window:Navigate("Devlog 1")
