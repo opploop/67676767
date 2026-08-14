@@ -48,8 +48,10 @@ function Collapsible.new(tab, properties)
             else false,
     }, Collapsible)
 
+    -- the -20 inset happens once here (matches every other tabPage-level card, e.g.
+    -- colorpicker.luau's own outer main) - header/contentWrapper below are full width of this.
     self.main = self.window:Create("Frame", {
-        Size = UDim2.fromOffset(0, 0),
+        Size = UDim2.new(1, -20, 0, 0),
         AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
@@ -64,7 +66,7 @@ function Collapsible.new(tab, properties)
     -- the inner group's own real AbsoluteSize.Y
     self.contentWrapper = self.window:Create("Frame", {
         Position = UDim2.fromOffset(0, 43),
-        Size = UDim2.new(1, -20, 0, 0),
+        Size = UDim2.new(1, 0, 0, 0),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         ClipsDescendants = true,
@@ -81,14 +83,14 @@ function Collapsible.new(tab, properties)
     self.window:ConnectFor(self, self._group.main:GetPropertyChangedSignal("AbsoluteSize"), function()
         if self.expanded then
             variables.tweenService
-                :Create(self.contentWrapper, heightInfo, { Size = UDim2.new(1, -20, 0, self._group.main.AbsoluteSize.Y) })
+                :Create(self.contentWrapper, heightInfo, { Size = UDim2.new(1, 0, 0, self._group.main.AbsoluteSize.Y) })
                 :Play()
         end
     end)
 
     -- start at the right height instantly - no animating in from 0 on first build
     if self.expanded then
-        self.contentWrapper.Size = UDim2.new(1, -20, 0, self._group.main.AbsoluteSize.Y)
+        self.contentWrapper.Size = UDim2.new(1, 0, 0, self._group.main.AbsoluteSize.Y)
         self.chevron.Rotation = 0
     end
 
@@ -97,7 +99,7 @@ end
 
 function Collapsible:_buildHeader()
     self.header = self.window:Create("Frame", {
-        Size = UDim2.new(1, -20, 0, 43),
+        Size = UDim2.new(1, 0, 0, 43),
         BorderSizePixel = 0,
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 
@@ -203,7 +205,7 @@ function Collapsible:SetExpanded(expanded)
     self.expanded = expanded
 
     local targetHeight = if expanded then self._group.main.AbsoluteSize.Y else 0
-    variables.tweenService:Create(self.contentWrapper, heightInfo, { Size = UDim2.new(1, -20, 0, targetHeight) }):Play()
+    variables.tweenService:Create(self.contentWrapper, heightInfo, { Size = UDim2.new(1, 0, 0, targetHeight) }):Play()
     variables.tweenService:Create(self.chevron, chevronInfo, { Rotation = if expanded then 0 else 180 }):Play()
 end
 
