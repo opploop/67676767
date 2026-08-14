@@ -7,6 +7,7 @@
 
 local imageCache = require(script.Parent.imageCache)
 local variables = require(script.Parent.variables)
+local icons = require(script.Parent.icons)
 
 type AvatarCallback = imageCache.AvatarCallback
 type PreloadCallback = imageCache.PreloadCallback
@@ -127,6 +128,21 @@ function image.resolve(value: unknown): string
         end
         if string.sub(value, 1, 11) == "rbxthumb://" then
             return if variables.secureMode then blocked(value) else value
+        end
+        -- "pack:icon-name" (e.g. "lucide:lock") - a community icon pack lookup (see icons.luau).
+        -- Only ever resolves a *flat*-format pack's icon this way (lucide/solar/sfsymbols/
+        -- gravity - each already a plain rbxassetid, nothing else to set); a spritesheet pack's
+        -- icon (geist/craft) also needs ImageRectSize/Offset set alongside Image, which this
+        -- single-string return can't carry - use icons.apply() directly for those instead.
+        -- Falls through to the plain-string case below on any miss (unknown pack/name, pack
+        -- fetch failed, ...), which just resolves to the string as-is - a caller passing a real
+        -- rbxassetid://... never round-trips through here to begin with.
+        local packName, iconName = string.match(value, "^(%a+):([%w%-_]+)$")
+        if packName and icons.packNames[packName] then
+            local found = icons.find(iconName, packName)
+            if found and not found.ImageRectSize then
+                return found.Image
+            end
         end
     end
 

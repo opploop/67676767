@@ -127,6 +127,7 @@ local utilityFiles = {
     "functions",
     "HapticEngine",
     "hsvEditor",
+    "icons",
     "image",
     "imageCache",
     "locale",

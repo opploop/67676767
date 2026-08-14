@@ -15,6 +15,7 @@ local locale = require(utility.locale)
 local log = require(utility.log)
 local hapticEngine = require(utility.HapticEngine)
 local windowSizing = require(utility.windowSizing)
+local icons = require(utility.icons)
 local chrome = require(script.Parent.chrome)
 local search = require(script.Parent.search)
 
@@ -2874,9 +2875,14 @@ function Window:StyleElementBody(main)
 end
 
 -- Devlog 6 lock system -------------------------------------------------------------------
--- A small padlock drawn from two plain frames (no icon asset needed): a rounded body and a
--- thin rounded shackle arc sitting above it. Shared by every lockable element (Button, Toggle,
--- Dropdown, Tab, HoldButton) so the glyph and its math live in exactly one place.
+-- A small padlock. Tries the real Lucide "lock" icon first (see icons.luau - the same fetch
+-- github.com/Footagesus/Icons + loadstring approach every other dev-loadstring asset in this
+-- codebase already uses, not a server RemoteFunction like WindUI's own loader leans on, since
+-- an executor-injected library can't stand one of those up in someone else's game). Falls back
+-- to drawing one from two plain frames (a rounded body + a thin rounded shackle arc) if the
+-- pack isn't reachable, so a dead repo dims a locked element's glyph in quality, never removes
+-- it outright. Shared by every lockable element (Button, Toggle, Dropdown, Tab, HoldButton) so
+-- the glyph and its math live in exactly one place.
 function Window:_buildLockIcon(parent, position, anchorPoint)
     local holder = self:Create("Frame", {
         AnchorPoint = anchorPoint or Vector2.new(1, 0.5),
@@ -2889,6 +2895,21 @@ function Window:_buildLockIcon(parent, position, anchorPoint)
 
         Parent = parent,
     })
+
+    local lockIcon = icons.find("lock", "lucide")
+    if lockIcon then
+        self:Create("ImageLabel", {
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Image = lockIcon.Image,
+            ZIndex = 5,
+
+            Parent = holder,
+        }, { ImageColor3 = "PlaceholderColor" })
+
+        return holder
+    end
 
     local body = self:Create("Frame", {
         Position = UDim2.new(0.5, 0, 1, 0),
@@ -2922,10 +2943,11 @@ function Window:_buildLockIcon(parent, position, anchorPoint)
     return holder
 end
 
--- The "no entry" glyph shown to the left of a locked element's title (ring + diagonal slash,
--- same draw-it-from-frames approach as the padlock above - no icon asset for it either). A
--- plain flowed child of `parent`'s own icon/title row: toggling .Visible re-flows the row
--- around it automatically, no absolute positioning to keep in sync.
+-- The "no entry" glyph shown to the left of a locked element's title. Tries the real Lucide
+-- "ban" icon first, same fallback story as the padlock above (a hand-drawn ring + diagonal
+-- slash if the pack isn't reachable). A plain flowed child of `parent`'s own icon/title row:
+-- toggling .Visible re-flows the row around it automatically, no absolute positioning to keep
+-- in sync.
 function Window:_buildProhibitedIcon(parent, layoutOrder)
     local holder = self:Create("Frame", {
         Size = UDim2.fromOffset(14, 14),
@@ -2936,6 +2958,20 @@ function Window:_buildProhibitedIcon(parent, layoutOrder)
 
         Parent = parent,
     })
+
+    local banIcon = icons.find("ban", "lucide")
+    if banIcon then
+        self:Create("ImageLabel", {
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Image = banIcon.Image,
+
+            Parent = holder,
+        }, { ImageColor3 = "PlaceholderColor" })
+
+        return holder
+    end
 
     local ring = self:Create("Frame", {
         Size = UDim2.fromScale(1, 1),

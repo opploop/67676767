@@ -336,6 +336,9 @@ tab6:CreateToggle({
 
 tab6:CreateHoldButton({
     name = "Hold to wipe save",
+    -- Devlog 6 icons: real Lucide icons now (icons.luau), same HttpGet+loadstring fetch every
+    -- other dev-loadstring asset uses - "pack:icon-name" resolves through image.resolve.
+    icon = "lucide:trash-2",
     description = "Press and hold to confirm.",
     danger = true,
     holdDuration = 1.2,
@@ -367,6 +370,7 @@ tab6:CreateSection({ name = "Confirmation dialog" })
 -- centred) - no new component needed, just wiring a couple of real dialogs to it.
 tab6:CreateButton({
     name = "Ask me (dialog)",
+    icon = "lucide:message-circle",
     description = "Cancel/Reset, Confirm/Decline - a two-choice confirmation.",
     callback = function()
         window:Popup({
