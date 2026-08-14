@@ -837,7 +837,26 @@ end
 local tabStretchInfo = TweenInfo.new(0.12, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
 local tabSettleInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
-local function slideTabIndicator(pill, targetPos, targetSize, skipAnimation)
+-- A Window method (not a free function) so it can track the in-flight tween/connection on
+-- self: a plain closure-local couldn't survive between calls, which is exactly what let two
+-- calls in quick succession (selecting a tab, then scrolling before its slide finished) race
+-- each other - the scroll's snap would land the pill correctly, but the *first* call's still-
+-- pending "stretch finished, now settle" callback fired moments later and dragged it right
+-- back to the pre-scroll target. Every call now cancels whatever the previous one left running
+-- (tween and callback both - disconnecting the callback alone leaves the old tween free to keep
+-- animating toward its own stale goal) before doing anything else.
+function Window:_slideTabIndicator(targetPos, targetSize, skipAnimation)
+    local pill = self.tabIndicator
+
+    if self._tabIndicatorSettleConn then
+        self._tabIndicatorSettleConn:Disconnect()
+        self._tabIndicatorSettleConn = nil
+    end
+    if self._tabIndicatorTween then
+        self._tabIndicatorTween:Cancel()
+        self._tabIndicatorTween = nil
+    end
+
     if skipAnimation then
         pill.Position, pill.Size = targetPos, targetSize
         return
@@ -855,14 +874,16 @@ local function slideTabIndicator(pill, targetPos, targetSize, skipAnimation)
     local stretchSize = UDim2.fromOffset(stretchRight - stretchLeft, targetSize.Y.Offset)
 
     local stretchTween = variables.tweenService:Create(pill, tabStretchInfo, { Position = stretchPos, Size = stretchSize })
+    self._tabIndicatorTween = stretchTween
     stretchTween:Play()
 
     -- :Once() isn't guaranteed on every client this session has run into - :Connect() + manual
     -- disconnect is the one form of "run this once" every client here has actually supported
-    local connection
-    connection = stretchTween.Completed:Connect(function()
-        connection:Disconnect()
-        variables.tweenService:Create(pill, tabSettleInfo, { Position = targetPos, Size = targetSize }):Play()
+    self._tabIndicatorSettleConn = stretchTween.Completed:Connect(function()
+        self._tabIndicatorSettleConn = nil
+        local settleTween = variables.tweenService:Create(pill, tabSettleInfo, { Position = targetPos, Size = targetSize })
+        self._tabIndicatorTween = settleTween
+        settleTween:Play()
     end)
 end
 
@@ -923,7 +944,7 @@ function Window:_updateTabIndicator(tab, animate)
     local itemPos = item.AbsolutePosition
     local targetPos = UDim2.fromOffset(itemPos.X - dockOrigin.X, itemPos.Y - dockOrigin.Y)
     local targetSize = UDim2.fromOffset(item.AbsoluteSize.X, item.AbsoluteSize.Y)
-    slideTabIndicator(self.tabIndicator, targetPos, targetSize, not animate)
+    self:_slideTabIndicator(targetPos, targetSize, not animate)
     self:_paintTabIndicator(animate)
 end
 
