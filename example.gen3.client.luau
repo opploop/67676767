@@ -437,6 +437,18 @@ local lockedDropdown = tab6:CreateDropdown({
     locked = true,
 })
 
+-- Devlog 8: "Select all"/"Clear" sit between the search bar and the option list, and both
+-- scope to whatever the active search filter leaves visible - try filtering (e.g. "F") then
+-- hitting Clear, only the filtered-in options should drop out of the selection.
+tab6:CreateDropdown({
+    name = "Multi select",
+    multiSelect = true,
+    options = { "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight" },
+    callback = function(value)
+        print("Multi select:", table.concat(value, ", "))
+    end,
+})
+
 tab6:CreateToggle({
     name = "Unlock the dropdown above",
     value = false,
