@@ -32,6 +32,20 @@ local flatRadius = UDim.new(0, 7)
 
 local searchCollapsedHeight = 30
 local searchExpandedHeight = 38
+
+-- Devlog 8: the panel opens tall enough to show this many full option rows before it caps out
+-- and the list scrolls internally instead - was capped at a flat 180px, tall enough for barely
+-- 2 rows once the header/search/padding overhead was subtracted.
+local maxVisibleOptionRows = 4
+local optionRowHeight = 38
+local rowGap = 5
+-- height of `maxVisibleOptionRows` option rows plus the gaps between them, no header/search/
+-- padding included - that part (the "base") varies per dropdown (multiSelect adds a row), so
+-- _openHeight adds this on top of its own base rather than this baking in a fixed total.
+local capRowsHeight = maxVisibleOptionRows * optionRowHeight + math.max(0, maxVisibleOptionRows - 1) * rowGap + 2
+
+local multiSelectRowHeight = 20
+local multiSelectRowGap = 5
 local searchTween = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
 
 local function dedupStrings(arr)
@@ -333,6 +347,9 @@ function Dropdown.new(tab, properties)
     })
 
     self:_buildSearch()
+    if multiSelect then
+        self:_buildMultiSelectControls()
+    end
 
     self.list = self.window:Create("ScrollingFrame", {
         Active = true,
@@ -346,7 +363,7 @@ function Dropdown.new(tab, properties)
         ScrollBarThickness = 3,
         ScrollBarImageTransparency = 1, -- scrollbar kept fully transparent
         ScrollingDirection = Enum.ScrollingDirection.Y,
-        LayoutOrder = 2,
+        LayoutOrder = 3,
         ZIndex = 1,
 
         Parent = self.panel,
@@ -371,6 +388,21 @@ function Dropdown.new(tab, properties)
 
         Parent = self.list,
     })
+
+    -- Devlog 8: shown instead of the (now empty) option list when a search query matches
+    -- nothing. A normal row in the same list/layout, sized the same as an option row so
+    -- _openHeight's row math (which counts it in when visible) stays accurate.
+    self.emptyLabel = self.window:Create("TextLabel", {
+        Text = locale.t("No results found"),
+        Size = UDim2.new(1, -12, 0, optionRowHeight),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        TextSize = 14,
+        TextTransparency = 0.5,
+        Visible = false,
+
+        Parent = self.list,
+    }, { TextColor3 = "PlaceholderColor", FontFace = "Font" })
 
     local function isOptionSelected(name)
         return table.find(self.value, name) ~= nil
@@ -881,10 +913,136 @@ function Dropdown:_collapseSearch()
     variables.tweenService:Create(self.searchInput, searchTween, { TextTransparency = 1 }):Play()
 end
 
+-- multiSelect only: quick "Select all"/"Clear" text buttons between the search bar and the
+-- option list. Both act on whatever's currently VISIBLE, so an active search filter scopes them
+-- to just the filtered options rather than the dropdown's full option set.
+function Dropdown:_buildMultiSelectControls()
+    self.multiSelectRow = self.window:Create("Frame", {
+        Name = "MultiSelectControls",
+        Size = UDim2.new(1, -12, 0, multiSelectRowHeight),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        LayoutOrder = 2,
+
+        Parent = self.panel,
+    })
+
+    self.window:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        Padding = UDim.new(0, 14),
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+
+        Parent = self.multiSelectRow,
+    })
+
+    local function buildQuickAction(text, order)
+        local button = self.window:Create("TextButton", {
+            Text = locale.t(text),
+            Size = UDim2.fromOffset(0, 16),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            TextSize = 13,
+            Font = Enum.Font.GothamBold,
+            AutoButtonColor = false,
+            LayoutOrder = order,
+
+            TextTransparency = 1, -- In = 0.35 (see _open/_close)
+
+            Parent = self.multiSelectRow,
+        }, { TextColor3 = "PlaceholderColor" })
+
+        self.window:ConnectFor(self, button.MouseEnter, function()
+            if not self._isOpen or not self.window:_interactive() then
+                return
+            end
+            variables.tweenService
+                :Create(
+                    button,
+                    TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                    { TextColor3 = self.window.theme.ElementTextHoverColor }
+                )
+                :Play()
+        end)
+        self.window:ConnectFor(self, button.MouseLeave, function()
+            variables.tweenService
+                :Create(
+                    button,
+                    TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                    { TextColor3 = self.window.theme.PlaceholderColor }
+                )
+                :Play()
+        end)
+
+        return button
+    end
+
+    self.selectAllButton = buildQuickAction("Select all", 1)
+    self.clearButton = buildQuickAction("Clear", 2)
+
+    self.window:ConnectFor(self, self.selectAllButton.MouseButton1Click, function()
+        if not self._isOpen or self.locked then
+            return
+        end
+        hapticEngine.click()
+        self:_selectAllVisible()
+    end)
+    self.window:ConnectFor(self, self.clearButton.MouseButton1Click, function()
+        if not self._isOpen or self.locked then
+            return
+        end
+        hapticEngine.click()
+        self:_clearVisible()
+    end)
+end
+
+-- Shared tail for _selectAllVisible/_clearVisible: repaint, tell the dev, and save - the same
+-- three steps a single option click already does after touching self.value.
+function Dropdown:_afterValueChanged()
+    self._desiredValue = table.clone(self.value)
+    for _, data in self._optionFrames do
+        self._renderOptionState(data, true)
+    end
+    self._updateSelectedLabel()
+    self.window:_runGuarded(self, self.callback, self:_callbackValue())
+    self.window:_persist(self)
+end
+
+function Dropdown:_selectAllVisible()
+    local changed = false
+    for _, data in self._optionFrames do
+        if data.frame.Visible and not table.find(self.value, data.name) then
+            table.insert(self.value, data.name)
+            changed = true
+        end
+    end
+    if changed then
+        self:_afterValueChanged()
+    end
+end
+
+function Dropdown:_clearVisible()
+    local changed = false
+    for _, data in self._optionFrames do
+        if data.frame.Visible then
+            local idx = table.find(self.value, data.name)
+            if idx then
+                table.remove(self.value, idx)
+                changed = true
+            end
+        end
+    end
+    if changed then
+        self:_afterValueChanged()
+    end
+end
+
 function Dropdown:_applyFilter(query)
     query = string.lower(query or "")
+    local anyOptionVisible = false
     for _, data in self._optionFrames do
-        data.frame.Visible = query == "" or string.find(string.lower(data.name), query, 1, true) ~= nil
+        local visible = query == "" or string.find(string.lower(data.name), query, 1, true) ~= nil
+        data.frame.Visible = visible
+        anyOptionVisible = anyOptionVisible or visible
     end
     -- a header shows only while at least one option in its own section still matches
     for _, header in self._headerFrames do
@@ -897,6 +1055,7 @@ function Dropdown:_applyFilter(query)
         end
         header.frame.Visible = anyVisible
     end
+    self.emptyLabel.Visible = query ~= "" and not anyOptionVisible
     self:_updateCorners()
     self:_resizeToOptions()
 end
@@ -937,9 +1096,11 @@ function Dropdown:_updateCorners()
 end
 
 -- Open height sized to the options (header + search + paddings + rows + any section headers),
--- capped so long lists scroll instead of running off the window. Short lists open just tall
--- enough, no dead space. Sized from what's actually on screen, so a search filter (or an
--- Add/Remove while open) grows and shrinks the panel to fit rather than leaving dead space.
+-- capped so long lists scroll instead of running off the window - the cap itself is sized to
+-- maxVisibleOptionRows full rows (see above), not a flat number, so it still guarantees that many
+-- rows show even when the multi-select controls row adds its own height on top. Short lists open
+-- just tall enough, no dead space. Sized from what's actually on screen, so a search filter (or
+-- an Add/Remove while open) grows and shrinks the panel to fit rather than leaving dead space.
 function Dropdown:_openHeight()
     local n = 0
     for _, data in self._optionFrames do
@@ -953,8 +1114,12 @@ function Dropdown:_openHeight()
             h += 1
         end
     end
-    local rows = n * 38 + h * 24 + math.max(0, n + h - 1) * 5 + 2
-    return math.min(180, 95 + rows)
+    if self.emptyLabel and self.emptyLabel.Visible then
+        n += 1 -- the "no results" row takes the same space a normal option row would
+    end
+    local rows = n * optionRowHeight + h * 24 + math.max(0, n + h - 1) * rowGap + 2
+    local base = 95 + (if self.multiSelect then multiSelectRowHeight + multiSelectRowGap else 0)
+    return math.min(base + capRowsHeight, base + rows)
 end
 
 function Dropdown:_open()
@@ -987,11 +1152,13 @@ function Dropdown:_open()
         end
     end)
 
+    local targetHeight = self:_openHeight()
+
     variables.tweenService
         :Create(
             self.main,
             TweenInfo.new(0.5, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-            { Size = UDim2.new(1, -20, 0, self:_openHeight()) }
+            { Size = UDim2.new(1, -20, 0, targetHeight) }
         )
         :Play()
     variables.tweenService
@@ -1023,9 +1190,65 @@ function Dropdown:_open()
         )
         :Play()
 
+    if self.selectAllButton then
+        variables.tweenService
+            :Create(
+                self.selectAllButton,
+                TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                { TextTransparency = 0.35 }
+            )
+            :Play()
+        variables.tweenService
+            :Create(
+                self.clearButton,
+                TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                { TextTransparency = 0.35 }
+            )
+            :Play()
+    end
+
     for _, data in self._optionFrames do
         self._renderOptionState(data, true)
     end
+
+    self:_scrollIntoView(targetHeight)
+end
+
+-- Devlog 8: if opening would push the panel's bottom edge below what's actually on screen (the
+-- dropdown sits near the end of a tab/page), nudge the parent ScrollingFrame's CanvasPosition
+-- down just enough to bring it fully into view instead of opening cut off past the viewport.
+-- Walks up to the nearest ScrollingFrame ancestor rather than assuming self.tab.tabPage directly
+-- - a dropdown nested in a Group/Collapsible sits inside a plain Frame, not the tab's own page.
+function Dropdown:_scrollIntoView(targetHeight)
+    local page = self.main:FindFirstAncestorWhichIsA("ScrollingFrame")
+    if not page then
+        return
+    end
+
+    local viewTop = page.AbsolutePosition.Y
+    local viewBottom = viewTop + page.AbsoluteWindowSize.Y
+    local dropdownTop = self.main.AbsolutePosition.Y
+    local dropdownBottom = dropdownTop + targetHeight
+
+    local overflow = dropdownBottom - viewBottom
+    if overflow <= 0 then
+        return
+    end
+
+    local maxScroll = math.max(0, page.CanvasSize.Y.Offset - page.AbsoluteWindowSize.Y)
+    local margin = 10
+    local targetY = math.min(maxScroll, page.CanvasPosition.Y + overflow + margin)
+    if targetY <= page.CanvasPosition.Y then
+        return
+    end
+
+    variables.tweenService
+        :Create(
+            page,
+            TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+            { CanvasPosition = Vector2.new(page.CanvasPosition.X, targetY) }
+        )
+        :Play()
 end
 
 function Dropdown:_close()
@@ -1069,6 +1292,23 @@ function Dropdown:_close()
             { ImageTransparency = 1 }
         )
         :Play()
+
+    if self.selectAllButton then
+        variables.tweenService
+            :Create(
+                self.selectAllButton,
+                TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                { TextTransparency = 1 }
+            )
+            :Play()
+        variables.tweenService
+            :Create(
+                self.clearButton,
+                TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+                { TextTransparency = 1 }
+            )
+            :Play()
+    end
 
     for _, data in self._optionFrames do
         self._renderOptionState(data, true)
