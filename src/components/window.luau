@@ -423,7 +423,13 @@ function Window.new(properties)
     -- bottomFadeGradient's own eased keypoint shape is the settled middle ground - small enough
     -- not to eat the content area, tall enough for that curve to still read as gradual.
     self.topFade = self:Create("Frame", {
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        -- Flat colour, same literal RGB as tabDock (24,24,24) - not a themed WindowColor, and
+        -- not a gradient into one either (that was tried and looked worse: a colour ramp toward
+        -- the theme reads as "the fade is the wrong colour" right where it meets the dock, since
+        -- the dock itself never ramps - it's one flat colour throughout, transparency aside).
+        -- Matching that flat colour exactly and only ever varying transparency (see
+        -- topFadeGradient) is what actually makes the seam disappear.
+        BackgroundColor3 = Color3.fromRGB(24, 24, 24),
         BorderSizePixel = 0,
         AnchorPoint = Vector2.new(0, 0),
         Position = UDim2.new(0, 0, 0, 103),
@@ -431,7 +437,7 @@ function Window.new(properties)
         ZIndex = constants.zIndex.bottomFade,
 
         -- Animation
-        BackgroundTransparency = 1, -- In = 0
+        BackgroundTransparency = 1, -- In = 0.2, matching tabDock's own resting transparency
 
         Parent = self.main,
     })
@@ -444,7 +450,8 @@ function Window.new(properties)
         -- 0.2, not fully opaque (0) - matches tabDock's own resting BackgroundTransparency, so
         -- the seam between them is two things at the same opacity, not a jump from "however
         -- opaque the dock reads" to "fully solid". Same eased Transparency shape as
-        -- bottomFadeGradient past that point.
+        -- bottomFadeGradient past that point. Transparency only - no Color property here at all,
+        -- see self.topFade's own comment on why a colour ramp made this look worse, not better.
         Rotation = 90,
         Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 0.2),
@@ -454,23 +461,6 @@ function Window.new(properties)
         }),
 
         Parent = self.topFade,
-    }, {
-        -- Live-caught: this used a *flat* WindowColor the whole way across, but tabDock sitting
-        -- right above it isn't plain WindowColor - it's a fixed near-black (24,24,24, see
-        -- tabDock's own comment on why) blended over it. A flat WindowColor fade met that dark
-        -- dock edge-on with a visible colour seam, cut or no cut. Two-stop instead: starts at
-        -- that same near-black at the top (matching what's actually just above it) and eases
-        -- into WindowColor by the bottom (matching the plain content area it's blending into).
-        Color = {
-            "WindowColor",
-            function(color)
-                local windowColor = functions.toColorSequence(color).Keypoints[1].Value
-                return ColorSequence.new({
-                    ColorSequenceKeypoint.new(0, Color3.fromRGB(24, 24, 24)),
-                    ColorSequenceKeypoint.new(1, windowColor),
-                })
-            end,
-        },
     })
 
     -- Topbar
