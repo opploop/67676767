@@ -44,8 +44,8 @@ local rowGap = 5
 -- _openHeight adds this on top of its own base rather than this baking in a fixed total.
 local capRowsHeight = maxVisibleOptionRows * optionRowHeight + math.max(0, maxVisibleOptionRows - 1) * rowGap + 2
 
-local multiSelectRowHeight = 20
-local multiSelectRowGap = 5
+local quickActionsRowHeight = 20
+local quickActionsRowGap = 5
 local searchTween = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
 
 local function dedupStrings(arr)
@@ -347,9 +347,7 @@ function Dropdown.new(tab, properties)
     })
 
     self:_buildSearch()
-    if multiSelect then
-        self:_buildMultiSelectControls()
-    end
+    self:_buildQuickActions()
 
     self.list = self.window:Create("ScrollingFrame", {
         Active = true,
@@ -913,13 +911,15 @@ function Dropdown:_collapseSearch()
     variables.tweenService:Create(self.searchInput, searchTween, { TextTransparency = 1 }):Play()
 end
 
--- multiSelect only: quick "Select all"/"Clear" text buttons between the search bar and the
--- option list. Both act on whatever's currently VISIBLE, so an active search filter scopes them
--- to just the filtered options rather than the dropdown's full option set.
-function Dropdown:_buildMultiSelectControls()
-    self.multiSelectRow = self.window:Create("Frame", {
-        Name = "MultiSelectControls",
-        Size = UDim2.new(1, -12, 0, multiSelectRowHeight),
+-- Quick text-button row between the search bar and the option list. "Clear" shows on every
+-- dropdown (a one-tap way to empty the selection without hunting for whichever option is
+-- currently checked); "Select all" only makes sense once there can be more than one selected
+-- option, so it's multiSelect-only. Both act on whatever's currently VISIBLE, so an active search
+-- filter scopes them to just the filtered options rather than the dropdown's full option set.
+function Dropdown:_buildQuickActions()
+    self.quickActionsRow = self.window:Create("Frame", {
+        Name = "QuickActions",
+        Size = UDim2.new(1, -12, 0, quickActionsRowHeight),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         LayoutOrder = 2,
@@ -932,7 +932,7 @@ function Dropdown:_buildMultiSelectControls()
         Padding = UDim.new(0, 14),
         VerticalAlignment = Enum.VerticalAlignment.Center,
 
-        Parent = self.multiSelectRow,
+        Parent = self.quickActionsRow,
     })
 
     local function buildQuickAction(text, order)
@@ -948,7 +948,7 @@ function Dropdown:_buildMultiSelectControls()
 
             TextTransparency = 1, -- In = 0.35 (see _open/_close)
 
-            Parent = self.multiSelectRow,
+            Parent = self.quickActionsRow,
         }, { TextColor3 = "PlaceholderColor" })
 
         self.window:ConnectFor(self, button.MouseEnter, function()
@@ -976,16 +976,18 @@ function Dropdown:_buildMultiSelectControls()
         return button
     end
 
-    self.selectAllButton = buildQuickAction("Select all", 1)
-    self.clearButton = buildQuickAction("Clear", 2)
+    if self.multiSelect then
+        self.selectAllButton = buildQuickAction("Select all", 1)
+        self.window:ConnectFor(self, self.selectAllButton.MouseButton1Click, function()
+            if not self._isOpen or self.locked then
+                return
+            end
+            hapticEngine.click()
+            self:_selectAllVisible()
+        end)
+    end
 
-    self.window:ConnectFor(self, self.selectAllButton.MouseButton1Click, function()
-        if not self._isOpen or self.locked then
-            return
-        end
-        hapticEngine.click()
-        self:_selectAllVisible()
-    end)
+    self.clearButton = buildQuickAction("Clear", 2)
     self.window:ConnectFor(self, self.clearButton.MouseButton1Click, function()
         if not self._isOpen or self.locked then
             return
@@ -1118,7 +1120,7 @@ function Dropdown:_openHeight()
         n += 1 -- the "no results" row takes the same space a normal option row would
     end
     local rows = n * optionRowHeight + h * 24 + math.max(0, n + h - 1) * rowGap + 2
-    local base = 95 + (if self.multiSelect then multiSelectRowHeight + multiSelectRowGap else 0)
+    local base = 95 + quickActionsRowHeight + quickActionsRowGap -- the Clear row is always built now
     return math.min(base + capRowsHeight, base + rows)
 end
 
@@ -1198,6 +1200,8 @@ function Dropdown:_open()
                 { TextTransparency = 0.35 }
             )
             :Play()
+    end
+    if self.clearButton then
         variables.tweenService
             :Create(
                 self.clearButton,
@@ -1301,6 +1305,8 @@ function Dropdown:_close()
                 { TextTransparency = 1 }
             )
             :Play()
+    end
+    if self.clearButton then
         variables.tweenService
             :Create(
                 self.clearButton,
