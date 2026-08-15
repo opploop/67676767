@@ -415,16 +415,19 @@ function Window.new(properties)
     -- First attempt copied bottomFade's Size formula wholesale (1, 0, -0.093, 100) without
     -- noticing the -0.093 *scale* term was there to make bottomFade shrink from the anchored
     -- bottom edge, not something to carry over - on a top anchor it added instead of subtracting,
-    -- so this rendered at ~160px tall (0.093 * window height + 100px) instead of the small
-    -- transition strip intended, eating a chunk of actual content space. Fixed height, no scale
-    -- term, sized to the ~15px breathing room self.elements itself opens below the dock, not a
-    -- hundred-plus px of the content area.
+    -- so this rendered at ~160px tall instead of a reasonable transition strip, eating a big
+    -- chunk of actual content space. Second attempt overcorrected the other way - shrank it to
+    -- 24px *and* swapped in a plain two-point linear fade, which at that size read as a visible
+    -- cut/seam rather than a dissolve. 50px with bottomFadeGradient's own eased keypoint shape
+    -- (a flat opaque stretch that only starts curving away past its own midpoint) is the actual
+    -- middle ground - small enough not to eat the content area, tall enough for that curve to
+    -- read as gradual instead of abrupt.
     self.topFade = self:Create("Frame", {
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
         AnchorPoint = Vector2.new(0, 0),
         Position = UDim2.new(0, 0, 0, 103),
-        Size = UDim2.new(1, 0, 0, 24),
+        Size = UDim2.new(1, 0, 0, 50),
         ZIndex = constants.zIndex.bottomFade,
 
         -- Animation
@@ -437,13 +440,14 @@ function Window.new(properties)
         -- Rotation 90 instead of bottomFade's 270 - flips which end keypoint 0 sits at (top
         -- instead of bottom), so this fades the *same* shape (opaque where it meets the header,
         -- transparent by the time it reaches open content) rather than reusing 270 and getting
-        -- the mapping backwards for a frame anchored to the top instead of the bottom. A plain
-        -- two-point fade, not bottomFade's own keypoint shape (which spends its first ~44% fully
-        -- opaque before starting to fade) - that flat stretch reads fine over bottomFade's full
-        -- 100px, but would eat most of this strip's much shorter 24px doing nothing.
+        -- the mapping backwards for a frame anchored to the top instead of the bottom. Same
+        -- Transparency keypoints as bottomFadeGradient itself now, not a plain linear fade -
+        -- explicit ask to match how the bottom one actually looks, not just approximate it.
         Rotation = 90,
         Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(0.4414, 0),
+            NumberSequenceKeypoint.new(0.7007, 0.631),
             NumberSequenceKeypoint.new(1, 1),
         }),
 
