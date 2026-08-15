@@ -263,10 +263,20 @@ function Resize.new(window)
         -- live-caught). drag.luau doesn't do that either: the bar doesn't chase the window body,
         -- it chases the *same fresh target* the body chases, just with its own, much snappier
         -- constant - so it stays close while the body visibly trails behind it. Mirrors that
-        -- exactly: trueCornerAbs is where the corner *should* be this instant (from target/
-        -- clamped, before easing main toward it, not main's actual current position), and the
-        -- grip eases toward that - independently of how far main itself has caught up yet.
-        local trueCornerAbs = Vector2.new(target.X.Offset, target.Y.Offset) + clamped / 2
+        -- exactly: trueCornerAbs is where the corner *should* be this instant (from
+        -- dragStartCentreAbs/consumed/clamped, before easing main toward it - not main's actual
+        -- current position), and the grip eases toward that - independently of how far main
+        -- itself has caught up yet.
+        --
+        -- Second attempt landed consistently below the real cursor - built trueCornerAbs off
+        -- `target` instead, which (like drag.luau's own main.Position) carries +insetOffset() to
+        -- correct for main.Position's offset-space being shifted from AbsolutePosition by the gui
+        -- inset (see insetOffset()'s own comment) - cornerAbs, read straight off
+        -- main.AbsolutePosition, has no such shift, so the difference between the two carried a
+        -- constant ~inset-sized bias downward the whole drag. dragStartCentreAbs is already in
+        -- AbsolutePosition-space (captured straight from it, no inset math), so building
+        -- trueCornerAbs from that instead keeps both sides of the subtraction in the same space.
+        local trueCornerAbs = dragStartCentreAbs + consumed / 2 + clamped / 2
         local cornerAbs = self.window.main.AbsolutePosition + self.window.main.AbsoluteSize
         local targetNudge = trueCornerAbs - cornerAbs
         gripDragOffset = gripDragOffset:Lerp(targetNudge, 1 - gripRemaining ^ dt)
