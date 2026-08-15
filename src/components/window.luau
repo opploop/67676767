@@ -921,26 +921,56 @@ function Window:SetTransparency(percent)
         :Play()
 end
 
--- Builds one frosted-glass overlay Frame as the topmost background layer of `parent` (a full-size
--- translucent white wash + an off-angle gradient so it reads as uneven light scatter rather than a
--- flat tint), registers it in self.acrylicOverlays, and starts it matching whatever SetAcrylic
--- state is already active - so a card built while Acrylic is on doesn't render un-frosted until
--- the next toggle. cornerRadiusKey is a theme key (see Window:Create) so the wash's own rounding
--- always matches its parent's.
+-- Builds one frosted-glass overlay as the topmost background layer of `parent` (a translucent
+-- white wash + an off-angle gradient so it reads as uneven light scatter rather than a flat
+-- tint), registers it in self.acrylicOverlays, and starts it matching whatever SetAcrylic state
+-- is already active - so a card built while Acrylic is on doesn't render un-frosted until the
+-- next toggle. cornerRadiusKey is a theme key (see Window:Create) so the wash's own rounding
+-- matches its parent's.
+--
+-- The overlay is nested inside a zero-height "AcrylicWrapper" rather than being a direct child of
+-- `parent`, and sized in *pixels* synced from parent.AbsoluteSize rather than Scale. Both matter:
+-- several cards (changelog.luau, and any other component that stacks its own rows straight onto
+-- `main`) put a UIListLayout directly on `parent` and drive its height with AutomaticSize.Y - a
+-- Scale-sized sibling in that same list gets swept into the automatic-size calculation, and since
+-- its own size is itself a function of the parent's size, the two chase each other every layout
+-- pass (confirmed live: a 5-row, ~170px card ballooned past 900px tall from this alone, and it's
+-- Roblox's own documented gotcha, not an executor quirk). Nesting one level deeper inside a
+-- Size=(1,0,0,0) wrapper keeps the overlay invisible to `parent`'s own UIListLayout (it only ever
+-- looks at its direct children) while the wrapper itself contributes zero height to the sum -
+-- verified live, including that it keeps tracking correctly as content is added afterward. The
+-- one tradeoff: on a `parent` with its own UIPadding, the wash sits inset by that padding rather
+-- than reaching the card's outer edge - a minor, barely-visible gap given how subtle the wash is.
 function Window:_buildAcrylicOverlay(parent, cornerRadiusKey)
+    local wrapper = self:Create("Frame", {
+        Name = "AcrylicWrapper",
+        Size = UDim2.new(1, 0, 0, 0),
+        BackgroundTransparency = 1,
+
+        Parent = parent,
+    })
+
     local overlay = self:Create("Frame", {
         Name = "AcrylicOverlay",
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
-        Size = UDim2.fromScale(1, 1),
+        AnchorPoint = Vector2.new(0, 0),
+        Position = UDim2.fromScale(0, 0),
+        Size = UDim2.new(1, 0, 0, parent.AbsoluteSize.Y),
         ZIndex = 1,
         -- purely decorative - never steal input from whatever's underneath or on top of it
         Active = false,
         -- Animation: starts fully transparent (off); SetAcrylic tweens this in when enabled
         BackgroundTransparency = 1,
 
-        Parent = parent,
+        Parent = wrapper,
     })
+
+    -- Instance:Destroy() disconnects every connection tied to that instance's own signals, so
+    -- this needs no manual teardown - it dies on its own the moment `parent` (or `overlay`) does.
+    parent:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+        overlay.Size = UDim2.new(1, 0, 0, parent.AbsoluteSize.Y)
+    end)
 
     self:Create("UICorner", {
         Parent = overlay,
