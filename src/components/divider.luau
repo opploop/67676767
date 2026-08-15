@@ -91,9 +91,15 @@ function Divider.new(tab, properties)
         Parent = self.main,
     })
 
+    -- No HorizontalFlex here (left at its default None) - live-caught that setting it to Fill
+    -- distributes the row's width across *every* child, title included, whether or not that
+    -- child has its own UIFlexItem: the title (AutomaticSize.X, no UIFlexItem) still got forced
+    -- out to a wide flex-assigned box instead of its actual ~27px text width, centred inside
+    -- that oversized box - which read as a huge gap between the line and the word, not the 8px
+    -- Padding actually sitting between them. Left at None, only leftLine/rightLine's own
+    -- UIFlexItem below makes them flex at all - the title's width is untouched.
     self.rowLayout = self.window:Create("UIListLayout", {
         FillDirection = Enum.FillDirection.Horizontal,
-        HorizontalFlex = Enum.UIFlexAlignment.Fill,
         VerticalAlignment = Enum.VerticalAlignment.Center,
         Padding = UDim.new(0, if text ~= "" then 8 else 0),
         SortOrder = Enum.SortOrder.LayoutOrder,
