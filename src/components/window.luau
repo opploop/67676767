@@ -440,23 +440,35 @@ function Window.new(properties)
         -- Rotation 90 instead of bottomFade's 270 - flips which end keypoint 0 sits at (top
         -- instead of bottom), so this fades the *same* shape (opaque where it meets the header,
         -- transparent by the time it reaches open content) rather than reusing 270 and getting
-        -- the mapping backwards for a frame anchored to the top instead of the bottom. Same
-        -- Transparency keypoints as bottomFadeGradient itself now, not a plain linear fade -
-        -- explicit ask to match how the bottom one actually looks, not just approximate it.
+        -- the mapping backwards for a frame anchored to the top instead of the bottom. Starts at
+        -- 0.2, not fully opaque (0) - matches tabDock's own resting BackgroundTransparency, so
+        -- the seam between them is two things at the same opacity, not a jump from "however
+        -- opaque the dock reads" to "fully solid". Same eased Transparency shape as
+        -- bottomFadeGradient past that point.
         Rotation = 90,
         Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0),
-            NumberSequenceKeypoint.new(0.4414, 0),
-            NumberSequenceKeypoint.new(0.7007, 0.631),
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(0.4414, 0.2),
+            NumberSequenceKeypoint.new(0.7007, 0.7),
             NumberSequenceKeypoint.new(1, 1),
         }),
 
         Parent = self.topFade,
     }, {
+        -- Live-caught: this used a *flat* WindowColor the whole way across, but tabDock sitting
+        -- right above it isn't plain WindowColor - it's a fixed near-black (24,24,24, see
+        -- tabDock's own comment on why) blended over it. A flat WindowColor fade met that dark
+        -- dock edge-on with a visible colour seam, cut or no cut. Two-stop instead: starts at
+        -- that same near-black at the top (matching what's actually just above it) and eases
+        -- into WindowColor by the bottom (matching the plain content area it's blending into).
         Color = {
             "WindowColor",
             function(color)
-                return ColorSequence.new(functions.toColorSequence(color).Keypoints[1].Value)
+                local windowColor = functions.toColorSequence(color).Keypoints[1].Value
+                return ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, Color3.fromRGB(24, 24, 24)),
+                    ColorSequenceKeypoint.new(1, windowColor),
+                })
             end,
         },
     })
