@@ -19,6 +19,15 @@
 -- Double-click snaps back to the window's original screen-fit size (self.window.defaultSize, the
 -- dev-supplied/built-in size from construction - never overwritten by a later resize) rather than
 -- whatever the most recent drag happened to land on.
+--
+-- Devlog 12: sits straddling the window's own corner point now (half on the card, half over
+-- whatever's behind it) instead of tucked a few px inside it - checked WindUI's own resize
+-- handle for reference (same idea as this window's own drag bar sitting fully outside main: a
+-- window control doesn't have to live entirely inside the frame it controls). Still parented to
+-- self.main rather than a free-floating sibling like the drag bar, though - main has no
+-- ClipsDescendants, so a child is free to render past its edge with no extra position-sync
+-- connection needed, and main's own AnchorPoint/Position math keeps it glued to the corner for
+-- free as the window moves or resizes.
 
 local Resize = {}
 Resize.__index = Resize
@@ -31,26 +40,20 @@ local utility = script.Parent.Parent.utility
 local variables = require(utility.variables)
 local windowSizing = require(utility.windowSizing)
 local constants = require(utility.constants)
-local icons = require(utility.icons)
 
--- Touch-friendly hit target; the visible glyph inside it stays smaller and centred (see below)
--- so it doesn't read as a huge corner blob on a compact window.
+-- Touch-friendly hit target, centred on the corner it straddles.
 local gripSize = 40
 
--- craft's expand-corner-02-stroke (a NW/SE double-headed diagonal arrow) - settled on after
--- comparing it live against lucide's move-diagonal-2 (the very first icon this grip ever
--- shipped with) and a detour through a hand-drawn/uploaded arc. Falls back to the old uploaded
--- arc asset if the pack somehow doesn't resolve (offline, repo down).
-local arcImage = "rbxassetid://100962304983733"
+-- WindUI's own resize glyph, checked directly in their source (ResizeHandle's ImageLabel) -
+-- a soft diagonal expand mark meant to read at a glance sitting half outside the window.
+local arcImage = "rbxassetid://120997033468887"
 local arcImageSize = 26
--- Centred inside the 40px grip (7px margin each side) rather than pulled into a corner - the
--- glyph now sits exactly over the area you actually click/tap to drag-resize, instead of
--- visually pointing at a spot slightly off from the real hit target.
-local arcRestOffset = Vector2.new(-7, -7) -- the image's resting Position, AnchorPoint (1,1)
--- Back to the original brighten-on-hover: mostly opaque at rest, fully opaque on hover/touch -
--- the size-pop tried afterward ("essa de só aumentar o tamanho") read worse, so it's gone.
-local arcRestTransparency = 0.05
-local arcHoverTransparency = 0
+-- WindUI's own three-state opacity: quite faint at rest, brighter on hover, fully opaque while
+-- actually dragging. Fainter than this grip needed at rest when it lived inside the card - it's
+-- not sitting on a solid background anymore, it's half over whatever's behind the window.
+local arcRestTransparency = 0.8
+local arcHoverTransparency = 0.35
+local arcDragTransparency = 0
 
 local snapBackInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local hoverInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -71,13 +74,12 @@ function Resize.new(window)
         _lastClickAt = nil :: number?,
     }, Resize)
 
-    -- Parented straight onto self.main rather than a free-floating sibling like the drag bar -
-    -- main's own AnchorPoint/Position math already keeps it glued to the corner for free as the
-    -- window moves or resizes, no separate position-sync connection needed.
+    -- Dead-centre on main's own bottom-right corner point (AnchorPoint 0.5,0.5 at Position
+    -- 1,0,1,0) rather than inset from it - straddles the edge instead of sitting inside it.
     self.grip = self.window:Create("Frame", {
         Name = "ResizeGrip",
-        AnchorPoint = Vector2.new(1, 1),
-        Position = UDim2.new(1, -4, 1, -4),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(1, 0, 1, 0),
         Size = UDim2.fromOffset(gripSize, gripSize),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
@@ -89,24 +91,18 @@ function Resize.new(window)
         Parent = self.window.main,
     })
 
-    -- craft is a spritesheet pack (see icons.luau) - the icon's actual pixels are a rect cut out
-    -- of a shared sheet image, not the whole file, so ImageRectSize/Offset matter here and not
-    -- just Image the way the fallback flat asset would.
-    local glyph = icons.find("expand-corner-02-stroke", "craft") or icons.find("expand-corner-01-stroke", "craft")
     self.icon = self.window:Create("ImageLabel", {
         Name = "Glyph",
-        AnchorPoint = Vector2.new(1, 1),
-        Position = UDim2.new(1, arcRestOffset.X, 1, arcRestOffset.Y),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
         Size = UDim2.fromOffset(arcImageSize, arcImageSize),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        Image = glyph and glyph.Image or arcImage,
-        ImageRectSize = glyph and glyph.ImageRectSize or Vector2.zero,
-        ImageRectOffset = glyph and glyph.ImageRectOffset or Vector2.zero,
+        Image = arcImage,
         ImageTransparency = arcRestTransparency,
 
         Parent = self.grip,
-    }, glyph and { ImageColor3 = "PlaceholderColor" } or nil)
+    }, { ImageColor3 = "ContentColor" })
 
     self.interact = self.window:Create("TextButton", {
         Size = UDim2.fromScale(1, 1),
@@ -117,22 +113,21 @@ function Resize.new(window)
         Parent = self.grip,
     })
 
-    -- Brightens on hover (mouse) or while actively dragging (covers touch, which never fires
-    -- MouseEnter/MouseLeave) so the grip reads as interactive without shouting for attention at
-    -- rest.
-    local function setHoverBrightness(hovering)
-        local target = if hovering then arcHoverTransparency else arcRestTransparency
+    -- Three states, matching WindUI's own: faint at rest, brighter on hover, fully opaque while
+    -- actually dragging (covers touch, which never fires MouseEnter/MouseLeave) - so the grip
+    -- reads as interactive without shouting for attention sitting over the game behind it.
+    local function setIconOpacity(target)
         variables.tweenService:Create(self.icon, hoverInfo, { ImageTransparency = target }):Play()
     end
 
     self.window:Connect(self.interact.MouseEnter, function()
         if not self.resizing then
-            setHoverBrightness(true)
+            setIconOpacity(arcHoverTransparency)
         end
     end)
     self.window:Connect(self.interact.MouseLeave, function()
         if not self.resizing then
-            setHoverBrightness(false)
+            setIconOpacity(arcRestTransparency)
         end
     end)
     -- MouseEnter/MouseLeave don't fire for touch - a tap both starts the drag AND should pop the
@@ -184,7 +179,7 @@ function Resize.new(window)
         end
         self.resizing = false
         commitResize()
-        setHoverBrightness(false)
+        setIconOpacity(arcRestTransparency)
     end
 
     -- Double-click: snap back to the window's original screen-fit size instead of starting a
@@ -241,7 +236,7 @@ function Resize.new(window)
         self._lastClickAt = now
 
         self.resizing = true
-        setHoverBrightness(true)
+        setIconOpacity(arcDragTransparency)
         dragStartMouse = variables.userInputService:GetMouseLocation()
         dragStartSize = Vector2.new(self.window.main.Size.X.Offset, self.window.main.Size.Y.Offset)
         dragStartCentreAbs = self.window.main.AbsolutePosition
