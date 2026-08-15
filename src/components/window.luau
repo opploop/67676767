@@ -407,17 +407,24 @@ function Window.new(properties)
 
     -- Top fade - same softening, mirrored: content scrolling up under the tab dock got a hard
     -- ClipsDescendants edge with nothing to ease it, while the bottom of that same list already
-    -- dissolved gently into the window. Sits right where self.elements itself starts (below the
-    -- tab dock + its own breathing room, see self.elements below) rather than at main's literal
-    -- top edge, since it's the content clip that needs softening, not the header/dock above it -
-    -- so no UICorner here, unlike bottomFade: this frame isn't sitting on any of main's own
-    -- rounded corners.
+    -- dissolved gently into the window. Sits right at the tab dock's own bottom edge (65+38=103)
+    -- rather than at main's literal top edge, since it's the content clip that needs softening,
+    -- not the header/dock above it - no UICorner here, unlike bottomFade: this frame isn't
+    -- sitting on any of main's own rounded corners.
+    --
+    -- First attempt copied bottomFade's Size formula wholesale (1, 0, -0.093, 100) without
+    -- noticing the -0.093 *scale* term was there to make bottomFade shrink from the anchored
+    -- bottom edge, not something to carry over - on a top anchor it added instead of subtracting,
+    -- so this rendered at ~160px tall (0.093 * window height + 100px) instead of the small
+    -- transition strip intended, eating a chunk of actual content space. Fixed height, no scale
+    -- term, sized to the ~15px breathing room self.elements itself opens below the dock, not a
+    -- hundred-plus px of the content area.
     self.topFade = self:Create("Frame", {
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
         AnchorPoint = Vector2.new(0, 0),
-        Position = UDim2.new(0, 0, 0, 118),
-        Size = UDim2.new(1, 0, 0.093, 100),
+        Position = UDim2.new(0, 0, 0, 103),
+        Size = UDim2.new(1, 0, 0, 24),
         ZIndex = constants.zIndex.bottomFade,
 
         -- Animation
@@ -430,13 +437,13 @@ function Window.new(properties)
         -- Rotation 90 instead of bottomFade's 270 - flips which end keypoint 0 sits at (top
         -- instead of bottom), so this fades the *same* shape (opaque where it meets the header,
         -- transparent by the time it reaches open content) rather than reusing 270 and getting
-        -- the mapping backwards for a frame anchored to the top instead of the bottom.
+        -- the mapping backwards for a frame anchored to the top instead of the bottom. A plain
+        -- two-point fade, not bottomFade's own keypoint shape (which spends its first ~44% fully
+        -- opaque before starting to fade) - that flat stretch reads fine over bottomFade's full
+        -- 100px, but would eat most of this strip's much shorter 24px doing nothing.
         Rotation = 90,
-        Offset = Vector2.new(0, 0.2),
         Transparency = NumberSequence.new({
             NumberSequenceKeypoint.new(0, 0),
-            NumberSequenceKeypoint.new(0.4414, 0),
-            NumberSequenceKeypoint.new(0.7007, 0.631),
             NumberSequenceKeypoint.new(1, 1),
         }),
 
