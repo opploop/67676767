@@ -393,6 +393,11 @@ end
 
 local checkboxReveal = TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
 local checkboxGlowReveal = TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out, 0, false, 0.35)
+-- Live-caught: same ordering fix as toggle.luau's own toggleStateReveal - the box's checked-state
+-- colour/checkmark faded in on the same beat as the row it sits on, so it could read as "there"
+-- before the row itself looked like a real card yet. Delayed after the row (checkboxReveal via
+-- _revealCommon, no delay) but before the glow (checkboxGlowReveal, 0.35s).
+local checkboxStateReveal = TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out, 0, false, 0.12)
 
 function Checkbox:_setShown(shown, animate)
     local w = self.window
@@ -401,13 +406,13 @@ function Checkbox:_setShown(shown, animate)
         w:_reveal(self.box, {
             BackgroundColor3 = self.value and w.theme.AccentColor or w.theme.ToggleKnobOff,
             BackgroundTransparency = self.value and 0 or w.theme.ToggleKnobOffTransparency,
-        }, animate, checkboxReveal)
+        }, animate, checkboxStateReveal)
         w:_reveal(self.boxStroke, {
             Color = self.value and w.theme.AccentStroke or Color3.fromRGB(255, 255, 255),
             Transparency = self.value and 0 or 0.7,
-        }, animate, checkboxReveal)
+        }, animate, checkboxStateReveal)
         w:_reveal(self.boxGlow, { Transparency = self.value and w.theme.AccentGlow or 1 }, animate, checkboxGlowReveal)
-        w:_reveal(self.checkIcon, { ImageTransparency = self.value and 0 or 1 }, animate, checkboxReveal)
+        w:_reveal(self.checkIcon, { ImageTransparency = self.value and 0 or 1 }, animate, checkboxStateReveal)
     else
         w:_hideCommon(self, animate)
         w:_reveal(self.box, { BackgroundTransparency = 1 }, animate, checkboxReveal)

@@ -455,6 +455,12 @@ end
 local toggleReveal = TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
 -- glow delayed so it doesn't bleed through the fill fade-in on window open
 local toggleGlowReveal = TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out, 0, false, 0.35)
+-- Live-caught: the knob (the actual on/off state - colour + position) faded in on the exact same
+-- beat as the track it sits on, so a lit green knob could read as "there" before the track
+-- underneath it had faded in enough to look like a real switch yet. A small delay - after the
+-- track (toggleReveal, no delay) but before the glow (toggleGlowReveal, 0.35s) - puts the reveal
+-- in the order it's actually built: track, then the knob sitting on it, then its glow.
+local toggleStateReveal = TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out, 0, false, 0.12)
 
 function Toggle:_setShown(shown, animate)
     local w = self.window
@@ -464,11 +470,11 @@ function Toggle:_setShown(shown, animate)
         w:_reveal(self.indicator, {
             BackgroundColor3 = self.value and w.theme.AccentColor or w.theme.ToggleKnobOff,
             BackgroundTransparency = self.value and 0 or w.theme.ToggleKnobOffTransparency,
-        }, animate, toggleReveal)
+        }, animate, toggleStateReveal)
         w:_reveal(self.indicatorStroke, {
             Color = self.value and w.theme.AccentStroke or Color3.fromRGB(255, 255, 255),
             Transparency = self.value and 0 or 0.7,
-        }, animate, toggleReveal)
+        }, animate, toggleStateReveal)
         w:_reveal(
             self.indicatorGlow,
             { Transparency = self.value and w.theme.AccentGlow or 1 },
