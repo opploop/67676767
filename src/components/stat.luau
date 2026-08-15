@@ -136,6 +136,10 @@ function Statistic:_buildFull()
         BorderSizePixel = 0,
         Name = self.name,
         ZIndex = 5,
+        -- Devlog 7 fix: stays clickable even at ElementTransparency 1 (a fully "glass" window) -
+        -- see Window:StyleElementBody's own comment on the same fix for why. stat.luau styles
+        -- its own card instead of going through that helper, so it needs this directly.
+        Active = true,
 
         BackgroundTransparency = 1,
 
@@ -297,6 +301,7 @@ function Statistic:_buildCompact()
         ClipsDescendants = true,
         BorderSizePixel = 0,
         ZIndex = 5,
+        Active = true, -- Devlog 7 fix - see the other _build's own main creation for why
 
         BackgroundTransparency = 1, -- In = ElementTransparency
 

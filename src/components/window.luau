@@ -305,6 +305,12 @@ function Window.new(properties)
         ZIndex = 1,
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.new(0.5, 0, 0.5, 0),
+        -- Devlog 7 fix: without this, a plain Frame's default Active (false) means it stops
+        -- blocking/capturing input in its own bounds the moment BackgroundTransparency actually
+        -- reaches 1 - which SetTransparency(100) does on purpose now that this exists. Explicit
+        -- Active = true keeps the window (and everything inside it) clickable at any
+        -- transparency, glass or not.
+        Active = true,
         -- Animations
         Size = UDim2.fromOffset((self.size.X.Offset - 50), 0),
         BackgroundTransparency = 1, -- In = 0
@@ -560,6 +566,8 @@ function Window.new(properties)
         -- lesser problem; brought clipping back and shrank the glow instead (see CreateGlow
         -- call below) so its blur has less reach to clip in the first place.
         ClipsDescendants = true,
+        -- same reasoning as self.main's own Active = true - stays clickable at any transparency
+        Active = true,
 
         -- BackgroundColor3 deliberately isn't in this table: Window:Create applies themed
         -- properties first and literal ones after, so a literal Color3 here would permanently
@@ -870,8 +878,7 @@ function Window:SetFont(name)
     self:ChangeTheme({ Font = bodyFont, TitleFont = titleFont })
 end
 
--- Devlog 7 "glass window": 0 (fully opaque, default) to 100 (as close to fully invisible as this
--- goes - see maxTransparencyPercent below for why it stops short of literal 100). Scales the
+-- Devlog 7 "glass window": 0 (fully opaque, default) to 100 (fully invisible). Scales the
 -- window frame, the tab dock, and every card uniformly so it all reads as one sheet of glass
 -- rather than a stack of independently-faded pieces. Cards ride along for free: ElementTransparency
 -- is an ordinary themeProperty already, so pushing a scaled value through ChangeTheme reaches
@@ -879,19 +886,16 @@ end
 -- theme-bound (their own baselines - fully opaque and 0.55 - are plain literals set once at
 -- creation, not read from the theme), so those two get tweened directly instead.
 --
--- Never actually reaches BackgroundTransparency 1 on purpose - live-caught bug: main (and every
--- other card) has no explicit Active, and a plain Frame's default Active is false, so per
--- Roblox's own rule a Frame at BackgroundTransparency exactly 1 stops blocking/capturing input
--- in its own bounds entirely, click-through to whatever's behind it. At the slider's old 0-100
--- range, cranking it to 100% made the whole window click-through - the reported "can't drag the
--- handle back, it bugs out" and "the UI goes into the game's background" were both this, not two
--- separate bugs. maxTransparencyPercent keeps BackgroundTransparency a hair under 1 at every
--- setting the slider can actually reach, which keeps Roblox's default hit-testing behavior (only
--- click-through at literal 1) from ever kicking in.
-local maxTransparencyPercent = 92
-
+-- Reaching literal BackgroundTransparency 1 is safe: a plain Frame's default Active is false,
+-- and per Roblox's own rule that stops it blocking/capturing input in its own bounds the moment
+-- transparency hits exactly 1 - live-caught this at 100%, the whole window (and every card,
+-- ElementTransparency-bound the same way) went click-through to the game behind it, which is
+-- what "can't drag the handle back" and "the UI goes into the game's background" both were.
+-- Fixed at the source instead of just avoiding the value: self.main, self.tabDock, and every
+-- card (via Window:StyleElementBody, or directly where a component styles its own card outside
+-- that helper) now set Active = true explicitly, so they stay clickable at any transparency.
 function Window:SetTransparency(percent)
-    percent = math.clamp(percent, 0, maxTransparencyPercent)
+    percent = math.clamp(percent, 0, 100)
     self.windowOpacity = 1 - percent / 100
 
     self:ChangeTheme({ ElementTransparency = 1 - self.windowOpacity })
@@ -1976,9 +1980,7 @@ function Window:_buildSettingsUI()
 
     self.rfSettings:CreateSlider({
         name = "Window transparency",
-        -- capped short of 100: see SetTransparency's own comment on why main/tabDock/cards must
-        -- never actually reach literal BackgroundTransparency 1
-        range = { 0, maxTransparencyPercent },
+        range = { 0, 100 },
         value = 0,
         suffix = "%",
         callback = function(value)
@@ -3052,6 +3054,14 @@ end
 -- Standard element body: white base + gradient fill + rounded corner + flat stroke (hidden until shown).
 -- Returns the stroke; call after creating `main` with a white BackgroundColor3.
 function Window:StyleElementBody(main)
+    -- Devlog 7 fix: every card's fill rides ElementTransparency, which SetTransparency now
+    -- scales all the way to 1 on purpose (a fully "glass" window) - a plain Frame's default
+    -- Active is false, and per Roblox's own rule that stops it blocking/capturing input in its
+    -- own bounds the instant BackgroundTransparency actually reaches 1, same as self.main's own
+    -- fix. Centralized here rather than touching every component's own main creation, since
+    -- every card-shaped element already calls this right after building main.
+    (main :: any).Active = true
+
     self:Create("UIGradient", {
         Rotation = 270,
 
