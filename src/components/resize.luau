@@ -50,11 +50,10 @@ local arcImageSize = 38
 -- against the darker backdrop there - live-caught as "half the icon isn't showing". Pulled in
 -- further so the whole curve sits somewhere with more contrast against the card behind it.
 local arcRestOffset = Vector2.new(-5, -5) -- the image's resting Position, AnchorPoint (1,1)
--- Also fully opaque at rest now (was 0.05) rather than leaning on hover alone to make it
--- legible - the corner's backdrop varies (game visible through the rounded edge on one side,
--- solid card colour on the other), so it needs to read clearly against either.
-local arcRestScale = 1
-local arcHoverScale = 1.18
+-- Back to the original brighten-on-hover: mostly opaque at rest, fully opaque on hover/touch -
+-- the size-pop tried afterward ("essa de só aumentar o tamanho") read worse, so it's gone.
+local arcRestTransparency = 0.05
+local arcHoverTransparency = 0
 
 local snapBackInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local hoverInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -114,7 +113,7 @@ function Resize.new(window)
         Image = glyph and glyph.Image or arcImage,
         ImageRectSize = glyph and glyph.ImageRectSize or Vector2.zero,
         ImageRectOffset = glyph and glyph.ImageRectOffset or Vector2.zero,
-        ImageTransparency = 0,
+        ImageTransparency = arcRestTransparency,
 
         Parent = self.grip,
     }, glyph and { ImageColor3 = "PlaceholderColor" } or nil)
@@ -128,25 +127,22 @@ function Resize.new(window)
         Parent = self.grip,
     })
 
-    -- Already fully opaque at rest, so a scale pop (mouse hover or a touch/tap) is the
-    -- interactive cue instead of a transparency change - explicit, requested outright ("coloca
-    -- uma animaçãozinha quando passa o mouse em cima ou dedo"), separate from - and doesn't
-    -- fight with - the pointer-nudge below, since that only ever touches Position, this only
-    -- ever touches Size.
-    local function setHoverPop(hovering)
-        local scale = if hovering then arcHoverScale else arcRestScale
-        local size = arcImageSize * scale
-        variables.tweenService:Create(self.icon, hoverInfo, { Size = UDim2.fromOffset(size, size) }):Play()
+    -- Brightens on hover (mouse) or while actively dragging (covers touch, which never fires
+    -- MouseEnter/MouseLeave) so the grip reads as interactive without shouting for attention at
+    -- rest.
+    local function setHoverBrightness(hovering)
+        local target = if hovering then arcHoverTransparency else arcRestTransparency
+        variables.tweenService:Create(self.icon, hoverInfo, { ImageTransparency = target }):Play()
     end
 
     self.window:Connect(self.interact.MouseEnter, function()
         if not self.resizing then
-            setHoverPop(true)
+            setHoverBrightness(true)
         end
     end)
     self.window:Connect(self.interact.MouseLeave, function()
         if not self.resizing then
-            setHoverPop(false)
+            setHoverBrightness(false)
         end
     end)
     -- MouseEnter/MouseLeave don't fire for touch - a tap both starts the drag AND should pop the
@@ -198,7 +194,7 @@ function Resize.new(window)
         end
         self.resizing = false
         commitResize()
-        setHoverPop(false)
+        setHoverBrightness(false)
     end
 
     -- Double-click: snap back to the window's original screen-fit size instead of starting a
@@ -255,7 +251,7 @@ function Resize.new(window)
         self._lastClickAt = now
 
         self.resizing = true
-        setHoverPop(true)
+        setHoverBrightness(true)
         dragStartMouse = variables.userInputService:GetMouseLocation()
         dragStartSize = Vector2.new(self.window.main.Size.X.Offset, self.window.main.Size.Y.Offset)
         dragStartCentreAbs = self.window.main.AbsolutePosition
