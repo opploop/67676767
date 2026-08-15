@@ -227,15 +227,27 @@ function Resize.new(window)
         self.window.customSize = lastTargetSize
         self.window.settings.customWindowSize = { X = lastTargetSize.X, Y = lastTargetSize.Y }
 
-        -- main (and the bar, via the live-follow above) is likely still mid-ease from the
-        -- smoothing above - jump straight to the exact last target rather than whatever they're
-        -- lerped to this frame, since a save has to persist the size actually dragged to, not a
-        -- slightly-behind snapshot of it.
-        self.window.main.Size = size
-        self.window.main.Position = lastTargetPosition
+        -- Settle the live ease onto the exact final target with a visible glide, same easing as
+        -- drag.luau's own releaseDrag settle tween - persistence above already banked the target
+        -- directly rather than reading main's own (still mid-ease) Size/Position, so there's
+        -- nothing for this tween to race. This was the actually-missing piece live-caught as "the
+        -- resize doesn't move like the drag handle" - the in-drag ease alone (matching
+        -- mainRemaining's own snappy 1e-7) reads as basically instant on its own; the release
+        -- glide is what the drag handle itself is actually recognisable by. Skips _clampToScreen/
+        -- _syncDragBar deliberately (same as releaseDrag) - both would read main's still-old
+        -- Position synchronously and instantly overwrite it, fighting the tween just started.
+        local settle = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+        variables.tweenService:Create(self.window.main, settle, { Size = size, Position = lastTargetPosition }):Play()
+        if self.window.drag and self.window.drag.drag then
+            local barTarget = UDim2.new(
+                lastTargetPosition.X.Scale,
+                lastTargetPosition.X.Offset,
+                lastTargetPosition.Y.Scale,
+                lastTargetPosition.Y.Offset + lastTargetSize.Y / 2 + 15
+            )
+            variables.tweenService:Create(self.window.drag.drag, settle, { Position = barTarget }):Play()
+        end
 
-        self.window:_clampToScreen()
-        self.window:_syncDragBar()
         self.window:SaveSettings()
     end
 
