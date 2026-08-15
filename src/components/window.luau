@@ -593,14 +593,23 @@ function Window.new(properties)
         -- same reasoning as self.main's own Active = true - stays clickable at any transparency
         Active = true,
 
-        -- BackgroundColor3 deliberately isn't in this table: Window:Create applies themed
-        -- properties first and literal ones after, so a literal Color3 here would permanently
-        -- win over the themed StatBackground below instead of just seeding an animation
-        -- start-state - which is exactly what made this render flat white/grey instead of dark
+        -- Live-caught: StatBackground (a themed colour) landed close enough to self.main's own
+        -- background in practice to read as no dock at all - just the tabs floating directly on
+        -- the window, no visible surface behind the strip. segmentedpicker.luau's own dedicated
+        -- backdrop (see its self.main) sidesteps exactly this by not tying to a themed colour at
+        -- all - a fixed near-black that reads as "a dark card" against every theme's own accent,
+        -- rather than a colour that can end up blending into whatever's already behind it.
+        -- Matches that colour here for the same reason, on the same kind of element (a dedicated
+        -- backdrop wrapper, not the window body itself). Transparency stays literally 0.55, not
+        -- segmentedpicker's 0.5 - SetTransparency's "glass window" feature (below) tweens this
+        -- via 1 - 0.45 * windowOpacity, which lands on exactly 0.55 at the default full-opacity
+        -- windowOpacity of 1; drifting the baseline out of sync with that formula's own resting
+        -- value would just get silently overwritten back the next time it runs.
+        BackgroundColor3 = Color3.fromRGB(24, 24, 24),
         BackgroundTransparency = 0.55,
 
         Parent = self.main,
-    }, { BackgroundColor3 = "StatBackground" })
+    })
 
     self:Create("UICorner", {
         Parent = self.tabDock,
