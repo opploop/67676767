@@ -178,14 +178,42 @@ function Resize.new(window)
         return Vector2.zero
     end
 
+    -- Window:_clampedPosition() itself clamps against self.window.size - the COMMITTED size,
+    -- only updated on release (see this file's own header comment on why). Live-caught: calling
+    -- it as-is mid-drag keeps the half-width/half-height bound pinned to whatever size the window
+    -- was *before* this drag started, so as it actually grows/shrinks the clamp thinks it's still
+    -- the old size and reins the position back in to fit that - reading as the window barely
+    -- moving off its starting spot no matter how far you drag, while the size itself still
+    -- visibly (if erratically, fighting that same wrong clamp) changes. Mirrors the exact same
+    -- math by hand against the size actually being dragged to instead.
+    local function clampedPositionForSize(position: UDim2, sizeVec: Vector2): UDim2
+        local window = self.window
+        if not window.settings or not window.settings.keepOnScreen then
+            return position
+        end
+        if position.X.Scale ~= 0 or position.Y.Scale ~= 0 then
+            return position
+        end
+        local screen = window.screenGui.AbsoluteSize
+        local halfX, halfY = sizeVec.X / 2, sizeVec.Y / 2
+        local margin = 8
+        local x = math.clamp(position.X.Offset, halfX + margin, math.max(halfX + margin, screen.X - halfX - margin))
+        local y = math.clamp(position.Y.Offset, halfY + margin, math.max(halfY + margin, screen.Y - halfY - margin))
+        if x == position.X.Offset and y == position.Y.Offset then
+            return position
+        end
+        return UDim2.fromOffset(x, y)
+    end
+
     local function applyResize(mouseLocation: Vector2, dt: number)
         local delta = mouseLocation - dragStartMouse
         local clamped = windowSizing.clampUserSize(currentViewport(), dragStartSize + delta)
         local consumed = clamped - dragStartSize -- how much of the drag survived clamping
 
         local newCentrePositionSpace = dragStartCentreAbs + consumed / 2 + insetOffset()
-        local target = self.window:_clampedPosition(
-            UDim2.fromOffset(newCentrePositionSpace.X, newCentrePositionSpace.Y)
+        local target = clampedPositionForSize(
+            UDim2.fromOffset(newCentrePositionSpace.X, newCentrePositionSpace.Y),
+            clamped
         )
 
         lastTargetSize = clamped
@@ -268,8 +296,12 @@ function Resize.new(window)
 
         local centreAbs = self.window.main.AbsolutePosition + self.window.main.AbsoluteSize * self.window.main.AnchorPoint
         local centrePositionSpace = centreAbs + insetOffset()
-        local targetPosition =
-            self.window:_clampedPosition(UDim2.fromOffset(centrePositionSpace.X, centrePositionSpace.Y))
+        -- Same stale-size clamp trap as applyResize above - clamp against the size we're
+        -- snapping *to* (target), not self.window.size (still whatever it was before the snap).
+        local targetPosition = clampedPositionForSize(
+            UDim2.fromOffset(centrePositionSpace.X, centrePositionSpace.Y),
+            Vector2.new(target.X.Offset, target.Y.Offset)
+        )
 
         variables.tweenService:Create(self.window.main, snapBackInfo, { Size = target, Position = targetPosition })
             :Play()
