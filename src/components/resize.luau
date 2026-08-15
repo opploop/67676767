@@ -44,12 +44,16 @@ local gripSize = 40
 -- plain ImageLabel has none of that surface area.
 local arcImage = "rbxassetid://100962304983733"
 local arcImageSize = 38
-local arcRestOffset = Vector2.new(-3, -3) -- the image's resting Position, AnchorPoint (1,1)
--- Devlog 8 fix: the arc's own baked-in opacity (confirmed in the Figma mockup, where the same
--- wash read as plainly visible on a 160px+ preview card) nearly vanished at the real ~34px corner
--- against the game behind it. Same asset, pushed more opaque so it's actually legible shipped.
-local arcRestTransparency = 0.05
-local arcHoverTransparency = 0
+-- Devlog 8 fix: sat at (-3,-3) right against the grip's own edge, close enough to the window's
+-- rounded corner (and its shadow/vignette) that the far end of the curve read as barely there
+-- against the darker backdrop there - live-caught as "half the icon isn't showing". Pulled in
+-- further so the whole curve sits somewhere with more contrast against the card behind it.
+local arcRestOffset = Vector2.new(-5, -5) -- the image's resting Position, AnchorPoint (1,1)
+-- Also fully opaque at rest now (was 0.05) rather than leaning on hover alone to make it
+-- legible - the corner's backdrop varies (game visible through the rounded edge on one side,
+-- solid card colour on the other), so it needs to read clearly against either.
+local arcRestScale = 1
+local arcHoverScale = 1.18
 
 local snapBackInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local hoverInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -104,7 +108,7 @@ function Resize.new(window)
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         Image = arcImage,
-        ImageTransparency = arcRestTransparency,
+        ImageTransparency = 0,
 
         Parent = self.grip,
     })
@@ -118,22 +122,30 @@ function Resize.new(window)
         Parent = self.grip,
     })
 
-    -- Brighten on hover so the grip reads as interactive without shouting for attention at rest.
-    local function setHoverBrightness(hovering)
-        local target = if hovering then arcHoverTransparency else arcRestTransparency
-        variables.tweenService:Create(self.icon, hoverInfo, { ImageTransparency = target }):Play()
+    -- Already fully opaque at rest, so a scale pop (mouse hover or a touch/tap) is the
+    -- interactive cue instead of a transparency change - explicit, requested outright ("coloca
+    -- uma animaçãozinha quando passa o mouse em cima ou dedo"), separate from - and doesn't
+    -- fight with - the pointer-nudge below, since that only ever touches Position, this only
+    -- ever touches Size.
+    local function setHoverPop(hovering)
+        local scale = if hovering then arcHoverScale else arcRestScale
+        local size = arcImageSize * scale
+        variables.tweenService:Create(self.icon, hoverInfo, { Size = UDim2.fromOffset(size, size) }):Play()
     end
 
     self.window:Connect(self.interact.MouseEnter, function()
         if not self.resizing then
-            setHoverBrightness(true)
+            setHoverPop(true)
         end
     end)
     self.window:Connect(self.interact.MouseLeave, function()
         if not self.resizing then
-            setHoverBrightness(false)
+            setHoverPop(false)
         end
     end)
+    -- MouseEnter/MouseLeave don't fire for touch - a tap both starts the drag AND should pop the
+    -- icon the same way a hover would, so touch gets the same cue via the drag start itself
+    -- below rather than a dedicated touch event.
 
     local screenGui = self.window.screenGui
     local dragStartMouse = Vector2.zero
@@ -180,7 +192,7 @@ function Resize.new(window)
         end
         self.resizing = false
         commitResize()
-        setHoverBrightness(false)
+        setHoverPop(false)
     end
 
     -- Double-click: snap back to the window's original screen-fit size instead of starting a
@@ -237,7 +249,7 @@ function Resize.new(window)
         self._lastClickAt = now
 
         self.resizing = true
-        setHoverBrightness(true)
+        setHoverPop(true)
         dragStartMouse = variables.userInputService:GetMouseLocation()
         dragStartSize = Vector2.new(self.window.main.Size.X.Offset, self.window.main.Size.Y.Offset)
         dragStartCentreAbs = self.window.main.AbsolutePosition
