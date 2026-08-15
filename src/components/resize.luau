@@ -30,11 +30,21 @@ local utility = script.Parent.Parent.utility
 -- Variables
 local variables = require(utility.variables)
 local windowSizing = require(utility.windowSizing)
-local icons = require(utility.icons)
 
--- Touch-friendly hit target; the visible glyph inside it stays smaller (see the icon/fallback
--- below) so it doesn't read as a huge corner blob on a compact window.
-local gripSize = 34
+-- Touch-friendly hit target; the visible arc inside it stays smaller (see below) so it doesn't
+-- read as a huge corner blob on a compact window.
+local gripSize = 40
+
+-- The arc's own design, mocked up and confirmed in Figma before porting here (none of
+-- lucide/solar/sfsymbols/gravity/geist/craft had a matching curved glyph, and a shape this
+-- simple doesn't need one anyway): a quarter-circle, rounded ends, small and fairly thick, a
+-- muted grey rather than a bright white.
+local arcBoxSize = 34
+local arcStrokeWeight = 8
+local arcColorKey = "PlaceholderColor"
+local arcRestTransparency = 0.25
+local arcHoverTransparency = 0.05
+local arcRestOffset = Vector2.new(-3, -3) -- iconGroup's resting Position, AnchorPoint (1,1)
 
 local snapBackInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local hoverInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -43,16 +53,12 @@ local hoverInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirectio
 -- single clicks (the second one just starts a fresh drag).
 local doubleClickWindow = 0.4
 
--- "Animated resize grip": the icon leans toward wherever the pointer currently is, like a
--- compass needle - 45deg is straight down-right, the icon's own neutral/unrotated look (it's a
--- NW/SE diagonal glyph), so `lean` below is how far off that neutral the pointer currently pulls
--- it, clamped so it reads as a subtle tilt rather than the icon spinning to track the cursor.
-local neutralLeanAngle = 45
-local maxLean = 18
--- exponential smoothing factor per second - same technique (and same reasoning) as drag.luau's
--- own mainRemaining/barRemaining: a per-frame lerp toward the target instead of a fresh tween
--- every frame, smaller = snappier
-local leanRemaining = 1e-4
+-- "Animated resize grip": how far (in pixels) the arc can nudge toward the pointer from its
+-- resting spot, and how fast it settles there - exponential smoothing per second, same technique
+-- (and same reasoning) as drag.luau's own mainRemaining/barRemaining: a per-frame lerp toward the
+-- target instead of a fresh tween every frame, smaller = snappier.
+local maxNudge = 4
+local nudgeRemaining = 1e-4
 
 local function currentViewport(): Vector2?
     local camera = variables.workspace.CurrentCamera
@@ -83,48 +89,59 @@ function Resize.new(window)
         Parent = self.window.main,
     })
 
-    -- craft's expand-corner-02-stroke (a NW/SE double-headed diagonal arrow) over lucide's own
-    -- resize-shaped icons (maximize-2/move-diagonal-2) - lucide doesn't have the one asked for.
-    -- Falls back through a couple of near-equivalents from other packs before the hand-drawn bars.
-    local glyph = icons.find("expand-corner-02-stroke", "craft")
-        or icons.find("expand-corner-01-stroke", "craft")
-        or icons.find("corner-down-right", "lucide")
-    if glyph then
-        -- craft is a spritesheet pack (see icons.luau) - the icon's actual pixels are a rect cut
-        -- out of a shared sheet image, not the whole file, so ImageRectSize/Offset matter here
-        -- and not just Image the way a flat-pack icon (lucide etc.) would.
-        self.icon = self.window:Create("ImageLabel", {
-            AnchorPoint = Vector2.new(1, 1),
-            Position = UDim2.new(1, -4, 1, -4),
-            Size = UDim2.fromOffset(28, 28),
-            BackgroundTransparency = 1,
+    -- The arc is the same "clip a full circle" trick used elsewhere in this codebase: a circle
+    -- twice iconGroup's own size, corner-anchored so its own bottom-right point lands on the clip
+    -- box's bottom-right point - only the quarter of the circle inside the box ever renders.
+    -- Where that clip cuts the stroke off (both open ends of the visible arc) reads as a flat,
+    -- square cut - UIStroke has no equivalent of a rounded line cap on a closed shape like this -
+    -- so two small round dots are added by hand at those exact two points to fake it.
+    self.iconGroup = self.window:Create("Frame", {
+        Name = "IconGroup",
+        AnchorPoint = Vector2.new(1, 1),
+        Position = UDim2.new(1, arcRestOffset.X, 1, arcRestOffset.Y),
+        Size = UDim2.fromOffset(arcBoxSize, arcBoxSize),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+
+        Parent = self.grip,
+    })
+
+    local arcCircle = self.window:Create("Frame", {
+        Name = "Arc",
+        AnchorPoint = Vector2.new(1, 1),
+        Position = UDim2.fromScale(1, 1),
+        Size = UDim2.fromOffset(arcBoxSize * 2, arcBoxSize * 2),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+
+        Parent = self.iconGroup,
+    })
+    self.window:Create("UICorner", {
+        CornerRadius = UDim.new(0.5, 0),
+        Parent = arcCircle,
+    })
+    self.arcStroke = self.window:Create("UIStroke", {
+        Thickness = arcStrokeWeight,
+        Transparency = arcRestTransparency,
+
+        Parent = arcCircle,
+    }, { Color = arcColorKey })
+
+    self.arcCaps = {}
+    for _, point in { Vector2.new(arcBoxSize, 0), Vector2.new(0, arcBoxSize) } do
+        local cap = self.window:Create("Frame", {
+            Name = "ArcCap",
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromOffset(point.X, point.Y),
+            Size = UDim2.fromOffset(arcStrokeWeight, arcStrokeWeight),
+            BackgroundTransparency = arcRestTransparency,
             BorderSizePixel = 0,
-            Image = glyph.Image,
-            ImageRectSize = glyph.ImageRectSize or Vector2.zero,
-            ImageRectOffset = glyph.ImageRectOffset or Vector2.zero,
-            ImageTransparency = 0,
 
-            Parent = self.grip,
-        }, { ImageColor3 = "PlaceholderColor" })
-    else
-        -- Hand-drawn fallback if the icon pack didn't resolve (offline, repo down): the classic
-        -- two-short-diagonal-bars resize cue, same shape every OS uses for this affordance.
-        self.icon = nil
-        self.fallbackBars = {}
-        for i, inset in { 0, 7 } do
-            local bar = self.window:Create("Frame", {
-                AnchorPoint = Vector2.new(1, 1),
-                Position = UDim2.new(1, -5 - inset, 1, -5),
-                Rotation = -45,
-                Size = UDim2.fromOffset(11 - i * 3, 3),
-                BorderSizePixel = 0,
-                BackgroundTransparency = 0,
-
-                Parent = self.grip,
-            }, { BackgroundColor3 = "PlaceholderColor" })
-            self.window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = bar })
-            table.insert(self.fallbackBars, bar)
-        end
+            Parent = self.iconGroup,
+        }, { BackgroundColor3 = arcColorKey })
+        self.window:Create("UICorner", { CornerRadius = UDim.new(0.5, 0), Parent = cap })
+        table.insert(self.arcCaps, cap)
     end
 
     self.interact = self.window:Create("TextButton", {
@@ -136,32 +153,23 @@ function Resize.new(window)
         Parent = self.grip,
     })
 
-    -- Already fully opaque at rest, so hover doesn't brighten it further - a slight scale pop
-    -- is the interactive cue here instead.
-    local function setHoverTransparency(hovering)
-        local scale = if hovering then 1.15 else 1
-        if self.icon then
-            variables.tweenService
-                :Create(self.icon, hoverInfo, { Size = UDim2.fromOffset(28 * scale, 28 * scale) })
-                :Play()
-        elseif self.fallbackBars then
-            for i, bar in self.fallbackBars do
-                local length = 11 - i * 3 -- matches the Size each bar was created with above
-                variables.tweenService
-                    :Create(bar, hoverInfo, { Size = UDim2.fromOffset(length * scale, 3 * scale) })
-                    :Play()
-            end
+    -- Brighten on hover so the grip reads as interactive without shouting for attention at rest.
+    local function setHoverBrightness(hovering)
+        local target = if hovering then arcHoverTransparency else arcRestTransparency
+        variables.tweenService:Create(self.arcStroke, hoverInfo, { Transparency = target }):Play()
+        for _, cap in self.arcCaps do
+            variables.tweenService:Create(cap, hoverInfo, { BackgroundTransparency = target }):Play()
         end
     end
 
     self.window:Connect(self.interact.MouseEnter, function()
         if not self.resizing then
-            setHoverTransparency(true)
+            setHoverBrightness(true)
         end
     end)
     self.window:Connect(self.interact.MouseLeave, function()
         if not self.resizing then
-            setHoverTransparency(false)
+            setHoverBrightness(false)
         end
     end)
 
@@ -210,7 +218,7 @@ function Resize.new(window)
         end
         self.resizing = false
         commitResize()
-        setHoverTransparency(false)
+        setHoverBrightness(false)
     end
 
     -- Double-click: snap back to the window's original screen-fit size instead of starting a
@@ -267,7 +275,7 @@ function Resize.new(window)
         self._lastClickAt = now
 
         self.resizing = true
-        setHoverTransparency(true)
+        setHoverBrightness(true)
         dragStartMouse = variables.userInputService:GetMouseLocation()
         dragStartSize = Vector2.new(self.window.main.Size.X.Offset, self.window.main.Size.Y.Offset)
         dragStartCentreAbs = self.window.main.AbsolutePosition
@@ -296,11 +304,15 @@ function Resize.new(window)
 
     -- "Animated resize grip": continuous, not hover-gated - the whole point is it reads as
     -- reacting to the pointer from a distance, not just once the mouse actually lands on it.
-    -- Paused mid-drag (the resize itself is the thing to look at then) and while the fallback
-    -- bars are in use (self.icon nil) - rotating two independently-angled bars in sync isn't
-    -- worth the complexity for what's already an offline/repo-down edge case.
+    -- Paused mid-drag (the resize itself is the thing to look at then).
+    --
+    -- Nudges iconGroup's Position toward the pointer rather than rotating it - live-caught
+    -- ClipsDescendants breaking the moment its own frame has a non-zero Rotation (the full circle
+    -- shows through, clip ignored entirely, confirmed across several angles on this project's
+    -- test client, not a one-off glitch). A rotated arc would mean rotating the very frame that
+    -- makes it an arc in the first place, so this sidesteps the bug rather than working around it.
     self.window:Connect(variables.runService.RenderStepped, function(dt)
-        if not self.icon or not self.animated or self.resizing or not self.grip.Visible then
+        if not self.animated or self.resizing or not self.grip.Visible then
             return
         end
         if not self.window:_interactive() or self.window.minimised then
@@ -311,9 +323,12 @@ function Resize.new(window)
         if toMouse.Magnitude < 1 then
             return
         end
-        local pointerAngle = math.deg(math.atan2(toMouse.Y, toMouse.X))
-        local lean = math.clamp((pointerAngle - neutralLeanAngle + 180) % 360 - 180, -maxLean, maxLean)
-        self.icon.Rotation += (lean - self.icon.Rotation) * (1 - leanRemaining ^ dt)
+
+        local targetOffset = arcRestOffset + toMouse.Unit * maxNudge
+        local pos = self.iconGroup.Position
+        local current = Vector2.new(pos.X.Offset, pos.Y.Offset)
+        local settled = current + (targetOffset - current) * (1 - nudgeRemaining ^ dt)
+        self.iconGroup.Position = UDim2.new(1, settled.X, 1, settled.Y)
     end)
 
     return self
@@ -328,9 +343,11 @@ end
 
 function Resize:SetAnimated(enabled: boolean)
     self.animated = enabled and true or false
-    if not self.animated and self.icon then
-        -- settle back to the static neutral look rather than freezing wherever it last leaned
-        variables.tweenService:Create(self.icon, hoverInfo, { Rotation = 0 }):Play()
+    if not self.animated then
+        -- settle back to the resting spot rather than freezing wherever it last nudged to
+        variables.tweenService
+            :Create(self.iconGroup, hoverInfo, { Position = UDim2.new(1, arcRestOffset.X, 1, arcRestOffset.Y) })
+            :Play()
     end
 end
 
