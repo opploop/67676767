@@ -525,4 +525,31 @@ tab9:CreateButton({
     end,
 })
 
+-- Devlog 10: Divider ----------------------------------------------------------------------------
+local tab10 = window:CreateTab({ name = "Devlog 10", icon = 88479147175134 })
+
+tab10:CreateSection({ name = "Divider" })
+
+tab10:CreateDivider() -- plain line, no caption
+
+tab10:CreateDivider({ text = "Advanced" })
+
+tab10:CreateToggle({ name = "Verbose Logging", value = false })
+
+tab10:CreateInput({ name = "Endpoint", value = "localhost" })
+
+tab10:CreateDivider({ text = "Spacing only, no line below this" })
+
+tab10:CreateDivider({ line = false, height = 48 })
+
+tab10:CreateButton({ name = "Sitting after 48px of nothing" })
+
+tab10:CreateDivider({ text = "Tight", spacing = "tight" })
+
+tab10:CreateButton({ name = "Close above and below" })
+
+tab10:CreateDivider({ text = "Loose", spacing = "loose" })
+
+tab10:CreateButton({ name = "Open above and below" })
+
 window:Navigate("Devlog 1")

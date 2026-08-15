@@ -73,6 +73,13 @@ export type ParagraphProps = {
     icon: (string | number)?,
 }
 
+export type DividerProps = {
+    text: string?,
+    line: boolean?, -- default true; false = spacing-only, no visible rule
+    spacing: string?, -- "tight" | "normal" (default) | "loose" - vertical padding around the line
+    height: number?, -- gap height in px when line = false (default 24)
+}
+
 export type GroupProps = {
     direction: string?, -- "row" | "column" (default row); "horizontal"/"vertical" also work
 }
@@ -486,6 +493,10 @@ export type Paragraph = Moveable & {
     SetContent: (self: Paragraph, text: string) -> (),
 }
 
+export type Divider = Moveable & {
+    Set: (self: Divider, text: string) -> (),
+}
+
 export type HoldButton = Moveable & {
     locked: boolean,
     SetLocked: (self: HoldButton, locked: boolean) -> (),
@@ -517,6 +528,7 @@ export type Collapsible = Moveable & {
     CreateSection: (self: Collapsible, props: SectionProps) -> Section,
     CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,
     CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,
+    CreateDivider: (self: Collapsible, props: DividerProps?) -> Divider,
     CreateGroup: (self: Collapsible, props: GroupProps?) -> Group,
 }
 
@@ -552,6 +564,7 @@ export type Group = Moveable & {
     CreateSection: (self: Group, props: SectionProps) -> Section,
     CreateLabel: (self: Group, props: LabelProps?) -> Label,
     CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,
+    CreateDivider: (self: Group, props: DividerProps?) -> Divider,
     CreateGroup: (self: Group, props: GroupProps?) -> Group,
 }
 
@@ -573,6 +586,7 @@ export type Tab = {
     CreateSection: (self: Tab, props: SectionProps) -> Section,
     CreateLabel: (self: Tab, props: LabelProps?) -> Label,
     CreateParagraph: (self: Tab, props: ParagraphProps?) -> Paragraph,
+    CreateDivider: (self: Tab, props: DividerProps?) -> Divider,
     CreateProgressBar: (self: Tab, props: ProgressBarProps) -> ProgressBar,
     CreateScrollHint: (self: Tab, props: ScrollHintProps?) -> ScrollHint,
     CreateSegmentedPicker: (self: Tab, props: SegmentedPickerProps?) -> SegmentedPicker,

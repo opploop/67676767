@@ -203,6 +203,9 @@ end
 function Group:CreateParagraph(properties)
     return self:_add("paragraph", properties)
 end
+function Group:CreateDivider(properties)
+    return self:_add("divider", properties)
+end
 
 -- a nested group: a column (for a grid) or another row inside this one
 function Group:_addGroup(properties)

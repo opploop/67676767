@@ -78,6 +78,7 @@ local componentFiles = {
     "colorpicker",
     "copybutton",
     "descriptor",
+    "divider",
     "drag",
     "dropdown",
     "flipbutton",

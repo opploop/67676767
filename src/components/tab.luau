@@ -463,6 +463,12 @@ function Tab:CreateParagraph(properties)
     return self:_register(require(script.Parent.paragraph).new(self, properties))
 end
 
+-- Divider: a subtle rule (plain, captioned, or spacing-only) that splits a page into groups
+-- without a full Section header
+function Tab:CreateDivider(properties)
+    return self:_register(require(script.Parent.divider).new(self, properties))
+end
+
 -- Stat
 function Tab:CreateStat(properties)
     return self:_register(require(script.Parent.stat).new(self, properties))
