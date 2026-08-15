@@ -1235,12 +1235,12 @@ function Dropdown:_scrollIntoView(targetHeight)
         return
     end
 
-    local maxScroll = math.max(0, page.CanvasSize.Y.Offset - page.AbsoluteWindowSize.Y)
+    -- No manual max-scroll clamp: page.CanvasSize can still read stale/zero right after a tab
+    -- switch (AutomaticCanvasSize hasn't caught up to the just-shown content yet - live-caught
+    -- this capping every scroll to 0). Roblox already clamps CanvasPosition itself when it's set
+    -- past what the canvas actually has, so handing it a generous target is safe either way.
     local margin = 10
-    local targetY = math.min(maxScroll, page.CanvasPosition.Y + overflow + margin)
-    if targetY <= page.CanvasPosition.Y then
-        return
-    end
+    local targetY = page.CanvasPosition.Y + overflow + margin
 
     variables.tweenService
         :Create(
