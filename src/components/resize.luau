@@ -100,9 +100,9 @@ function Resize.new(window)
         Parent = self.window.main,
     })
 
-    -- TEMP PREVIEW A: craft's expand-corner-02-stroke, restored as-is to compare against the
-    -- lucide preview below - remove once the user picks one.
-    local glyph = icons.find("expand-corner-02-stroke", "craft") or icons.find("expand-corner-01-stroke", "craft")
+    -- TEMP PREVIEW B: lucide's move-diagonal-2, the very first icon this grip ever shipped with
+    -- - remove once the user picks one.
+    local glyph = icons.find("move-diagonal-2", "lucide") or icons.find("corner-right-down", "lucide")
     self.icon = self.window:Create("ImageLabel", {
         Name = "Arc",
         AnchorPoint = Vector2.new(1, 1),
