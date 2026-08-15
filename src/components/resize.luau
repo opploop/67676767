@@ -30,10 +30,9 @@ local utility = script.Parent.Parent.utility
 -- Variables
 local variables = require(utility.variables)
 local windowSizing = require(utility.windowSizing)
-local icons = require(utility.icons)
 
--- Touch-friendly hit target; the visible glyph inside it stays smaller (see the icon/fallback
--- below) so it doesn't read as a huge corner blob on a compact window.
+-- Touch-friendly hit target; the visible curve inside it stays smaller (see below) so it
+-- doesn't read as a huge corner blob on a compact window.
 local gripSize = 26
 
 local snapBackInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
@@ -71,49 +70,45 @@ function Resize.new(window)
         Parent = self.window.main,
     })
 
-    -- craft's expand-corner-02-stroke (a NW/SE double-headed diagonal arrow) over lucide's own
-    -- resize-shaped icons (maximize-2/move-diagonal-2) - lucide doesn't have the one asked for.
-    -- Falls back through a couple of near-equivalents from other packs before the hand-drawn bars.
-    local glyph = icons.find("expand-corner-02-stroke", "craft")
-        or icons.find("expand-corner-01-stroke", "craft")
-        or icons.find("corner-down-right", "lucide")
-    if glyph then
-        -- craft is a spritesheet pack (see icons.luau) - the icon's actual pixels are a rect cut
-        -- out of a shared sheet image, not the whole file, so ImageRectSize/Offset matter here
-        -- and not just Image the way a flat-pack icon (lucide etc.) would.
-        self.icon = self.window:Create("ImageLabel", {
-            AnchorPoint = Vector2.new(1, 1),
-            Position = UDim2.new(1, -3, 1, -3),
-            Size = UDim2.fromOffset(20, 20),
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
-            Image = glyph.Image,
-            ImageRectSize = glyph.ImageRectSize or Vector2.zero,
-            ImageRectOffset = glyph.ImageRectOffset or Vector2.zero,
-            ImageTransparency = 0.25,
+    -- The classic single-curve resize cue - a quarter-circle arc tucked into the corner, no
+    -- arrowhead - drawn straight from Frames rather than pulled from an icon pack: none of
+    -- lucide/solar/sfsymbols/gravity/geist/craft actually had it (checked all six live), and a
+    -- shape this simple doesn't need a network fetch (or its failure mode) anyway. The trick is
+    -- an old one: a fully-rounded circle twice the visible box's size, corner-anchored so its own
+    -- bottom-right point lands exactly on the clipping box's bottom-right point - only the
+    -- quarter of the circle inside the box ever renders, an arc with no visible endpoints.
+    self.curveClip = self.window:Create("Frame", {
+        AnchorPoint = Vector2.new(1, 1),
+        Position = UDim2.new(1, -3, 1, -3),
+        Size = UDim2.fromOffset(16, 16),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
 
-            Parent = self.grip,
-        }, { ImageColor3 = "PlaceholderColor" })
-    else
-        -- Hand-drawn fallback if the icon pack didn't resolve (offline, repo down): the classic
-        -- two-short-diagonal-bars resize cue, same shape every OS uses for this affordance.
-        self.icon = nil
-        self.fallbackBars = {}
-        for i, inset in { 0, 5 } do
-            local bar = self.window:Create("Frame", {
-                AnchorPoint = Vector2.new(1, 1),
-                Position = UDim2.new(1, -4 - inset, 1, -4),
-                Rotation = -45,
-                Size = UDim2.fromOffset(8 - i * 2, 2),
-                BorderSizePixel = 0,
-                BackgroundTransparency = 0.25,
+        Parent = self.grip,
+    })
 
-                Parent = self.grip,
-            }, { BackgroundColor3 = "PlaceholderColor" })
-            self.window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = bar })
-            table.insert(self.fallbackBars, bar)
-        end
-    end
+    self.curveCircle = self.window:Create("Frame", {
+        AnchorPoint = Vector2.new(1, 1),
+        Position = UDim2.fromScale(1, 1),
+        Size = UDim2.fromOffset(32, 32),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+
+        Parent = self.curveClip,
+    })
+
+    self.window:Create("UICorner", {
+        CornerRadius = UDim.new(0.5, 0),
+        Parent = self.curveCircle,
+    })
+
+    self.curveStroke = self.window:Create("UIStroke", {
+        Thickness = 2.5,
+        Transparency = 0.25,
+
+        Parent = self.curveCircle,
+    }, { Color = "PlaceholderColor" })
 
     self.interact = self.window:Create("TextButton", {
         Size = UDim2.fromScale(1, 1),
@@ -127,13 +122,7 @@ function Resize.new(window)
     -- Brighten on hover so the grip reads as interactive without shouting for attention at rest.
     local function setHoverTransparency(hovering)
         local target = if hovering then 0.05 else 0.25
-        if self.icon then
-            variables.tweenService:Create(self.icon, hoverInfo, { ImageTransparency = target }):Play()
-        else
-            for _, bar in self.fallbackBars do
-                variables.tweenService:Create(bar, hoverInfo, { BackgroundTransparency = target }):Play()
-            end
-        end
+        variables.tweenService:Create(self.curveStroke, hoverInfo, { Transparency = target }):Play()
     end
 
     self.window:Connect(self.interact.MouseEnter, function()
