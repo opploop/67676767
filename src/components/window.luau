@@ -239,6 +239,26 @@ function Window.new(properties)
         showName = properties.showName or properties.ShowName or "Rayfield",
         showIcon = properties.showIcon or properties.ShowIcon or constants.icons.rayfield,
 
+        -- "Loading animation": a dev-configured splash (icon/title/optional cycling tip text)
+        -- played once on the very first Show(), before the window's own staged content reveal.
+        -- Dev-only surface by design - present only if the dev opts in by passing `loading` at
+        -- all, so the player's Settings toggle (added below, same conditional) only exists when
+        -- there's actually something for it to turn on or off.
+        loading = (function()
+            local cfg = properties.loading or properties.Loading
+            if not cfg then
+                return nil
+            end
+            return {
+                enabled = cfg.enabled ~= false and cfg.Enabled ~= false,
+                icon = cfg.icon or cfg.Icon,
+                title = cfg.title or cfg.Title,
+                tips = cfg.tips or cfg.Tips or {},
+                tipHoldTime = cfg.tipHoldTime or cfg.TipHoldTime or 0.9,
+                duration = cfg.duration or cfg.Duration or 1.1,
+            }
+        end)(),
+
         themeProperties = {},
         localeProperties = {},
         tabs = {},
@@ -749,6 +769,9 @@ function Window.new(properties)
         welcomeToast = true, -- the "signed in as" toast on first open for a new/changed account
         haptics = false, -- off by default; opt in from settings (buzzes on presses/notifications)
         resizeGripEnabled = true, -- Devlog 8: shows the corner drag-to-resize handle
+        -- only meaningful when self.loading exists (the Settings toggle is conditional on that
+        -- too) - defaults to whatever the dev set, the player can still flip it off from there
+        loadingAnimationEnabled = if self.loading then self.loading.enabled else false,
         -- customWindowSize starts absent (nil): no saved drag yet, so sizing still comes from
         -- self.defaultSize/customSize the normal way. Set once the resize grip is dragged, see
         -- resize.luau, and read right below once a saved one exists.
@@ -2041,6 +2064,20 @@ function Window:_buildSettingsUI()
         end,
     })
 
+    -- Only shown when the dev actually configured a loading splash (self.loading) - otherwise
+    -- there's nothing for this to turn on or off.
+    if self.loading then
+        self.rfSettings:CreateToggle({
+            name = "Loading Animation",
+            description = "Shows a brief splash the first time the window opens.",
+            value = self.settings.loadingAnimationEnabled,
+            callback = function(state)
+                self.settings.loadingAnimationEnabled = state
+                self:SaveSettings()
+            end,
+        })
+    end
+
     self.rfSettings:CreateToggle({
         name = "Resizable window",
         description = "Shows a grip in the bottom-right corner that drags the window's size.",
@@ -2487,6 +2524,116 @@ function Window:_quickRestore()
     end)
 end
 
+local loadingFadeInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+-- The dev-configured loading splash (see self.loading, set from WindowProps.loading in .new):
+-- icon + title fade in centred on the still-blank window card, an optional tip line cycles
+-- under them the same way PlayGreeting cycles its texts, then everything fades back out before
+-- _firstShow's own staged reveal takes over. Unlike PlayGreeting there's no shrink/corner-round
+-- wipe here - nothing underneath is visible yet for one to reveal, so a plain fade in and back
+-- out is the whole trick.
+function Window:_playLoadingSplash()
+    local config = self.loading
+    local icon = config.icon or self.icon
+    local title = config.title or self.name
+    local tips = config.tips
+
+    local overlay = self:Create("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = constants.zIndex.loading,
+
+        Parent = self.main,
+    })
+
+    local iconLabel
+    if icon then
+        iconLabel = self:Create("ImageLabel", {
+            Image = icon,
+            Size = UDim2.fromOffset(48, 48),
+            Position = UDim2.new(0.5, 0, 0.5, -18),
+            AnchorPoint = Vector2.new(0.5, 1),
+            BackgroundTransparency = 1,
+            ImageTransparency = 1,
+            ZIndex = constants.zIndex.loading,
+
+            Parent = overlay,
+        }, { ImageColor3 = "ContentColor" })
+    end
+
+    local titleLabel = self:Create("TextLabel", {
+        Text = locale.t(title or ""),
+
+        Size = UDim2.fromScale(0.85, 0.1),
+        Position = UDim2.new(0.5, 0, 0.5, if icon then 4 else -10),
+        AnchorPoint = Vector2.new(0.5, 0),
+        BackgroundTransparency = 1,
+        TextSize = 22,
+        TextWrapped = true,
+        TextTransparency = 1,
+        FontFace = self.theme.TitleFont,
+        ZIndex = constants.zIndex.loading,
+
+        Parent = overlay,
+    }, { TextColor3 = "ContentColor" })
+
+    local tipLabel
+    if #tips > 0 then
+        tipLabel = self:Create("TextLabel", {
+            Size = UDim2.fromScale(0.8, 0.08),
+            Position = UDim2.new(0.5, 0, 0.5, if icon then 36 else 22),
+            AnchorPoint = Vector2.new(0.5, 0),
+            BackgroundTransparency = 1,
+            TextSize = 14,
+            TextWrapped = true,
+            TextTransparency = 1,
+            FontFace = self.theme.Font,
+            ZIndex = constants.zIndex.loading,
+
+            Parent = overlay,
+        }, { TextColor3 = "ContentColor" })
+    end
+
+    if iconLabel then
+        variables.tweenService:Create(iconLabel, loadingFadeInfo, { ImageTransparency = 0 }):Play()
+    end
+    variables.tweenService:Create(titleLabel, loadingFadeInfo, { TextTransparency = 0 }):Play()
+
+    -- Cycle the tips (if any) the same way PlayGreeting cycles its texts, tracking how long that
+    -- actually took so a single (or zero) tip still holds the splash up for the full `duration`
+    -- floor rather than flashing by in one fade.
+    local elapsed = 0
+    if tipLabel then
+        for i, tip in tips do
+            tipLabel.Text = locale.resolve(tostring(tip))
+            variables.tweenService:Create(tipLabel, loadingFadeInfo, { TextTransparency = 0.4 }):Play()
+            task.wait(config.tipHoldTime)
+            elapsed += config.tipHoldTime
+            if i < #tips then
+                variables.tweenService:Create(tipLabel, loadingFadeInfo, { TextTransparency = 1 }):Play()
+                task.wait(0.15)
+                elapsed += 0.15
+            end
+        end
+    end
+
+    if elapsed < config.duration then
+        task.wait(config.duration - elapsed)
+    end
+
+    if iconLabel then
+        variables.tweenService:Create(iconLabel, loadingFadeInfo, { ImageTransparency = 1 }):Play()
+    end
+    variables.tweenService:Create(titleLabel, loadingFadeInfo, { TextTransparency = 1 }):Play()
+    if tipLabel then
+        variables.tweenService:Create(tipLabel, loadingFadeInfo, { TextTransparency = 1 }):Play()
+    end
+    task.wait(loadingFadeInfo.Time)
+
+    overlay:Destroy()
+end
+
 function Window:_firstShow()
     -- Intro animation
     self.elements.Visible = true
@@ -2494,14 +2641,27 @@ function Window:_firstShow()
     self.tabDock.Visible = true
     self.drag.drag.Visible = false
     self.main.Visible = true
-    variables.tweenService
-        :Create(
-            self.main,
-            TweenInfo.new(1, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut),
-            { BackgroundTransparency = 1 - self.windowOpacity, Size = self.size }
-        )
-        :Play()
-    task.wait(0.85) -- let the frame actually read as a window before anything shows on top of it
+
+    if self.loading and self.settings.loadingAnimationEnabled then
+        -- Loading splash: main snaps straight to its resting size/opacity instead of growing in
+        -- - nothing else on it is visible yet anyway (every bit of chrome below is still at its
+        -- hidden transparency, untouched until the splash clears), so there's nothing to hide
+        -- and nothing lost by skipping the grow tween here. The splash plays centred on that
+        -- otherwise-blank card, then fades itself out, and the rest of this function's own
+        -- staged reveal (shadow, icon, title, tabs, elements, ...) runs exactly as it always did.
+        self.main.BackgroundTransparency = 1 - self.windowOpacity
+        self.main.Size = self.size
+        self:_playLoadingSplash()
+    else
+        variables.tweenService
+            :Create(
+                self.main,
+                TweenInfo.new(1, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut),
+                { BackgroundTransparency = 1 - self.windowOpacity, Size = self.size }
+            )
+            :Play()
+        task.wait(0.85) -- let the frame actually read as a window before anything shows on top of it
+    end
     variables.tweenService
         :Create(
             self.windowShadow,

@@ -21,6 +21,7 @@ type SettingsWindow = {
         welcomeToast: boolean,
         haptics: boolean,
         resizeGripEnabled: boolean,
+        loadingAnimationEnabled: boolean,
         customWindowSize: { X: number, Y: number }?,
     },
 }
@@ -32,6 +33,7 @@ type DecodedSettings = {
     welcomeToast: unknown?,
     haptics: unknown?,
     resizeGripEnabled: unknown?,
+    loadingAnimationEnabled: unknown?,
     customWindowSize: { X: unknown?, Y: unknown? }?,
 }
 
@@ -52,6 +54,7 @@ function persistenceSettings.saveSettings(window: SettingsWindow): boolean
         welcomeToast = window.settings.welcomeToast,
         haptics = window.settings.haptics,
         resizeGripEnabled = window.settings.resizeGripEnabled,
+        loadingAnimationEnabled = window.settings.loadingAnimationEnabled,
         -- nil (never manually resized, or reset via the grip's double-click) just omits the key -
         -- JSONEncode drops a nil value, and the decode side already treats a missing key as "no
         -- saved size", so there's nothing extra to do to represent "not set" on either end.
@@ -146,6 +149,10 @@ function persistenceSettings.loadSettings(window: SettingsWindow): boolean
 
     if type(settings.resizeGripEnabled) == "boolean" then
         window.settings.resizeGripEnabled = settings.resizeGripEnabled
+    end
+
+    if type(settings.loadingAnimationEnabled) == "boolean" then
+        window.settings.loadingAnimationEnabled = settings.loadingAnimationEnabled
     end
 
     if type(settings.customWindowSize) == "table" then

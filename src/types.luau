@@ -24,6 +24,19 @@ export type WindowConfiguration = {
     customFolder: string?,
 }
 
+-- Dev-configured splash (icon/title/optional cycling tip) played once, on the window's very
+-- first Show(), before its own staged content reveal. Omit `loading` entirely on WindowProps to
+-- skip the feature outright - passing it (even {}) turns it on and adds the player's Settings
+-- toggle ("Loading Animation") to switch it back off per-session.
+export type LoadingProps = {
+    enabled: boolean?, -- dev's own default for the Settings toggle (default true)
+    icon: (string | number)?, -- defaults to the window's own `icon`
+    title: string?, -- defaults to the window's own `name`
+    tips: { string }?, -- cycles like PlayGreeting's texts; omit/empty = no tip line at all
+    tipHoldTime: number?, -- seconds each tip holds before crossfading to the next (default 0.9)
+    duration: number?, -- minimum total time the splash stays up (default 1.1)
+}
+
 export type WindowProps = {
     name: string?,
     subtitle: string?,
@@ -31,6 +44,7 @@ export type WindowProps = {
     icon: (string | number)?,
     showName: string?,
     showIcon: (string | number)?,
+    loading: LoadingProps?,
     configuration: WindowConfiguration?,
     fallbackFont: (Font | Enum.Font)?, -- built-in stand-in shown in secure mode while the brand font downloads
     locale: string?, -- pin the UI language; defaults to the player's Roblox locale

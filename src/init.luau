@@ -18,6 +18,7 @@ export type Translations = types.Translations
 export type WindowConfiguration = types.WindowConfiguration
 
 export type WindowProps = types.WindowProps
+export type LoadingProps = types.LoadingProps
 export type TabProps = types.TabProps
 export type TagProps = types.TagProps
 export type SectionProps = types.SectionProps

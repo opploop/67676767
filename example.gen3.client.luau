@@ -18,6 +18,14 @@ local window = Rayfield:CreateWindow({
     -- see windowSizing.luau) - left commented here so this smoke-test window keeps the size
     -- it's been tested at all session; uncomment to try it.
     -- size = Vector2.new(600, 650),
+
+    -- Devlog 11: loading splash on the very first Show() - icon/title default to the window's
+    -- own, tips cycle like PlayGreeting's texts. Player can still switch it off from Settings >
+    -- Window > "Loading Animation" (only shown at all because this table is present).
+    loading = {
+        title = "Gen 3 Changes",
+        tips = { "Fetching modules...", "Building the UI...", "Almost there..." },
+    },
 })
 
 -- debug hook for the test harness: lets an external probe call window:Navigate(...) directly

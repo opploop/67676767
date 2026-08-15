@@ -64,6 +64,10 @@ constants.zIndex = {
     -- sweeps across - live-caught the fade painting straight over the grip's arc, tinting it
     -- with a grey diagonal wash, since bottomFade (100) outranked the grip's old ZIndex (20)
     resizeGrip = 1100,
+    -- the loading splash (icon/title/tip, first-show only): above ordinary window content, same
+    -- reasoning as greeting below - plays before any of it has faded in yet, but a defensive
+    -- tier beats relying on paint order matching build order
+    loading = 1150,
     -- the greeting intro overlay: above ordinary window content (topbar, tabs, elements all sit
     -- near the default 1) but below notification/toast/restore/tooltip, which should still be
     -- able to show over it in the rare case one fires while a greeting is playing
