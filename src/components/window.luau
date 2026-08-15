@@ -2536,6 +2536,18 @@ local loadingTipSlideInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.Easi
 local loadingIconSize = 48
 local loadingIconStartSize = 22
 
+-- Vertical rhythm for the splash's stacked text - fixed pixel box heights with top-aligned text,
+-- not the UDim2.fromScale heights this had before. Live-caught: a Scale height ties the box to
+-- the *whole window's* height, not the font, so at a normal window size the box came out far
+-- taller than the one line of text inside it - and with the default TextYAlignment (Center), the
+-- glyphs sat in the middle of that oversized box while every offset below still assumed a small,
+-- tightly-wrapping one. The visible symptom was the progress bar reading as glued to the tip
+-- above it: the bar's own Y already accounted for a gap that existed in the data, just not on
+-- screen, because the tip's real glyphs extended further down than the box's "size" implied.
+local loadingTitleHeight = 26
+local loadingTipHeight = 18
+local loadingBarGap = 18 -- deliberately roomy - requested outright, was reading as glued before
+
 -- The dev-configured loading splash (see self.loading, set from WindowProps.loading in .new):
 -- icon pops in (scale bounce + a soft accent glow) over the still-blank window card, the title
 -- fades in with it, an optional tip line cycles under them - crossfading with a slight upward
@@ -2598,15 +2610,17 @@ function Window:_playLoadingSplash()
         iconGlow = self:CreateGlow(iconLabel, "AccentColor", 22, 1)
     end
 
+    local titleY = if icon then 4 else -10
     local titleLabel = self:Create("TextLabel", {
         Text = locale.t(title or ""),
 
-        Size = UDim2.fromScale(0.85, 0.1),
-        Position = UDim2.new(0.5, 0, 0.5, if icon then 4 else -10),
+        Size = UDim2.new(0.85, 0, 0, loadingTitleHeight),
+        Position = UDim2.new(0.5, 0, 0.5, titleY),
         AnchorPoint = Vector2.new(0.5, 0),
         BackgroundTransparency = 1,
         TextSize = 22,
         TextWrapped = true,
+        TextYAlignment = Enum.TextYAlignment.Top,
         TextTransparency = 1,
         FontFace = self.theme.TitleFont,
         ZIndex = constants.zIndex.loading,
@@ -2614,16 +2628,17 @@ function Window:_playLoadingSplash()
         Parent = overlay,
     }, { TextColor3 = "ContentColor" })
 
-    local tipRestY = if icon then 36 else 22
+    local tipRestY = titleY + loadingTitleHeight + 8
     local tipLabel
     if #tips > 0 then
         tipLabel = self:Create("TextLabel", {
-            Size = UDim2.fromScale(0.8, 0.08),
+            Size = UDim2.new(0.8, 0, 0, loadingTipHeight),
             Position = UDim2.new(0.5, 0, 0.5, tipRestY + 6), -- starts a hair low, slides up as it fades in
             AnchorPoint = Vector2.new(0.5, 0),
             BackgroundTransparency = 1,
             TextSize = 14,
             TextWrapped = true,
+            TextYAlignment = Enum.TextYAlignment.Top,
             TextTransparency = 1,
             FontFace = self.theme.Font,
             ZIndex = constants.zIndex.loading,
@@ -2633,8 +2648,10 @@ function Window:_playLoadingSplash()
     end
 
     -- Thin fill bar under everything else, tracking real elapsed time against the splash's own
-    -- total duration - an actual progress readout, not just a decorative loop.
-    local barY = (if #tips > 0 then tipRestY + 26 else (if icon then 50 else 36))
+    -- total duration - an actual progress readout, not just a decorative loop. barY starts from
+    -- whichever text actually sits above it (tip if there is one, title otherwise) plus a
+    -- deliberately roomy gap, rather than the cramped one this had before.
+    local barY = (if #tips > 0 then tipRestY + loadingTipHeight else titleY + loadingTitleHeight) + loadingBarGap
     local progressTrack = self:Create("Frame", {
         Size = UDim2.fromOffset(120, 3),
         Position = UDim2.new(0.5, 0, 0.5, barY),
@@ -2659,11 +2676,70 @@ function Window:_playLoadingSplash()
     }, { BackgroundColor3 = "AccentColor" })
     self:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = progressFill })
 
+    -- Soft sheen riding across the fill, same loop technique shimmerlabel.luau uses for its own
+    -- sweep (a tween back and forth on a UIGradient's Offset, re-armed via Completed:Wait() - not
+    -- RenderStepped, and self-terminating the moment progressFill is gone, which overlay:Destroy()
+    -- at the very end of this function takes care of).
+    local fillShimmer = self:Create("UIGradient", {
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.4, 1),
+            NumberSequenceKeypoint.new(0.5, 0.5),
+            NumberSequenceKeypoint.new(0.6, 1),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Offset = Vector2.new(-1, 0),
+
+        Parent = progressFill,
+    })
+    task.spawn(function()
+        while fillShimmer.Parent do
+            fillShimmer.Offset = Vector2.new(-1, 0)
+            local tween = variables.tweenService:Create(
+                fillShimmer,
+                TweenInfo.new(1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
+                { Offset = Vector2.new(1, 0) }
+            )
+            tween:Play()
+            tween.Completed:Wait()
+            task.wait(0.15)
+        end
+    end)
+
+    -- Percentage readout, right of the track - a plain task.wait loop against a wall-clock
+    -- start time (not RenderStepped), so it's cheap and self-terminates the same way the shimmer
+    -- above does once the overlay (and this label with it) is destroyed.
+    local percentLabel = self:Create("TextLabel", {
+        Text = "0%",
+        Size = UDim2.fromOffset(34, 14),
+        Position = UDim2.new(1, 10, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundTransparency = 1,
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTransparency = 1,
+        FontFace = self.theme.Font,
+        ZIndex = constants.zIndex.loading,
+
+        Parent = progressTrack,
+    }, { TextColor3 = "PlaceholderColor" })
+
     -- Real total time the splash stays up: the tip cycle's own length, floored by `duration` so
     -- a single (or zero) tip doesn't flash by. The fill bar's own tween is timed to this exact
     -- number, so it always finishes right as the splash starts fading out, never early or late.
     local tipCycleTime = if #tips > 0 then #tips * config.tipHoldTime + (#tips - 1) * 0.15 else 0
     local totalTime = math.max(config.duration, tipCycleTime)
+
+    task.spawn(function()
+        local start = os.clock()
+        while percentLabel.Parent and os.clock() - start < totalTime do
+            percentLabel.Text = math.floor(math.clamp((os.clock() - start) / totalTime, 0, 1) * 100) .. "%"
+            task.wait(0.1)
+        end
+        if percentLabel.Parent then
+            percentLabel.Text = "100%"
+        end
+    end)
 
     if iconLabel then
         variables.tweenService
@@ -2677,6 +2753,7 @@ function Window:_playLoadingSplash()
     variables.tweenService:Create(titleLabel, loadingFadeInfo, { TextTransparency = 0 }):Play()
     variables.tweenService:Create(progressTrack, loadingFadeInfo, { BackgroundTransparency = 0.85 }):Play()
     variables.tweenService:Create(progressFill, loadingFadeInfo, { BackgroundTransparency = 0 }):Play()
+    variables.tweenService:Create(percentLabel, loadingFadeInfo, { TextTransparency = 0.3 }):Play()
     variables.tweenService
         :Create(progressFill, TweenInfo.new(totalTime, Enum.EasingStyle.Linear), { Size = UDim2.fromScale(1, 1) })
         :Play()
@@ -2719,6 +2796,7 @@ function Window:_playLoadingSplash()
     variables.tweenService:Create(titleLabel, loadingFadeInfo, { TextTransparency = 1 }):Play()
     variables.tweenService:Create(progressTrack, loadingFadeInfo, { BackgroundTransparency = 1 }):Play()
     variables.tweenService:Create(progressFill, loadingFadeInfo, { BackgroundTransparency = 1 }):Play()
+    variables.tweenService:Create(percentLabel, loadingFadeInfo, { TextTransparency = 1 }):Play()
     if tipLabel then
         variables.tweenService:Create(tipLabel, loadingFadeInfo, { TextTransparency = 1 }):Play()
     end
