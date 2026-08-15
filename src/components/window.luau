@@ -1427,6 +1427,12 @@ function Window:Hide()
     self.hidden = true
     self.collapsedInteract.Visible = false -- re-shown once the collapse settles, below
 
+    -- main morphs straight into the collapsed pill rather than handing off to a separate
+    -- instance - the resize grip is parented to main too, so without this it rides along and
+    -- sits there over the "Tap to show" pill, live-caught as a stray corner glyph with nothing
+    -- to resize while hidden.
+    self.resize.grip.Visible = false
+
     -- closing while minimised closes properly rather than leaving a stale minimised state -
     -- Show always grows back to the full (non-minimised) layout, so the flag and icon need
     -- to agree with that
@@ -2419,6 +2425,8 @@ function Window:_quickRestore()
     -- Phase 2: once the frame actually reads as a window, fade its chrome in and stagger the
     -- open tab's elements. Other tabs snap ready off-screen - nobody's looking, so no animation.
     task.delay(growDuration * 0.63, function()
+        -- respects the setting rather than hardcoding true, same as the minimise restore path
+        self.resize.grip.Visible = self.settings.resizeGripEnabled
         self.topbar.Visible = true
         self.tabList.Visible = true
         self.tabDock.Visible = true

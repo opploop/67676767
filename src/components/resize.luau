@@ -33,23 +33,20 @@ local windowSizing = require(utility.windowSizing)
 local constants = require(utility.constants)
 local icons = require(utility.icons)
 
--- Touch-friendly hit target; the visible arc inside it stays smaller (see below) so it doesn't
--- read as a huge corner blob on a compact window.
+-- Touch-friendly hit target; the visible glyph inside it stays smaller and centred (see below)
+-- so it doesn't read as a huge corner blob on a compact window.
 local gripSize = 40
 
--- The arc's own design, mocked up and confirmed in Figma (a quarter-circle, rounded ends, small
--- and fairly thick, a muted grey) then uploaded as a real asset rather than redrawn from Frames -
--- three separate live-caught bugs came out of the from-Frames version (a "clip a circle" trick
--- tapering to half-thickness at both open ends, a UIStroke default mode with no guaranteed
--- rendering, bottomFade painting over it at a higher ZIndex) and each fix surfaced the next. A
--- plain ImageLabel has none of that surface area.
+-- craft's expand-corner-02-stroke (a NW/SE double-headed diagonal arrow) - settled on after
+-- comparing it live against lucide's move-diagonal-2 (the very first icon this grip ever
+-- shipped with) and a detour through a hand-drawn/uploaded arc. Falls back to the old uploaded
+-- arc asset if the pack somehow doesn't resolve (offline, repo down).
 local arcImage = "rbxassetid://100962304983733"
-local arcImageSize = 38
--- Devlog 8 fix: sat at (-3,-3) right against the grip's own edge, close enough to the window's
--- rounded corner (and its shadow/vignette) that the far end of the curve read as barely there
--- against the darker backdrop there - live-caught as "half the icon isn't showing". Pulled in
--- further so the whole curve sits somewhere with more contrast against the card behind it.
-local arcRestOffset = Vector2.new(-5, -5) -- the image's resting Position, AnchorPoint (1,1)
+local arcImageSize = 22
+-- Centred inside the 40px grip (9px margin each side) rather than pulled into a corner - the
+-- glyph now sits exactly over the area you actually click/tap to drag-resize, instead of
+-- visually pointing at a spot slightly off from the real hit target.
+local arcRestOffset = Vector2.new(-9, -9) -- the image's resting Position, AnchorPoint (1,1)
 -- Back to the original brighten-on-hover: mostly opaque at rest, fully opaque on hover/touch -
 -- the size-pop tried afterward ("essa de só aumentar o tamanho") read worse, so it's gone.
 local arcRestTransparency = 0.05
@@ -100,11 +97,12 @@ function Resize.new(window)
         Parent = self.window.main,
     })
 
-    -- TEMP PREVIEW B: lucide's move-diagonal-2, the very first icon this grip ever shipped with
-    -- - remove once the user picks one.
-    local glyph = icons.find("move-diagonal-2", "lucide") or icons.find("corner-right-down", "lucide")
+    -- craft is a spritesheet pack (see icons.luau) - the icon's actual pixels are a rect cut out
+    -- of a shared sheet image, not the whole file, so ImageRectSize/Offset matter here and not
+    -- just Image the way the fallback flat asset would.
+    local glyph = icons.find("expand-corner-02-stroke", "craft") or icons.find("expand-corner-01-stroke", "craft")
     self.icon = self.window:Create("ImageLabel", {
-        Name = "Arc",
+        Name = "Glyph",
         AnchorPoint = Vector2.new(1, 1),
         Position = UDim2.new(1, arcRestOffset.X, 1, arcRestOffset.Y),
         Size = UDim2.fromOffset(arcImageSize, arcImageSize),
