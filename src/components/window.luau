@@ -228,6 +228,10 @@ function Window.new(properties)
         fontChoice = "auto",
         windowOpacity = 1, -- Devlog 7 "window transparency": 1 = fully opaque (default)
         acrylicEnabled = false,
+        acrylicStrength = acrylic.defaultStrength,
+        -- every frosted-glass overlay this window has built (self.main, tabDock, every card) -
+        -- SetAcrylic tweens all of them together so the effect reads homogeneous across the UI
+        acrylicOverlays = {},
         instances = {},
         connections = {},
 
@@ -339,6 +343,11 @@ function Window.new(properties)
 
         Parent = self.main,
     }, { Color = { "WindowColor", functions.toColorSequence } })
+
+    -- Devlog 7 Acrylic: frosted-glass wash on the window's own background, above the gradient
+    -- fill and below everything else (topbar/tabDock/content are all created after this, so they
+    -- paint on top of it) - see Window:_buildAcrylicOverlay.
+    self.acrylicOverlay = self:_buildAcrylicOverlay(self.main, "CornerRoundness")
 
     -- Bottom fade - gradient overlay so elements scroll out softly at the window's base
     self.bottomFade = self:Create("Frame", {
@@ -581,6 +590,11 @@ function Window.new(properties)
     self:Create("UICorner", {
         Parent = self.tabDock,
     }, { CornerRadius = "PillCornerRadius" })
+
+    -- Devlog 7 Acrylic: same frosted wash as self.main, so the dock reads as part of the same
+    -- sheet of glass instead of a flat cutout - "cards e Tab Dock acompanhando transparência/
+    -- desfoque de forma homogênea" from the spec.
+    self:_buildAcrylicOverlay(self.tabDock, "PillCornerRadius")
 
     self.tabList = self:Create("ScrollingFrame", {
         Name = "Tabs",
@@ -907,12 +921,67 @@ function Window:SetTransparency(percent)
         :Play()
 end
 
--- Devlog 7 "Acrylic Blur": frosts the game behind the window via a Lighting.BlurEffect (see
--- acrylic.luau for why that, and not the DepthOfFieldEffect trick some other UI libraries lean
--- on, is the right tool here). size is BlurEffect.Size (roughly 0-56); omit for a sane default.
-function Window:SetAcrylic(enabled, size)
+-- Builds one frosted-glass overlay Frame as the topmost background layer of `parent` (a full-size
+-- translucent white wash + an off-angle gradient so it reads as uneven light scatter rather than a
+-- flat tint), registers it in self.acrylicOverlays, and starts it matching whatever SetAcrylic
+-- state is already active - so a card built while Acrylic is on doesn't render un-frosted until
+-- the next toggle. cornerRadiusKey is a theme key (see Window:Create) so the wash's own rounding
+-- always matches its parent's.
+function Window:_buildAcrylicOverlay(parent, cornerRadiusKey)
+    local overlay = self:Create("Frame", {
+        Name = "AcrylicOverlay",
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+        Size = UDim2.fromScale(1, 1),
+        ZIndex = 1,
+        -- purely decorative - never steal input from whatever's underneath or on top of it
+        Active = false,
+        -- Animation: starts fully transparent (off); SetAcrylic tweens this in when enabled
+        BackgroundTransparency = 1,
+
+        Parent = parent,
+    })
+
+    self:Create("UICorner", {
+        Parent = overlay,
+    }, { CornerRadius = cornerRadiusKey })
+
+    self:Create("UIGradient", {
+        Rotation = 115,
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.3),
+            NumberSequenceKeypoint.new(0.5, 0),
+            NumberSequenceKeypoint.new(1, 0.35),
+        }),
+
+        Parent = overlay,
+    })
+
+    table.insert(self.acrylicOverlays, overlay)
+    if self.acrylicEnabled then
+        acrylic.apply(overlay, true, self.acrylicStrength)
+    end
+
+    return overlay
+end
+
+-- Devlog 7 "Acrylic Blur", reworked: frosts the window's OWN surface (self.main, the tab dock,
+-- every card) via Window:_buildAcrylicOverlay, not the game behind it - see acrylic.luau for why
+-- a real per-pixel blur of "whatever's behind this window" isn't the right tool here. strength is
+-- the wash's opacity at its most opaque point, 0-1; omit for a sane default.
+function Window:SetAcrylic(enabled, strength)
     self.acrylicEnabled = enabled and true or false
-    acrylic.setEnabled(self.acrylicEnabled, size)
+    self.acrylicStrength = strength or self.acrylicStrength
+
+    for i = #self.acrylicOverlays, 1, -1 do
+        local overlay = self.acrylicOverlays[i]
+        if overlay.Parent then
+            acrylic.apply(overlay, self.acrylicEnabled, self.acrylicStrength)
+        else
+            -- element (and its overlay) was torn down since - stop carrying it forever
+            table.remove(self.acrylicOverlays, i)
+        end
+    end
 end
 
 function Window:_refreshElementThemes()
@@ -1990,7 +2059,7 @@ function Window:_buildSettingsUI()
 
     self.rfSettings:CreateToggle({
         name = "Acrylic blur",
-        description = "Frost the game behind a see-through window.",
+        description = "Frost the window's own surface with a soft glass wash.",
         value = false,
         callback = function(value)
             self:SetAcrylic(value)
@@ -3072,6 +3141,10 @@ function Window:StyleElementBody(main)
         Parent = main,
     }, { CornerRadius = "ElementCornerRadius" })
 
+    -- Devlog 7 Acrylic: every card gets the same frosted wash as self.main/tabDock, so toggling
+    -- it reads as one homogeneous sheet of glass across the whole window, not just the frame.
+    self:_buildAcrylicOverlay(main, "ElementCornerRadius")
+
     return self:Create("UIStroke", {
         Transparency = 1,
 
@@ -3459,12 +3532,9 @@ end
 
 function Window:Unload()
     self.unloaded = true
-    -- Acrylic is a global Lighting effect, not scoped to this window's own ScreenGui - leaving
-    -- it on here would leak a permanent blur into the game with nothing left to ever turn it
-    -- back off.
-    if self.acrylicEnabled then
-        acrylic.setEnabled(false)
-    end
+    -- Acrylic overlays (Window:_buildAcrylicOverlay) are ordinary Frames parented under our own
+    -- screenGui, unlike the old Lighting-effect approach - the self.instances destroy loop below
+    -- already tears them down, nothing global left to clean up here.
     -- drop our effects and release the gui they hung on, but leave the enabled flag alone -
     -- another window may still be open and haptics arent ours to switch off for it
     hapticEngine.teardown()

@@ -586,8 +586,8 @@ export type Window = {
     SetFont: (self: Window, name: string) -> (),
     -- Devlog 7 "glass window": 0 (opaque, default) to 100 (fully invisible)
     SetTransparency: (self: Window, percent: number) -> (),
-    -- Devlog 7: frosts the game behind the window via a Lighting blur
-    SetAcrylic: (self: Window, enabled: boolean, size: number?) -> (),
+    -- Devlog 7: frosts the window's own surface with a translucent glass wash (0-1 strength, not the game behind it)
+    SetAcrylic: (self: Window, enabled: boolean, strength: number?) -> (),
     SetLocale: (self: Window, localeId: string) -> (),
     SetTranslator: (self: Window, translator: Translator?) -> (),
     RegisterTranslations: (self: Window, translations: Translations) -> (),
