@@ -41,15 +41,8 @@ local variables = require(utility.variables)
 local windowSizing = require(utility.windowSizing)
 local constants = require(utility.constants)
 
--- Hit target, centred on the corner it straddles. Live-caught: this stayed at the old 40px
--- "touch-friendly" size from before the glyph itself got sized up to 80-92px (see arcImageSize
--- below) - self.interact (the actual MouseEnter/MouseLeave/click surface) is sized to *this*
--- frame, not to the glyph, so roughly half the visible icon - including the outer edge of its
--- own stroke, exactly where a mouse would naturally land - sat outside the hoverable area. Read
--- as "the icon doesn't react/animate at all", since hovering the thing you can actually see
--- often just... didn't hit the button underneath it. Sized to clear the glyph's biggest (hover)
--- state with a small margin so the whole visible mark is reliably hoverable.
-local gripSize = 100
+-- Touch-friendly hit target, centred on the corner it straddles.
+local gripSize = 40
 
 -- WindUI's own resize glyph, checked directly in their source (ResizeHandle's ImageLabel) - a
 -- curved diagonal swoosh mark. Downloaded and measured the actual asset: the visible stroke only
@@ -178,6 +171,16 @@ function Resize.new(window)
     local lastTargetSize = Vector2.zero
     local lastTargetPosition = UDim2.new()
 
+    -- What was actually being asked for, clarified after a few rounds of talking past each
+    -- other: not the window's own Size/Position lag (that part already worked, verified live) -
+    -- the icon itself sitting rigidly pinned to the corner the whole drag, never reaching toward
+    -- the cursor the way the drag bar visibly "chases" the mouse during a window move. This is a
+    -- pixel offset layered on top of the grip's normal corner anchor (Position stays
+    -- UDim2.new(1,0,1,0) at rest) - Lerped toward how far the live mouse currently sits from the
+    -- true corner, same elastic constant as the window's own resize follow, then eased back to
+    -- zero (onto the corner) on release.
+    local gripDragOffset = Vector2.zero
+
     local function insetOffset(): Vector2
         if screenGui and screenGui.IgnoreGuiInset then
             return variables.guiService:GetGuiInset()
@@ -251,6 +254,18 @@ function Resize.new(window)
                 mainPos.Y.Offset + mainSize.Y.Offset / 2 + 15
             )
         end
+
+        -- The actual ask: the icon itself reaching toward the cursor while you drag it, same
+        -- elastic chase as the drag bar visibly has while you move the window around - not just
+        -- the window's own Size/Position easing (which already worked; the icon just never
+        -- showed any of it, sitting rigidly on the corner the entire time). cornerAbs is where
+        -- the grip sits with zero offset (main's own just-eased corner, from the Lerp above, not
+        -- the raw unclamped target) - the gap between that and the live mouse is what the icon
+        -- eases toward closing.
+        local cornerAbs = self.window.main.AbsolutePosition + self.window.main.AbsoluteSize
+        local targetNudge = mouseLocation - cornerAbs
+        gripDragOffset = gripDragOffset:Lerp(targetNudge, settle)
+        self.grip.Position = UDim2.new(1, gripDragOffset.X, 1, gripDragOffset.Y)
     end
 
     -- Bank the drag into self.size/self.customSize (everything downstream - the reveal target,
@@ -282,6 +297,11 @@ function Resize.new(window)
             )
             variables.tweenService:Create(self.window.drag.drag, settle, { Position = barTarget }):Play()
         end
+
+        -- Ease the icon's own cursor-chase back onto the corner (Position UDim2.new(1,0,1,0), no
+        -- offset) rather than snapping - same glide the window/bar just got.
+        gripDragOffset = Vector2.zero
+        variables.tweenService:Create(self.grip, settle, { Position = UDim2.new(1, 0, 1, 0) }):Play()
 
         self.window:SaveSettings()
     end
@@ -358,6 +378,11 @@ function Resize.new(window)
         dragStartSize = Vector2.new(self.window.main.Size.X.Offset, self.window.main.Size.Y.Offset)
         dragStartCentreAbs = self.window.main.AbsolutePosition
             + self.window.main.AbsoluteSize * self.window.main.AnchorPoint
+        -- Cancels any still-running release-settle tween on the icon (grabbing again fast enough
+        -- to catch it mid-glide) and starts the chase fresh from the true corner, not wherever
+        -- that tween had eased to yet.
+        gripDragOffset = Vector2.zero
+        self.grip.Position = UDim2.new(1, 0, 1, 0)
     end)
 
     self.window:Connect(variables.runService.RenderStepped, function(dt)
