@@ -36,20 +36,20 @@ local constants = require(utility.constants)
 -- read as a huge corner blob on a compact window.
 local gripSize = 40
 
--- The arc's own design, mocked up and confirmed in Figma before porting here (none of
--- lucide/solar/sfsymbols/gravity/geist/craft had a matching curved glyph, and a shape this
--- simple doesn't need one anyway): a quarter-circle, rounded ends, small and fairly thick, a
--- muted grey rather than a bright white.
-local arcBoxSize = 34
-local arcStrokeWeight = 8
-local arcColorKey = "PlaceholderColor"
--- Devlog 8 fix: 0.25 (confirmed in the Figma mockup) barely registered live - the mockup's
--- preview card rendered the same arc at 160px+, so the same opacity read as plainly visible
--- there but nearly vanished at the real 34px corner against the game behind it. Same colour,
--- much more opaque, so it's actually legible at the size it really ships at.
+-- The arc's own design, mocked up and confirmed in Figma (a quarter-circle, rounded ends, small
+-- and fairly thick, a muted grey) then uploaded as a real asset rather than redrawn from Frames -
+-- three separate live-caught bugs came out of the from-Frames version (a "clip a circle" trick
+-- tapering to half-thickness at both open ends, a UIStroke default mode with no guaranteed
+-- rendering, bottomFade painting over it at a higher ZIndex) and each fix surfaced the next. A
+-- plain ImageLabel has none of that surface area.
+local arcImage = "rbxassetid://94963200003795"
+local arcImageSize = 38
+local arcRestOffset = Vector2.new(-3, -3) -- the image's resting Position, AnchorPoint (1,1)
+-- Devlog 8 fix: the arc's own baked-in opacity (confirmed in the Figma mockup, where the same
+-- wash read as plainly visible on a 160px+ preview card) nearly vanished at the real ~34px corner
+-- against the game behind it. Same asset, pushed more opaque so it's actually legible shipped.
 local arcRestTransparency = 0.05
 local arcHoverTransparency = 0
-local arcRestOffset = Vector2.new(-3, -3) -- iconGroup's resting Position, AnchorPoint (1,1)
 
 local snapBackInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local hoverInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -89,81 +89,25 @@ function Resize.new(window)
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         -- above bottomFade (100) - live-caught the fade's own gradient painting straight over
-        -- the grip's arc at the old ZIndex 20, tinting it with a grey diagonal wash
+        -- the grip's arc at a lower ZIndex, tinting it with a grey diagonal wash
         ZIndex = constants.zIndex.resizeGrip,
         Visible = self.window.settings.resizeGripEnabled,
 
         Parent = self.window.main,
     })
 
-    -- The arc is the same "clip a full circle" trick used elsewhere in this codebase: a circle
-    -- twice arcBoxSize, corner-anchored so its own bottom-right point lands on the clip box's
-    -- bottom-right point - only the quarter of the circle inside the box ever renders.
-    --
-    -- The clip box itself is arcBoxSize + half the stroke weight, not arcBoxSize on the nose -
-    -- live-caught what that half-weight of slack actually buys: a UIStroke's width straddles the
-    -- shape's true edge (half in, half out), so right at the two open ends of the visible arc
-    -- (where the circle is tangent to the box) the outer half of that width falls outside a
-    -- box sized exactly to the circle's own radius and gets clipped away, tapering the last
-    -- stretch of the stroke down to half thickness - a "banana" silhouette, not a clean uniform
-    -- curve. The extra margin keeps the *entire* ring width inside the box at every angle instead.
-    -- Two small round dots at those same two points (now with room to sit fully inside the
-    -- enlarged box rather than straddling its edge) fake the rounded line caps UIStroke has no
-    -- equivalent of on a closed shape like this - drawn after the ring, so they also paper over
-    -- the sliver of the *other* 270° of the circle the wider box now just barely lets through
-    -- right at each corner.
-    local arcMargin = arcStrokeWeight / 2
-    local clipSize = arcBoxSize + arcMargin
-
-    self.iconGroup = self.window:Create("Frame", {
-        Name = "IconGroup",
+    self.icon = self.window:Create("ImageLabel", {
+        Name = "Arc",
         AnchorPoint = Vector2.new(1, 1),
         Position = UDim2.new(1, arcRestOffset.X, 1, arcRestOffset.Y),
-        Size = UDim2.fromOffset(clipSize, clipSize),
+        Size = UDim2.fromOffset(arcImageSize, arcImageSize),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        ClipsDescendants = true,
+        Image = arcImage,
+        ImageTransparency = arcRestTransparency,
 
         Parent = self.grip,
     })
-
-    local arcCircle = self.window:Create("Frame", {
-        Name = "Arc",
-        AnchorPoint = Vector2.new(1, 1),
-        Position = UDim2.fromScale(1, 1),
-        Size = UDim2.fromOffset(arcBoxSize * 2, arcBoxSize * 2),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-
-        Parent = self.iconGroup,
-    })
-    self.window:Create("UICorner", {
-        CornerRadius = UDim.new(0.5, 0),
-        Parent = arcCircle,
-    })
-    self.arcStroke = self.window:Create("UIStroke", {
-        Thickness = arcStrokeWeight,
-        Transparency = arcRestTransparency,
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-
-        Parent = arcCircle,
-    }, { Color = arcColorKey })
-
-    self.arcCaps = {}
-    for _, point in { Vector2.new(arcBoxSize + arcMargin, arcMargin), Vector2.new(arcMargin, arcBoxSize + arcMargin) } do
-        local cap = self.window:Create("Frame", {
-            Name = "ArcCap",
-            AnchorPoint = Vector2.new(0.5, 0.5),
-            Position = UDim2.fromOffset(point.X, point.Y),
-            Size = UDim2.fromOffset(arcStrokeWeight, arcStrokeWeight),
-            BackgroundTransparency = arcRestTransparency,
-            BorderSizePixel = 0,
-
-            Parent = self.iconGroup,
-        }, { BackgroundColor3 = arcColorKey })
-        self.window:Create("UICorner", { CornerRadius = UDim.new(0.5, 0), Parent = cap })
-        table.insert(self.arcCaps, cap)
-    end
 
     self.interact = self.window:Create("TextButton", {
         Size = UDim2.fromScale(1, 1),
@@ -177,10 +121,7 @@ function Resize.new(window)
     -- Brighten on hover so the grip reads as interactive without shouting for attention at rest.
     local function setHoverBrightness(hovering)
         local target = if hovering then arcHoverTransparency else arcRestTransparency
-        variables.tweenService:Create(self.arcStroke, hoverInfo, { Transparency = target }):Play()
-        for _, cap in self.arcCaps do
-            variables.tweenService:Create(cap, hoverInfo, { BackgroundTransparency = target }):Play()
-        end
+        variables.tweenService:Create(self.icon, hoverInfo, { ImageTransparency = target }):Play()
     end
 
     self.window:Connect(self.interact.MouseEnter, function()
@@ -325,13 +266,11 @@ function Resize.new(window)
 
     -- "Animated resize grip": continuous, not hover-gated - the whole point is it reads as
     -- reacting to the pointer from a distance, not just once the mouse actually lands on it.
-    -- Paused mid-drag (the resize itself is the thing to look at then).
-    --
-    -- Nudges iconGroup's Position toward the pointer rather than rotating it - live-caught
-    -- ClipsDescendants breaking the moment its own frame has a non-zero Rotation (the full circle
-    -- shows through, clip ignored entirely, confirmed across several angles on this project's
-    -- test client, not a one-off glitch). A rotated arc would mean rotating the very frame that
-    -- makes it an arc in the first place, so this sidesteps the bug rather than working around it.
+    -- Paused mid-drag (the resize itself is the thing to look at then). Nudges the icon's
+    -- Position toward the pointer rather than rotating it - keeps the same feel as the earlier
+    -- from-Frames version, which needed this to dodge a ClipsDescendants+Rotation bug that no
+    -- longer applies to a plain ImageLabel, but rotating a curve toward the pointer doesn't read
+    -- as clearly directional as it did for a straight diagonal glyph, so the nudge stayed anyway.
     self.window:Connect(variables.runService.RenderStepped, function(dt)
         if not self.animated or self.resizing or not self.grip.Visible then
             return
@@ -346,10 +285,10 @@ function Resize.new(window)
         end
 
         local targetOffset = arcRestOffset + toMouse.Unit * maxNudge
-        local pos = self.iconGroup.Position
+        local pos = self.icon.Position
         local current = Vector2.new(pos.X.Offset, pos.Y.Offset)
         local settled = current + (targetOffset - current) * (1 - nudgeRemaining ^ dt)
-        self.iconGroup.Position = UDim2.new(1, settled.X, 1, settled.Y)
+        self.icon.Position = UDim2.new(1, settled.X, 1, settled.Y)
     end)
 
     return self
@@ -367,7 +306,7 @@ function Resize:SetAnimated(enabled: boolean)
     if not self.animated then
         -- settle back to the resting spot rather than freezing wherever it last nudged to
         variables.tweenService
-            :Create(self.iconGroup, hoverInfo, { Position = UDim2.new(1, arcRestOffset.X, 1, arcRestOffset.Y) })
+            :Create(self.icon, hoverInfo, { Position = UDim2.new(1, arcRestOffset.X, 1, arcRestOffset.Y) })
             :Play()
     end
 end
