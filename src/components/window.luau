@@ -749,7 +749,6 @@ function Window.new(properties)
         welcomeToast = true, -- the "signed in as" toast on first open for a new/changed account
         haptics = false, -- off by default; opt in from settings (buzzes on presses/notifications)
         resizeGripEnabled = true, -- Devlog 8: shows the corner drag-to-resize handle
-        resizeGripAnimated = true, -- the grip's mark leans toward the pointer while it's around
         -- customWindowSize starts absent (nil): no saved drag yet, so sizing still comes from
         -- self.defaultSize/customSize the normal way. Set once the resize grip is dragged, see
         -- resize.luau, and read right below once a saved one exists.
@@ -2046,17 +2045,6 @@ function Window:_buildSettingsUI()
         callback = function(state)
             self.settings.resizeGripEnabled = state
             self.resize:SetEnabled(state)
-            self:SaveSettings()
-        end,
-    })
-
-    self.rfSettings:CreateToggle({
-        name = "Animated resize grip",
-        description = "The corner mark leans toward the pointer. Turn this off to hold it still.",
-        value = self.settings.resizeGripAnimated,
-        callback = function(state)
-            self.settings.resizeGripAnimated = state
-            self.resize:SetAnimated(state)
             self:SaveSettings()
         end,
     })
