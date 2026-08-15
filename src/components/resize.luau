@@ -303,13 +303,18 @@ function Resize.new(window)
         end
         local gripCentre = self.grip.AbsolutePosition + self.grip.AbsoluteSize / 2
         local toMouse = variables.userInputService:GetMouseLocation() - gripCentre
-        if toMouse.Magnitude < 1 then
-            return
-        end
+        local magnitude = toMouse.Magnitude
 
-        local proximity = math.clamp(1 - toMouse.Magnitude / nudgeFalloffRadius, 0, 1)
+        -- Every frame recomputes and re-applies Position from scratch (no early-return once the
+        -- pointer's right on top of the grip) - live-caught getting stuck exactly wherever it was
+        -- when the pointer got close enough to skip a frame, and never settling back afterward.
+        -- Guarding the unit-vector divide (magnitude can be ~0 with the pointer right over the
+        -- icon) instead of bailing out entirely keeps this self-correcting every single frame.
+        local direction = if magnitude > 1e-3 then toMouse / magnitude else Vector2.zero
+        local proximity = math.clamp(1 - magnitude / nudgeFalloffRadius, 0, 1)
         local strength = proximity * proximity * (3 - 2 * proximity) -- smoothstep
-        local targetOffset = arcRestOffset + toMouse.Unit * maxNudge * strength
+        local targetOffset = arcRestOffset + direction * maxNudge * strength
+
         local pos = self.icon.Position
         local current = Vector2.new(pos.X.Offset, pos.Y.Offset)
         local settled = current + (targetOffset - current) * (1 - nudgeRemaining ^ dt)
