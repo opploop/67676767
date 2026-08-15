@@ -59,20 +59,16 @@ local hoverInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirectio
 -- single clicks (the second one just starts a fresh drag).
 local doubleClickWindow = 0.4
 
--- "Animated resize grip": how far (in pixels) the arc can nudge toward the pointer from its
--- resting spot, and how fast it settles there - exponential smoothing per second, same technique
--- (and same reasoning) as drag.luau's own mainRemaining/barRemaining: a per-frame lerp toward the
--- target instead of a fresh tween every frame, smaller = snappier. Was 4px at full strength
--- regardless of cursor distance - live-caught as reading like no animation at all, since the
--- direction barely changes for normal mouse movement once the cursor's any real distance away.
--- Bigger throw plus a proximity falloff (below) makes the lean actually noticeable as the
--- pointer approaches instead of a near-static 4px offset.
-local maxNudge = 9
-local nudgeRemaining = 1e-3
--- Pull ramps up smoothly as the pointer gets within this many pixels of the grip's centre, and
--- is zero at rest beyond it - "reacts to the pointer nearby", not "always faintly twitching
--- toward wherever the mouse happens to be on the whole screen".
-local nudgeFalloffRadius = 260
+-- "Animated resize grip": a slow, gentle drift along the same NW/SE diagonal the glyph itself
+-- points, rest -> nudged -> rest, forever. Replaces an earlier per-frame RenderStepped version
+-- that lerped the icon toward the live mouse position by hand (proximity falloff, manual
+-- exponential smoothing) - live-caught getting stuck mid-lean and never resuming, twice, from two
+-- different root causes in that hand-rolled per-frame math. A single looping TweenService tween
+-- can't get stuck like that: it's one animation object Roblox itself drives every frame, not a
+-- value this code has to keep re-deriving and re-applying correctly forever.
+local idleOffset = Vector2.new(-4, -4) -- how far off arcRestOffset the drift travels, in pixels
+local idleInfo =
+    TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true) -- -1 = loop, true = reverse
 
 local function currentViewport(): Vector2?
     local camera = variables.workspace.CurrentCamera
@@ -123,6 +119,24 @@ function Resize.new(window)
 
         Parent = self.grip,
     }, glyph and { ImageColor3 = "PlaceholderColor" } or nil)
+
+    -- One looping tween, created once and just Played/Paused - see the idleOffset/idleInfo
+    -- comment above for why this replaced a hand-rolled per-frame version.
+    self._idleTween = variables.tweenService:Create(self.icon, idleInfo, {
+        Position = UDim2.new(1, arcRestOffset.X + idleOffset.X, 1, arcRestOffset.Y + idleOffset.Y),
+    })
+
+    local function playIdle()
+        if self.animated and self.grip.Visible and not self.resizing then
+            self._idleTween:Play()
+        end
+    end
+    local function stopIdle()
+        self._idleTween:Pause()
+        self.icon.Position = UDim2.new(1, arcRestOffset.X, 1, arcRestOffset.Y)
+    end
+
+    playIdle()
 
     self.interact = self.window:Create("TextButton", {
         Size = UDim2.fromScale(1, 1),
@@ -201,6 +215,7 @@ function Resize.new(window)
         self.resizing = false
         commitResize()
         setHoverBrightness(false)
+        playIdle()
     end
 
     -- Double-click: snap back to the window's original screen-fit size instead of starting a
@@ -258,6 +273,7 @@ function Resize.new(window)
 
         self.resizing = true
         setHoverBrightness(true)
+        stopIdle()
         dragStartMouse = variables.userInputService:GetMouseLocation()
         dragStartSize = Vector2.new(self.window.main.Size.X.Offset, self.window.main.Size.Y.Offset)
         dragStartCentreAbs = self.window.main.AbsolutePosition
@@ -284,42 +300,8 @@ function Resize.new(window)
     -- alt-tabbing mid-drag never delivers InputEnded, same story as the window-drag handle
     self.window:Connect(variables.userInputService.WindowFocusReleased, releaseResize)
 
-    -- "Animated resize grip": not hover-gated - it starts reacting before the pointer actually
-    -- reaches the grip, ramping in over nudgeFalloffRadius (smoothstepped, so the pull eases in
-    -- rather than switching on) rather than sitting at full strength no matter how far away the
-    -- mouse is - that read as basically no animation, since the lean direction barely changes
-    -- for normal mouse movement once the cursor's any real distance from the corner. Paused
-    -- mid-drag (the resize itself is the thing to look at then). Nudges the icon's Position
-    -- toward the pointer rather than rotating it - keeps the same feel as the earlier from-Frames
-    -- version, which needed this to dodge a ClipsDescendants+Rotation bug that no longer applies
-    -- to a plain ImageLabel, but rotating a diagonal glyph toward the pointer doesn't read as
-    -- clearly directional as sliding it does, so the nudge stayed anyway.
-    self.window:Connect(variables.runService.RenderStepped, function(dt)
-        if not self.animated or self.resizing or not self.grip.Visible then
-            return
-        end
-        if not self.window:_interactive() or self.window.minimised then
-            return
-        end
-        local gripCentre = self.grip.AbsolutePosition + self.grip.AbsoluteSize / 2
-        local toMouse = variables.userInputService:GetMouseLocation() - gripCentre
-        local magnitude = toMouse.Magnitude
-
-        -- Every frame recomputes and re-applies Position from scratch (no early-return once the
-        -- pointer's right on top of the grip) - live-caught getting stuck exactly wherever it was
-        -- when the pointer got close enough to skip a frame, and never settling back afterward.
-        -- Guarding the unit-vector divide (magnitude can be ~0 with the pointer right over the
-        -- icon) instead of bailing out entirely keeps this self-correcting every single frame.
-        local direction = if magnitude > 1e-3 then toMouse / magnitude else Vector2.zero
-        local proximity = math.clamp(1 - magnitude / nudgeFalloffRadius, 0, 1)
-        local strength = proximity * proximity * (3 - 2 * proximity) -- smoothstep
-        local targetOffset = arcRestOffset + direction * maxNudge * strength
-
-        local pos = self.icon.Position
-        local current = Vector2.new(pos.X.Offset, pos.Y.Offset)
-        local settled = current + (targetOffset - current) * (1 - nudgeRemaining ^ dt)
-        self.icon.Position = UDim2.new(1, settled.X, 1, settled.Y)
-    end)
+    self._playIdle = playIdle
+    self._stopIdle = stopIdle
 
     return self
 end
@@ -329,15 +311,20 @@ function Resize:SetEnabled(enabled: boolean)
     if not self.grip.Visible and self.resizing then
         self.resizing = false
     end
+    if self.grip.Visible then
+        self._playIdle()
+    else
+        self._stopIdle()
+    end
 end
 
 function Resize:SetAnimated(enabled: boolean)
     self.animated = enabled and true or false
-    if not self.animated then
-        -- settle back to the resting spot rather than freezing wherever it last nudged to
-        variables.tweenService
-            :Create(self.icon, hoverInfo, { Position = UDim2.new(1, arcRestOffset.X, 1, arcRestOffset.Y) })
-            :Play()
+    if self.animated then
+        self._playIdle()
+    else
+        -- settle back to the resting spot rather than freezing wherever it last drifted to
+        self._stopIdle()
     end
 end
 
