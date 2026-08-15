@@ -2842,6 +2842,17 @@ function Window:_firstShow()
             :Play()
         task.wait(0.85) -- let the frame actually read as a window before anything shows on top of it
     end
+
+    -- Live-caught: drag.luau computes the bar's very first rest position once, at construction,
+    -- against whatever self.size happened to be *then* - if a persisted custom size loads and
+    -- changes self.size afterward (the normal case: settings load after Drag.new runs), main
+    -- ends up at that larger/smaller size above but the bar is never told to recompute, so it
+    -- stays parked wherever the construction-time size put it - which, for a saved size bigger
+    -- than the default, lands it well inside the window instead of hanging under its real bottom
+    -- edge. Read as "the drag bar sometimes ends up inside the UI" (regrabbing it "fixes" it only
+    -- because InputBegan's own getTargets() call forces a fresh read). Resyncing here, now that
+    -- main is actually at its true resting size, is the first point that value is reliably known.
+    self:_syncDragBar()
     variables.tweenService
         :Create(
             self.windowShadow,
