@@ -405,6 +405,51 @@ function Window.new(properties)
         },
     })
 
+    -- Top fade - same softening, mirrored: content scrolling up under the tab dock got a hard
+    -- ClipsDescendants edge with nothing to ease it, while the bottom of that same list already
+    -- dissolved gently into the window. Sits right where self.elements itself starts (below the
+    -- tab dock + its own breathing room, see self.elements below) rather than at main's literal
+    -- top edge, since it's the content clip that needs softening, not the header/dock above it -
+    -- so no UICorner here, unlike bottomFade: this frame isn't sitting on any of main's own
+    -- rounded corners.
+    self.topFade = self:Create("Frame", {
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+        AnchorPoint = Vector2.new(0, 0),
+        Position = UDim2.new(0, 0, 0, 118),
+        Size = UDim2.new(1, 0, 0.093, 100),
+        ZIndex = constants.zIndex.bottomFade,
+
+        -- Animation
+        BackgroundTransparency = 1, -- In = 0
+
+        Parent = self.main,
+    })
+
+    self.topFadeGradient = self:Create("UIGradient", {
+        -- Rotation 90 instead of bottomFade's 270 - flips which end keypoint 0 sits at (top
+        -- instead of bottom), so this fades the *same* shape (opaque where it meets the header,
+        -- transparent by the time it reaches open content) rather than reusing 270 and getting
+        -- the mapping backwards for a frame anchored to the top instead of the bottom.
+        Rotation = 90,
+        Offset = Vector2.new(0, 0.2),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(0.4414, 0),
+            NumberSequenceKeypoint.new(0.7007, 0.631),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+
+        Parent = self.topFade,
+    }, {
+        Color = {
+            "WindowColor",
+            function(color)
+                return ColorSequence.new(functions.toColorSequence(color).Keypoints[1].Value)
+            end,
+        },
+    })
+
     -- Topbar
     self.topbar = self:Create("Frame", {
 
@@ -1512,6 +1557,7 @@ function Window:Hide()
     -- whole time, it just reshapes underneath - there's nothing to hand off to
     variables.tweenService:Create(self.windowShadow, fadeInfo, { Transparency = 1 }):Play()
     variables.tweenService:Create(self.bottomFade, fadeInfo, { BackgroundTransparency = 1 }):Play()
+    variables.tweenService:Create(self.topFade, fadeInfo, { BackgroundTransparency = 1 }):Play()
 
     if self.title then
         variables.tweenService:Create(self.title, fadeInfo, { TextTransparency = 1 }):Play()
@@ -1604,6 +1650,7 @@ function Window:ToggleMinimise()
         variables.tweenService:Create(self.main, sizeInfo, { Size = self.size }):Play()
         variables.tweenService:Create(self.windowShadow, fadeInfo, { Transparency = 0.6 }):Play()
         variables.tweenService:Create(self.bottomFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
+        variables.tweenService:Create(self.topFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
 
         variables.tweenService
             :Create(self.drag.drag, sizeInfo, {
@@ -1678,6 +1725,7 @@ function Window:ToggleMinimise()
 
         variables.tweenService:Create(self.windowShadow, fadeInfo, { Transparency = 1 }):Play()
         variables.tweenService:Create(self.bottomFade, fadeInfo, { BackgroundTransparency = 1 }):Play()
+        variables.tweenService:Create(self.topFade, fadeInfo, { BackgroundTransparency = 1 }):Play()
         variables.tweenService:Create(self.main, sizeInfo, { Size = UDim2.fromOffset(self.size.X.Offset, 66) }):Play()
 
         variables.tweenService
@@ -2480,6 +2528,7 @@ function Window:_quickRestore()
 
         variables.tweenService:Create(self.windowShadow, fadeInfo, { Transparency = 0.6 }):Play()
         variables.tweenService:Create(self.bottomFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
+        variables.tweenService:Create(self.topFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
 
         if self.topbarIcon then
             variables.tweenService:Create(self.topbarIcon, fadeInfo, { ImageTransparency = 0 }):Play()
@@ -2869,6 +2918,13 @@ function Window:_firstShow()
     variables.tweenService
         :Create(
             self.bottomFade,
+            TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
+            { BackgroundTransparency = 0 }
+        )
+        :Play()
+    variables.tweenService
+        :Create(
+            self.topFade,
             TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
             { BackgroundTransparency = 0 }
         )
