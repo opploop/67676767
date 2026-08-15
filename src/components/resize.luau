@@ -158,6 +158,19 @@ function Resize.new(window)
     local dragStartSize = Vector2.zero
     local dragStartCentreAbs = Vector2.zero
 
+    -- The exact same exponential-smoothing constant drag.luau's own mainRemaining uses, for the
+    -- same "weighted, slightly elastic" follow feel on the window itself while its size changes -
+    -- requested outright ("a mesma animação do drag handle"). A per-frame lerp toward the target
+    -- instead of a fresh tween every frame, same technique and same reasoning as the drag handle.
+    local resizeRemaining = 1e-7
+
+    -- The exact target this frame resolved to, before the lerp above eases main toward it -
+    -- commitResize banks and settles onto this on release rather than whatever main's own
+    -- Size/Position happen to be lerped to that frame, so a resize let go mid-ease still saves
+    -- (and lands on) the size you actually dragged to, not a slightly-behind snapshot of it.
+    local lastTargetSize = Vector2.zero
+    local lastTargetPosition = UDim2.new()
+
     local function insetOffset(): Vector2
         if screenGui and screenGui.IgnoreGuiInset then
             return variables.guiService:GetGuiInset()
@@ -165,18 +178,23 @@ function Resize.new(window)
         return Vector2.zero
     end
 
-    local function applyResize(mouseLocation: Vector2)
+    local function applyResize(mouseLocation: Vector2, dt: number)
         local delta = mouseLocation - dragStartMouse
         local clamped = windowSizing.clampUserSize(currentViewport(), dragStartSize + delta)
         local consumed = clamped - dragStartSize -- how much of the drag survived clamping
-
-        self.window.main.Size = UDim2.fromOffset(clamped.X, clamped.Y)
 
         local newCentrePositionSpace = dragStartCentreAbs + consumed / 2 + insetOffset()
         local target = self.window:_clampedPosition(
             UDim2.fromOffset(newCentrePositionSpace.X, newCentrePositionSpace.Y)
         )
-        self.window.main.Position = target
+
+        lastTargetSize = clamped
+        lastTargetPosition = target
+
+        local targetSize = UDim2.fromOffset(clamped.X, clamped.Y)
+        local settle = 1 - resizeRemaining ^ dt
+        self.window.main.Size = self.window.main.Size:Lerp(targetSize, settle)
+        self.window.main.Position = self.window.main.Position:Lerp(target, settle)
 
         -- Live-follow the drag bar too, not just once the resize commits. It used to only move
         -- via commitResize's own _syncDragBar call on release, so it visibly stayed put for the
@@ -186,10 +204,17 @@ function Resize.new(window)
         -- bottom edge used to be) until grabbing it forced a fresh, correct getTargets() read.
         -- _syncDragBar itself reads self.window.size, which is deliberately NOT live mid-drag
         -- (see this file's own header comment on why) - so this mirrors its exact math by hand
-        -- against the size/position just computed above instead of calling it.
+        -- against main's own eased Size/Position instead of calling it or the raw target, so the
+        -- bar never gets ahead of the window it's actually hanging under.
         if self.window.drag and self.window.drag.drag then
-            self.window.drag.drag.Position =
-                UDim2.new(target.X.Scale, target.X.Offset, target.Y.Scale, target.Y.Offset + clamped.Y / 2 + 15)
+            local mainPos = self.window.main.Position
+            local mainSize = self.window.main.Size
+            self.window.drag.drag.Position = UDim2.new(
+                mainPos.X.Scale,
+                mainPos.X.Offset,
+                mainPos.Y.Scale,
+                mainPos.Y.Offset + mainSize.Y.Offset / 2 + 15
+            )
         end
     end
 
@@ -197,10 +222,18 @@ function Resize.new(window)
     -- _applyWindowSize's viewport refit, the drag bar's own math - reads those, not main.Size
     -- directly) and persist it.
     local function commitResize()
-        local size = self.window.main.Size
+        local size = UDim2.fromOffset(lastTargetSize.X, lastTargetSize.Y)
         self.window.size = size
-        self.window.customSize = Vector2.new(size.X.Offset, size.Y.Offset)
-        self.window.settings.customWindowSize = { X = size.X.Offset, Y = size.Y.Offset }
+        self.window.customSize = lastTargetSize
+        self.window.settings.customWindowSize = { X = lastTargetSize.X, Y = lastTargetSize.Y }
+
+        -- main (and the bar, via the live-follow above) is likely still mid-ease from the
+        -- smoothing above - jump straight to the exact last target rather than whatever they're
+        -- lerped to this frame, since a save has to persist the size actually dragged to, not a
+        -- slightly-behind snapshot of it.
+        self.window.main.Size = size
+        self.window.main.Position = lastTargetPosition
+
         self.window:_clampToScreen()
         self.window:_syncDragBar()
         self.window:SaveSettings()
@@ -276,7 +309,7 @@ function Resize.new(window)
             + self.window.main.AbsoluteSize * self.window.main.AnchorPoint
     end)
 
-    self.window:Connect(variables.runService.RenderStepped, function()
+    self.window:Connect(variables.runService.RenderStepped, function(dt)
         if not self.resizing then
             return
         end
@@ -284,7 +317,7 @@ function Resize.new(window)
             releaseResize()
             return
         end
-        applyResize(variables.userInputService:GetMouseLocation())
+        applyResize(variables.userInputService:GetMouseLocation(), dt)
     end)
 
     self.window:Connect(variables.userInputService.InputEnded, function(input)
