@@ -538,8 +538,14 @@ function Window.new(properties)
 
     -- Elements Preparation
 
+    -- Reserves 118px at the top for the header + tabDock (which itself ends at 65+38=103) - was
+    -- 106, only a ~3px gap below the dock. Live-caught: harmless while the dock's own background
+    -- was nearly invisible (StatBackground, since fixed - see tabDock's own comment), but once it
+    -- reads as an actual dark card, that 3px gap wasn't enough to keep it from looking welded
+    -- straight onto the first section's content below it. 118 opens the same ~15px breathing room
+    -- other card-to-card spacing in this file uses.
     self.elements = self:Create("Frame", {
-        Size = UDim2.new(1, 0, 1, -106),
+        Size = UDim2.new(1, 0, 1, -118),
         Position = UDim2.fromScale(0.5, 1),
         AnchorPoint = Vector2.new(0.5, 1),
         BackgroundTransparency = 1,
