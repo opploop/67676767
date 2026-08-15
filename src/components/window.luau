@@ -1449,10 +1449,13 @@ function Window:Hide()
     -- actually run - slowed down from 0.18/0.35 (read as too fast, closing almost instantly)
     local fadeDuration, moveDuration = 0.26, 0.5
     local fadeInfo = TweenInfo.new(fadeDuration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-    -- one continuous move for the whole collapse: size and position tween together on the
-    -- same curve so they stay perfectly in sync, no seam between separate legs
-    local moveInfo = TweenInfo.new(moveDuration, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
-    local cornerInfo = TweenInfo.new(moveDuration, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
+    -- "Closing to the pill": one continuous move for the whole collapse, size and position
+    -- tweening together on the same curve so they stay perfectly in sync, no seam between
+    -- separate legs. Quint/Out (was Exponential/InOut) reads as the window getting sucked
+    -- straight into the pill - fast off the mark, settling smoothly into place, rather than
+    -- easing gently out of its starting size the way InOut does.
+    local moveInfo = TweenInfo.new(moveDuration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    local cornerInfo = TweenInfo.new(moveDuration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     local faceInfo = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
     -- shrink the drag bar back down the same way it grows in on first reveal, instead of
@@ -2399,8 +2402,10 @@ function Window:_quickRestore()
     -- slowed down from 0.35/0.28 (read as too fast, opening almost instantly) - kept in named
     -- locals so the task.delay staging below stays in step with the new pacing
     local growDuration, fadeDuration = 0.5, 0.38
-    local growInfo = TweenInfo.new(growDuration, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
-    local cornerInfo = TweenInfo.new(growDuration, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
+    -- "Open from Pill": the mirror of Hide's own Quint/Out collapse - same curve family so the
+    -- open and close read as one continuous motion reversed, not two differently-paced animations
+    local growInfo = TweenInfo.new(growDuration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    local cornerInfo = TweenInfo.new(growDuration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     local fadeInfo = TweenInfo.new(fadeDuration, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
 
     -- Phase 1: nothing but the pill morphing back into the window frame. The collapsed face
