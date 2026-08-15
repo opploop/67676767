@@ -216,21 +216,6 @@ function Resize.new(window)
             clamped
         )
 
-        -- TEMP DEBUG - remove before shipping
-        if _G.__resizeInternalsLog then
-            table.insert(_G.__resizeInternalsLog, {
-                mouseLocation = { mouseLocation.X, mouseLocation.Y },
-                dragStartMouse = { dragStartMouse.X, dragStartMouse.Y },
-                delta = { delta.X, delta.Y },
-                dragStartSize = { dragStartSize.X, dragStartSize.Y },
-                clamped = { clamped.X, clamped.Y },
-                consumed = { consumed.X, consumed.Y },
-                dragStartCentreAbs = { dragStartCentreAbs.X, dragStartCentreAbs.Y },
-                newCentrePositionSpace = { newCentrePositionSpace.X, newCentrePositionSpace.Y },
-                targetOffset = { target.X.Offset, target.Y.Offset },
-            })
-        end
-
         lastTargetSize = clamped
         lastTargetPosition = target
 
