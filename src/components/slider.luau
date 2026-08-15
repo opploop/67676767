@@ -42,6 +42,10 @@ local tweenInfo = TweenInfo.new(0.45, Enum.EasingStyle.Exponential, Enum.EasingD
 local heldInfo = TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
 local followInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
+-- half the handle's own 18px size - see _renderProgress for how this keeps the handle's centre
+-- inset from either edge of the track, so it can never poke out past the track's own bounds
+local handleRadius = 9
+
 -- Below this element width we reflow to the stacked layout (title/value on top, full-width
 -- track under it) so the slider stays usable in a narrow column or small window instead of
 -- overlapping. Sits well below a full-width slider (~435) - including the slightly narrower
@@ -169,15 +173,25 @@ function Slider.new(tab, properties)
     -- Handle: a small solid-white circular pill riding on the thin track, sized independent
     -- of the track's own (now much slimmer) height rather than filling it. Ghosts + grows a
     -- stroke while held, same feel as before, just smaller so it still reads as minimal.
+    --
+    -- Parented to the track directly, not the fill - its own position is computed explicitly
+    -- in _renderProgress (bounded, see handleRadius) rather than anchored past the fill's own
+    -- edge with a fixed offset like the old version did. That fixed "+20px past the fill" was
+    -- size-independent by construction (AnchorPoint(1,0.5) addresses the handle's own right
+    -- edge, not something that moves with its width) - live-caught it poking a good 5px past
+    -- the whole element's own right edge at the slider's max value, regardless of handle size,
+    -- which is why shrinking the handle for the Devlog 7 redesign never actually changed it:
+    -- reported as "the handle goes outside the slider, can't grab it" once this became the one
+    -- slider (Settings > Window transparency) actually getting dragged to its own maximum.
     self.handle = self.window:Create("Frame", {
-        AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, 20, 0.5, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0, 0.5),
         Size = UDim2.fromOffset(18, 18),
         BorderSizePixel = 0,
         ZIndex = 50,
         BackgroundTransparency = 1, -- In = 0
 
-        Parent = self.progress,
+        Parent = self.track,
     }, { BackgroundColor3 = "SliderHandle" })
 
     self.window:Create("UICorner", {
@@ -483,10 +497,18 @@ function Slider:_renderProgress(info)
     local span = self.range[2] - self.range[1]
     local ratio = if span ~= 0 then math.clamp((self.value - self.range[1]) / span, 0, 1) else 0
     local size = UDim2.fromScale(ratio, 1)
+    -- the handle's centre goes from handleRadius (its left edge flush with the track's own
+    -- left edge) to 1-scale minus handleRadius (its right edge flush with the track's own
+    -- right edge) - expressed as one Scale+Offset pair so it works at any track width without
+    -- reading AbsoluteSize, and never depends on the handle's own size the way anchoring it
+    -- past the fill's edge with a fixed offset used to (see the handle's own comment).
+    local handlePos = UDim2.new(ratio, handleRadius - 2 * handleRadius * ratio, 0.5, 0)
     if info then
         variables.tweenService:Create(self.progress, info, { Size = size }):Play()
+        variables.tweenService:Create(self.handle, info, { Position = handlePos }):Play()
     else
         self.progress.Size = size
+        self.handle.Position = handlePos
     end
 end
 
