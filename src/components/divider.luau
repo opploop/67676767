@@ -24,10 +24,13 @@ local utility = script.Parent.Parent.utility
 local moveable = require(utility.moveable)
 local locale = require(utility.locale)
 
+-- Live-caught too roomy at "normal" (14/14) - read as a much bigger gap than the reference
+-- around a captioned line. Tightened across the board; loose still stays clearly the most open
+-- of the three, just from a smaller base.
 local spacingPresets = {
-    tight = { top = 6, bottom = 6 },
-    normal = { top = 14, bottom = 14 },
-    loose = { top = 26, bottom = 26 },
+    tight = { top = 4, bottom = 4 },
+    normal = { top = 8, bottom = 8 },
+    loose = { top = 18, bottom = 18 },
 }
 
 local defaultSpacerHeight = 24
@@ -92,7 +95,7 @@ function Divider.new(tab, properties)
         FillDirection = Enum.FillDirection.Horizontal,
         HorizontalFlex = Enum.UIFlexAlignment.Fill,
         VerticalAlignment = Enum.VerticalAlignment.Center,
-        Padding = UDim.new(0, if text ~= "" then 10 else 0),
+        Padding = UDim.new(0, if text ~= "" then 8 else 0),
         SortOrder = Enum.SortOrder.LayoutOrder,
 
         Parent = self.row,
