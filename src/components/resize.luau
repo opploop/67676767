@@ -31,6 +31,7 @@ local utility = script.Parent.Parent.utility
 local variables = require(utility.variables)
 local windowSizing = require(utility.windowSizing)
 local constants = require(utility.constants)
+local icons = require(utility.icons)
 
 -- Touch-friendly hit target; the visible arc inside it stays smaller (see below) so it doesn't
 -- read as a huge corner blob on a compact window.
@@ -100,6 +101,9 @@ function Resize.new(window)
         Parent = self.window.main,
     })
 
+    -- TEMP PREVIEW A: craft's expand-corner-02-stroke, restored as-is to compare against the
+    -- lucide preview below - remove once the user picks one.
+    local glyph = icons.find("expand-corner-02-stroke", "craft") or icons.find("expand-corner-01-stroke", "craft")
     self.icon = self.window:Create("ImageLabel", {
         Name = "Arc",
         AnchorPoint = Vector2.new(1, 1),
@@ -107,11 +111,13 @@ function Resize.new(window)
         Size = UDim2.fromOffset(arcImageSize, arcImageSize),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        Image = arcImage,
+        Image = glyph and glyph.Image or arcImage,
+        ImageRectSize = glyph and glyph.ImageRectSize or Vector2.zero,
+        ImageRectOffset = glyph and glyph.ImageRectOffset or Vector2.zero,
         ImageTransparency = 0,
 
         Parent = self.grip,
-    })
+    }, glyph and { ImageColor3 = "PlaceholderColor" } or nil)
 
     self.interact = self.window:Create("TextButton", {
         Size = UDim2.fromScale(1, 1),
