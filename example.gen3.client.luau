@@ -14,6 +14,7 @@ local window = Rayfield:CreateWindow({
     name = "Gen 3 Changes",
     subtitle = "Devlog 1 + 2",
     theme = "cobalt",
+    icon = 80387863064905, -- built-in Rayfield glyph - also what the loading splash's icon defaults to
     -- Devlog 6: an initial custom size (still screen-fit the same way the built-in default is,
     -- see windowSizing.luau) - left commented here so this smoke-test window keeps the size
     -- it's been tested at all session; uncomment to try it.
