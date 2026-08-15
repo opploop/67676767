@@ -41,8 +41,15 @@ local variables = require(utility.variables)
 local windowSizing = require(utility.windowSizing)
 local constants = require(utility.constants)
 
--- Touch-friendly hit target, centred on the corner it straddles.
-local gripSize = 40
+-- Hit target, centred on the corner it straddles. Live-caught: this stayed at the old 40px
+-- "touch-friendly" size from before the glyph itself got sized up to 80-92px (see arcImageSize
+-- below) - self.interact (the actual MouseEnter/MouseLeave/click surface) is sized to *this*
+-- frame, not to the glyph, so roughly half the visible icon - including the outer edge of its
+-- own stroke, exactly where a mouse would naturally land - sat outside the hoverable area. Read
+-- as "the icon doesn't react/animate at all", since hovering the thing you can actually see
+-- often just... didn't hit the button underneath it. Sized to clear the glyph's biggest (hover)
+-- state with a small margin so the whole visible mark is reliably hoverable.
+local gripSize = 100
 
 -- WindUI's own resize glyph, checked directly in their source (ResizeHandle's ImageLabel) - a
 -- curved diagonal swoosh mark. Downloaded and measured the actual asset: the visible stroke only
