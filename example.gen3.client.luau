@@ -480,7 +480,7 @@ tab9:CreateLabel({ text = "A line of text on its own, with no card around it." }
 
 tab9:CreateLabel({
     text = "With an icon beside it.",
-    icon = "lucide:home",
+    icon = "lucide:house",
 })
 
 tab9:CreateLabel({
@@ -506,7 +506,7 @@ tab9:CreateParagraph({
 tab9:CreateParagraph({
     title = "With an icon",
     content = "The icon sits beside the title, the same way it does on a section.",
-    icon = "lucide:home",
+    icon = "lucide:house",
 })
 
 tab9:CreateSection({ name = "Set" })
