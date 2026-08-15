@@ -42,7 +42,7 @@ local gripSize = 40
 -- tapering to half-thickness at both open ends, a UIStroke default mode with no guaranteed
 -- rendering, bottomFade painting over it at a higher ZIndex) and each fix surfaced the next. A
 -- plain ImageLabel has none of that surface area.
-local arcImage = "rbxassetid://71412559168191"
+local arcImage = "rbxassetid://100962304983733"
 local arcImageSize = 38
 -- Devlog 8 fix: sat at (-3,-3) right against the grip's own edge, close enough to the window's
 -- rounded corner (and its shadow/vignette) that the far end of the curve read as barely there
