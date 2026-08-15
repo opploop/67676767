@@ -870,15 +870,28 @@ function Window:SetFont(name)
     self:ChangeTheme({ Font = bodyFont, TitleFont = titleFont })
 end
 
--- Devlog 7 "glass window": 0 (fully opaque, default) to 100 (fully invisible). Scales the
+-- Devlog 7 "glass window": 0 (fully opaque, default) to 100 (as close to fully invisible as this
+-- goes - see maxTransparencyPercent below for why it stops short of literal 100). Scales the
 -- window frame, the tab dock, and every card uniformly so it all reads as one sheet of glass
 -- rather than a stack of independently-faded pieces. Cards ride along for free: ElementTransparency
 -- is an ordinary themeProperty already, so pushing a scaled value through ChangeTheme reaches
 -- every card the same way any other live theme change does. self.main and self.tabDock aren't
 -- theme-bound (their own baselines - fully opaque and 0.55 - are plain literals set once at
 -- creation, not read from the theme), so those two get tweened directly instead.
+--
+-- Never actually reaches BackgroundTransparency 1 on purpose - live-caught bug: main (and every
+-- other card) has no explicit Active, and a plain Frame's default Active is false, so per
+-- Roblox's own rule a Frame at BackgroundTransparency exactly 1 stops blocking/capturing input
+-- in its own bounds entirely, click-through to whatever's behind it. At the slider's old 0-100
+-- range, cranking it to 100% made the whole window click-through - the reported "can't drag the
+-- handle back, it bugs out" and "the UI goes into the game's background" were both this, not two
+-- separate bugs. maxTransparencyPercent keeps BackgroundTransparency a hair under 1 at every
+-- setting the slider can actually reach, which keeps Roblox's default hit-testing behavior (only
+-- click-through at literal 1) from ever kicking in.
+local maxTransparencyPercent = 92
+
 function Window:SetTransparency(percent)
-    percent = math.clamp(percent, 0, 100)
+    percent = math.clamp(percent, 0, maxTransparencyPercent)
     self.windowOpacity = 1 - percent / 100
 
     self:ChangeTheme({ ElementTransparency = 1 - self.windowOpacity })
@@ -1963,7 +1976,9 @@ function Window:_buildSettingsUI()
 
     self.rfSettings:CreateSlider({
         name = "Window transparency",
-        range = { 0, 100 },
+        -- capped short of 100: see SetTransparency's own comment on why main/tabDock/cards must
+        -- never actually reach literal BackgroundTransparency 1
+        range = { 0, maxTransparencyPercent },
         value = 0,
         suffix = "%",
         callback = function(value)
