@@ -749,6 +749,7 @@ function Window.new(properties)
         welcomeToast = true, -- the "signed in as" toast on first open for a new/changed account
         haptics = false, -- off by default; opt in from settings (buzzes on presses/notifications)
         resizeGripEnabled = true, -- Devlog 8: shows the corner drag-to-resize handle
+        resizeGripAnimated = true, -- the grip's mark leans toward the pointer while it's around
         -- customWindowSize starts absent (nil): no saved drag yet, so sizing still comes from
         -- self.defaultSize/customSize the normal way. Set once the resize grip is dragged, see
         -- resize.luau, and read right below once a saved one exists.
@@ -2033,13 +2034,31 @@ function Window:_buildSettingsUI()
     })
 
     self.rfSettings:CreateToggle({
-        name = "Resize grip",
-        description = "Shows a corner handle to freely resize the window. Double-click it to reset the size.",
+        name = "Resizable window",
+        description = "Shows a grip in the bottom-right corner that drags the window's size.",
         value = self.settings.resizeGripEnabled,
         callback = function(state)
             self.settings.resizeGripEnabled = state
             self.resize:SetEnabled(state)
             self:SaveSettings()
+        end,
+    })
+
+    self.rfSettings:CreateToggle({
+        name = "Animated resize grip",
+        description = "The corner mark leans toward the pointer. Turn this off to hold it still.",
+        value = self.settings.resizeGripAnimated,
+        callback = function(state)
+            self.settings.resizeGripAnimated = state
+            self.resize:SetAnimated(state)
+            self:SaveSettings()
+        end,
+    })
+
+    self.rfSettings:CreateButton({
+        name = "Reset Window Size",
+        callback = function()
+            self.resize:ResetSize()
         end,
     })
 

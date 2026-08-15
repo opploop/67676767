@@ -43,6 +43,17 @@ local hoverInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirectio
 -- single clicks (the second one just starts a fresh drag).
 local doubleClickWindow = 0.4
 
+-- "Animated resize grip": the icon leans toward wherever the pointer currently is, like a
+-- compass needle - 45deg is straight down-right, the icon's own neutral/unrotated look (it's a
+-- NW/SE diagonal glyph), so `lean` below is how far off that neutral the pointer currently pulls
+-- it, clamped so it reads as a subtle tilt rather than the icon spinning to track the cursor.
+local neutralLeanAngle = 45
+local maxLean = 18
+-- exponential smoothing factor per second - same technique (and same reasoning) as drag.luau's
+-- own mainRemaining/barRemaining: a per-frame lerp toward the target instead of a fresh tween
+-- every frame, smaller = snappier
+local leanRemaining = 1e-4
+
 local function currentViewport(): Vector2?
     local camera = variables.workspace.CurrentCamera
     return camera and camera.ViewportSize
@@ -52,6 +63,7 @@ function Resize.new(window)
     local self = setmetatable({
         window = assert(window, "Missing argument #1 (Window expected)"),
         resizing = false,
+        animated = window.settings.resizeGripAnimated,
         _lastClickAt = nil :: number?,
     }, Resize)
 
@@ -282,6 +294,28 @@ function Resize.new(window)
     -- alt-tabbing mid-drag never delivers InputEnded, same story as the window-drag handle
     self.window:Connect(variables.userInputService.WindowFocusReleased, releaseResize)
 
+    -- "Animated resize grip": continuous, not hover-gated - the whole point is it reads as
+    -- reacting to the pointer from a distance, not just once the mouse actually lands on it.
+    -- Paused mid-drag (the resize itself is the thing to look at then) and while the fallback
+    -- bars are in use (self.icon nil) - rotating two independently-angled bars in sync isn't
+    -- worth the complexity for what's already an offline/repo-down edge case.
+    self.window:Connect(variables.runService.RenderStepped, function(dt)
+        if not self.icon or not self.animated or self.resizing or not self.grip.Visible then
+            return
+        end
+        if not self.window:_interactive() or self.window.minimised then
+            return
+        end
+        local gripCentre = self.grip.AbsolutePosition + self.grip.AbsoluteSize / 2
+        local toMouse = variables.userInputService:GetMouseLocation() - gripCentre
+        if toMouse.Magnitude < 1 then
+            return
+        end
+        local pointerAngle = math.deg(math.atan2(toMouse.Y, toMouse.X))
+        local lean = math.clamp((pointerAngle - neutralLeanAngle + 180) % 360 - 180, -maxLean, maxLean)
+        self.icon.Rotation += (lean - self.icon.Rotation) * (1 - leanRemaining ^ dt)
+    end)
+
     return self
 end
 
@@ -290,6 +324,20 @@ function Resize:SetEnabled(enabled: boolean)
     if not self.grip.Visible and self.resizing then
         self.resizing = false
     end
+end
+
+function Resize:SetAnimated(enabled: boolean)
+    self.animated = enabled and true or false
+    if not self.animated and self.icon then
+        -- settle back to the static neutral look rather than freezing wherever it last leaned
+        variables.tweenService:Create(self.icon, hoverInfo, { Rotation = 0 }):Play()
+    end
+end
+
+-- Public wrapper for the Settings "Reset Window Size" button - the exact same snap the grip's
+-- own double-click already does.
+function Resize:ResetSize()
+    self:_snapToDefault()
 end
 
 return Resize
