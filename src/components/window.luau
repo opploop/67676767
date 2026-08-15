@@ -418,16 +418,16 @@ function Window.new(properties)
     -- so this rendered at ~160px tall instead of a reasonable transition strip, eating a big
     -- chunk of actual content space. Second attempt overcorrected the other way - shrank it to
     -- 24px *and* swapped in a plain two-point linear fade, which at that size read as a visible
-    -- cut/seam rather than a dissolve. 50px with bottomFadeGradient's own eased keypoint shape
-    -- (a flat opaque stretch that only starts curving away past its own midpoint) is the actual
-    -- middle ground - small enough not to eat the content area, tall enough for that curve to
-    -- read as gradual instead of abrupt.
+    -- cut/seam rather than a dissolve (that turned out to also be a colour mismatch against
+    -- tabDock, not just size/curve - see topFadeGradient's own comment). 34px with
+    -- bottomFadeGradient's own eased keypoint shape is the settled middle ground - small enough
+    -- not to eat the content area, tall enough for that curve to still read as gradual.
     self.topFade = self:Create("Frame", {
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
         AnchorPoint = Vector2.new(0, 0),
         Position = UDim2.new(0, 0, 0, 103),
-        Size = UDim2.new(1, 0, 0, 50),
+        Size = UDim2.new(1, 0, 0, 34),
         ZIndex = constants.zIndex.bottomFade,
 
         -- Animation
