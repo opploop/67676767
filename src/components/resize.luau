@@ -42,11 +42,11 @@ local gripSize = 40
 -- shipped with) and a detour through a hand-drawn/uploaded arc. Falls back to the old uploaded
 -- arc asset if the pack somehow doesn't resolve (offline, repo down).
 local arcImage = "rbxassetid://100962304983733"
-local arcImageSize = 22
--- Centred inside the 40px grip (9px margin each side) rather than pulled into a corner - the
+local arcImageSize = 26
+-- Centred inside the 40px grip (7px margin each side) rather than pulled into a corner - the
 -- glyph now sits exactly over the area you actually click/tap to drag-resize, instead of
 -- visually pointing at a spot slightly off from the real hit target.
-local arcRestOffset = Vector2.new(-9, -9) -- the image's resting Position, AnchorPoint (1,1)
+local arcRestOffset = Vector2.new(-7, -7) -- the image's resting Position, AnchorPoint (1,1)
 -- Back to the original brighten-on-hover: mostly opaque at rest, fully opaque on hover/touch -
 -- the size-pop tried afterward ("essa de só aumentar o tamanho") read worse, so it's gone.
 local arcRestTransparency = 0.05
@@ -62,9 +62,17 @@ local doubleClickWindow = 0.4
 -- "Animated resize grip": how far (in pixels) the arc can nudge toward the pointer from its
 -- resting spot, and how fast it settles there - exponential smoothing per second, same technique
 -- (and same reasoning) as drag.luau's own mainRemaining/barRemaining: a per-frame lerp toward the
--- target instead of a fresh tween every frame, smaller = snappier.
-local maxNudge = 4
-local nudgeRemaining = 1e-4
+-- target instead of a fresh tween every frame, smaller = snappier. Was 4px at full strength
+-- regardless of cursor distance - live-caught as reading like no animation at all, since the
+-- direction barely changes for normal mouse movement once the cursor's any real distance away.
+-- Bigger throw plus a proximity falloff (below) makes the lean actually noticeable as the
+-- pointer approaches instead of a near-static 4px offset.
+local maxNudge = 9
+local nudgeRemaining = 1e-3
+-- Pull ramps up smoothly as the pointer gets within this many pixels of the grip's centre, and
+-- is zero at rest beyond it - "reacts to the pointer nearby", not "always faintly twitching
+-- toward wherever the mouse happens to be on the whole screen".
+local nudgeFalloffRadius = 260
 
 local function currentViewport(): Vector2?
     local camera = variables.workspace.CurrentCamera
@@ -276,13 +284,16 @@ function Resize.new(window)
     -- alt-tabbing mid-drag never delivers InputEnded, same story as the window-drag handle
     self.window:Connect(variables.userInputService.WindowFocusReleased, releaseResize)
 
-    -- "Animated resize grip": continuous, not hover-gated - the whole point is it reads as
-    -- reacting to the pointer from a distance, not just once the mouse actually lands on it.
-    -- Paused mid-drag (the resize itself is the thing to look at then). Nudges the icon's
-    -- Position toward the pointer rather than rotating it - keeps the same feel as the earlier
-    -- from-Frames version, which needed this to dodge a ClipsDescendants+Rotation bug that no
-    -- longer applies to a plain ImageLabel, but rotating a curve toward the pointer doesn't read
-    -- as clearly directional as it did for a straight diagonal glyph, so the nudge stayed anyway.
+    -- "Animated resize grip": not hover-gated - it starts reacting before the pointer actually
+    -- reaches the grip, ramping in over nudgeFalloffRadius (smoothstepped, so the pull eases in
+    -- rather than switching on) rather than sitting at full strength no matter how far away the
+    -- mouse is - that read as basically no animation, since the lean direction barely changes
+    -- for normal mouse movement once the cursor's any real distance from the corner. Paused
+    -- mid-drag (the resize itself is the thing to look at then). Nudges the icon's Position
+    -- toward the pointer rather than rotating it - keeps the same feel as the earlier from-Frames
+    -- version, which needed this to dodge a ClipsDescendants+Rotation bug that no longer applies
+    -- to a plain ImageLabel, but rotating a diagonal glyph toward the pointer doesn't read as
+    -- clearly directional as sliding it does, so the nudge stayed anyway.
     self.window:Connect(variables.runService.RenderStepped, function(dt)
         if not self.animated or self.resizing or not self.grip.Visible then
             return
@@ -296,7 +307,9 @@ function Resize.new(window)
             return
         end
 
-        local targetOffset = arcRestOffset + toMouse.Unit * maxNudge
+        local proximity = math.clamp(1 - toMouse.Magnitude / nudgeFalloffRadius, 0, 1)
+        local strength = proximity * proximity * (3 - 2 * proximity) -- smoothstep
+        local targetOffset = arcRestOffset + toMouse.Unit * maxNudge * strength
         local pos = self.icon.Position
         local current = Vector2.new(pos.X.Offset, pos.Y.Offset)
         local settled = current + (targetOffset - current) * (1 - nudgeRemaining ^ dt)
