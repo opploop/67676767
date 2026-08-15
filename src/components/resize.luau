@@ -42,7 +42,7 @@ local gripSize = 40
 -- tapering to half-thickness at both open ends, a UIStroke default mode with no guaranteed
 -- rendering, bottomFade painting over it at a higher ZIndex) and each fix surfaced the next. A
 -- plain ImageLabel has none of that surface area.
-local arcImage = "rbxassetid://94963200003795"
+local arcImage = "rbxassetid://100962304983733"
 local arcImageSize = 38
 local arcRestOffset = Vector2.new(-3, -3) -- the image's resting Position, AnchorPoint (1,1)
 -- Devlog 8 fix: the arc's own baked-in opacity (confirmed in the Figma mockup, where the same
