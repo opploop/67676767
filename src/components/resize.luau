@@ -30,6 +30,7 @@ local utility = script.Parent.Parent.utility
 -- Variables
 local variables = require(utility.variables)
 local windowSizing = require(utility.windowSizing)
+local constants = require(utility.constants)
 
 -- Touch-friendly hit target; the visible arc inside it stays smaller (see below) so it doesn't
 -- read as a huge corner blob on a compact window.
@@ -87,7 +88,9 @@ function Resize.new(window)
         Size = UDim2.fromOffset(gripSize, gripSize),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        ZIndex = 20,
+        -- above bottomFade (100) - live-caught the fade's own gradient painting straight over
+        -- the grip's arc at the old ZIndex 20, tinting it with a grey diagonal wash
+        ZIndex = constants.zIndex.resizeGrip,
         Visible = self.window.settings.resizeGripEnabled,
 
         Parent = self.window.main,

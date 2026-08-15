@@ -60,6 +60,10 @@ constants.statAccents = {
 constants.zIndex = {
     bottomFade = 100,
     drag = 1000,
+    -- the corner resize grip lives in the same bottom-right corner bottomFade's own gradient
+    -- sweeps across - live-caught the fade painting straight over the grip's arc, tinting it
+    -- with a grey diagonal wash, since bottomFade (100) outranked the grip's old ZIndex (20)
+    resizeGrip = 1100,
     -- the greeting intro overlay: above ordinary window content (topbar, tabs, elements all sit
     -- near the default 1) but below notification/toast/restore/tooltip, which should still be
     -- able to show over it in the rare case one fires while a greeting is playing
