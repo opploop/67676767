@@ -89,6 +89,7 @@ local componentFiles = {
     "notification",
     "popup",
     "progressbar",
+    "resize",
     "ripplebutton",
     "scrollhint",
     "search",

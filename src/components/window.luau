@@ -225,6 +225,10 @@ function Window.new(properties)
         subheading = properties.subtitle or properties.Subtitle,
         size = fitWindowSize(customSize),
         customSize = customSize,
+        -- Devlog 8 corner grip: the dev-supplied/built-in size from construction, kept untouched
+        -- by any later resize-grip drag so double-clicking the grip always has the *original*
+        -- target to snap back to, not whatever the most recent drag happened to land on.
+        defaultSize = customSize,
         fontChoice = "auto",
         windowOpacity = 1, -- Devlog 7 "window transparency": 1 = fully opaque (default)
         acrylicEnabled = false,
@@ -744,12 +748,27 @@ function Window.new(properties)
         keepOnScreen = true, -- clamp the drag so the window cant be pulled off screen
         welcomeToast = true, -- the "signed in as" toast on first open for a new/changed account
         haptics = false, -- off by default; opt in from settings (buzzes on presses/notifications)
+        resizeGripEnabled = true, -- Devlog 8: shows the corner drag-to-resize handle
+        -- customWindowSize starts absent (nil): no saved drag yet, so sizing still comes from
+        -- self.defaultSize/customSize the normal way. Set once the resize grip is dragged, see
+        -- resize.luau, and read right below once a saved one exists.
     }
 
     self:LoadSettings()
+
+    -- Devlog 8 corner grip: a size saved from a previous session becomes the new basis for every
+    -- size decision from here on (the reveal target, _applyWindowSize's own viewport refit) -
+    -- self.defaultSize is deliberately left alone so double-clicking the grip can still get back
+    -- to the window's original size after this.
+    if self.settings.customWindowSize then
+        self.customSize = Vector2.new(self.settings.customWindowSize.X, self.settings.customWindowSize.Y)
+        self.size = fitWindowSize(self.customSize)
+    end
+
     hapticEngine.setContainer(self.screenGui) -- effects live with the interface, not the workspace
     hapticEngine.setEnabled(self.settings.haptics) -- honour a saved off before any interaction
     chrome.buildCollapsedFace(self)
+    self.resize = require(script.Parent.resize).new(self)
     self:_bindKeybind()
     self:_bindMouseOverride()
     self:_bindTopbarDrag()
@@ -1559,6 +1578,7 @@ function Window:ToggleMinimise()
             self.elements.Visible = true
             self.tabList.Visible = true
             self.tabDock.Visible = true
+            self.resize.grip.Visible = self.settings.resizeGripEnabled
             for _, tab in pairs(self.tabs) do
                 if not tab.neglectSelector and tab.topbarItem then
                     tab.topbarItem.Visible = true
@@ -1599,6 +1619,9 @@ function Window:ToggleMinimise()
             self.elements.Visible = false
             self.tabList.Visible = false
             self.tabDock.Visible = false
+            -- a collapsed bar isn't something you'd resize, and the grip would otherwise sit
+            -- oversized on its now much shorter (66px) height
+            self.resize.grip.Visible = false
             for _, tab in pairs(self.tabs) do
                 if not tab.neglectSelector and tab.topbarItem then
                     tab.topbarItem.Visible = false
@@ -2005,6 +2028,17 @@ function Window:_buildSettingsUI()
         value = self.settings.keepOnScreen,
         callback = function(state)
             self.settings.keepOnScreen = state
+            self:SaveSettings()
+        end,
+    })
+
+    self.rfSettings:CreateToggle({
+        name = "Resize grip",
+        description = "Shows a corner handle to freely resize the window. Double-click it to reset the size.",
+        value = self.settings.resizeGripEnabled,
+        callback = function(state)
+            self.settings.resizeGripEnabled = state
+            self.resize:SetEnabled(state)
             self:SaveSettings()
         end,
     })

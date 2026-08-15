@@ -78,4 +78,23 @@ function windowSizing.fit(viewport: Vector2?, target: Vector2?): UDim2
     return UDim2.fromOffset(math.floor(math.min(width, availableX, height * maxAspectRatio)), height)
 end
 
+-- Devlog 8 corner grip: bounds for a user freely dragging the window's own size, reusing the
+-- same "how big should this window ever get" rules as the auto-fit above (the occupancy caps,
+-- floor, and short-screen fallback) rather than inventing a separate ceiling that could drift out
+-- of sync with it. Unlike `fit`, this never shrinks the window on its own - it just clamps
+-- whatever size the drag produced into the same sane range fit would have chosen from scratch.
+function windowSizing.clampUserSize(viewport: Vector2?, size: Vector2): Vector2
+    if not viewport or viewport.X < minPlausibleViewport or viewport.Y < minPlausibleViewport then
+        return Vector2.new(math.max(size.X, minSize.X), math.max(size.Y, minSize.Y))
+    end
+
+    local maxX = math.min(viewport.X * maxOccupancyX, viewport.X - marginFloorX)
+    local maxY = math.min(viewport.Y * maxOccupancyY, viewport.Y - marginFloorY)
+
+    return Vector2.new(
+        math.clamp(size.X, minSize.X, math.max(minSize.X, maxX)),
+        math.clamp(size.Y, minSize.Y, math.max(minSize.Y, maxY))
+    )
+end
+
 return windowSizing

@@ -20,6 +20,8 @@ type SettingsWindow = {
         keepOnScreen: boolean,
         welcomeToast: boolean,
         haptics: boolean,
+        resizeGripEnabled: boolean,
+        customWindowSize: { X: number, Y: number }?,
     },
 }
 
@@ -29,6 +31,8 @@ type DecodedSettings = {
     keepOnScreen: unknown?,
     welcomeToast: unknown?,
     haptics: unknown?,
+    resizeGripEnabled: unknown?,
+    customWindowSize: { X: unknown?, Y: unknown? }?,
 }
 
 function persistenceSettings.getSettingsPath(): (string, string)
@@ -47,6 +51,11 @@ function persistenceSettings.saveSettings(window: SettingsWindow): boolean
         keepOnScreen = window.settings.keepOnScreen,
         welcomeToast = window.settings.welcomeToast,
         haptics = window.settings.haptics,
+        resizeGripEnabled = window.settings.resizeGripEnabled,
+        -- nil (never manually resized, or reset via the grip's double-click) just omits the key -
+        -- JSONEncode drops a nil value, and the decode side already treats a missing key as "no
+        -- saved size", so there's nothing extra to do to represent "not set" on either end.
+        customWindowSize = window.settings.customWindowSize,
     }
 
     local ok, encoded = pcall(variables.httpService.JSONEncode, variables.httpService, data)
@@ -133,6 +142,17 @@ function persistenceSettings.loadSettings(window: SettingsWindow): boolean
 
     if type(settings.haptics) == "boolean" then
         window.settings.haptics = settings.haptics
+    end
+
+    if type(settings.resizeGripEnabled) == "boolean" then
+        window.settings.resizeGripEnabled = settings.resizeGripEnabled
+    end
+
+    if type(settings.customWindowSize) == "table" then
+        local x, y = settings.customWindowSize.X, settings.customWindowSize.Y
+        if type(x) == "number" and type(y) == "number" then
+            window.settings.customWindowSize = { X = x, Y = y }
+        end
     end
 
     return true
