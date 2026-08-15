@@ -119,26 +119,6 @@ function Resize.new(window)
         Parent = self.grip,
     }, { ImageColor3 = "ContentColor" })
 
-    -- Not glowing self.icon directly - it's a mostly-empty 80px+ square with one small stroke in
-    -- the corner of it (see the sizing comment above), so a shadow shaped to its own bounds reads
-    -- as a flat square smear behind a tiny mark instead of a glow around it. A small round frame
-    -- sized to the *stroke*, not the image's canvas, gives the same soft halo the drag bar's own
-    -- rounded pill gets from the same CreateGlow call.
-    local glowAnchor = self.window:Create("Frame", {
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.new(0.5, arcIconOffset, 0.5, arcIconOffset),
-        Size = UDim2.fromOffset(22, 22),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-
-        Parent = self.grip,
-    })
-    self.window:Create("UICorner", {
-        CornerRadius = UDim.new(0.5, 0),
-        Parent = glowAnchor,
-    })
-    self.window:CreateGlow(glowAnchor, Color3.fromRGB(255, 255, 255), 10, 0.5)
-
     self.interact = self.window:Create("TextButton", {
         Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
@@ -197,6 +177,20 @@ function Resize.new(window)
             UDim2.fromOffset(newCentrePositionSpace.X, newCentrePositionSpace.Y)
         )
         self.window.main.Position = target
+
+        -- Live-follow the drag bar too, not just once the resize commits. It used to only move
+        -- via commitResize's own _syncDragBar call on release, so it visibly stayed put for the
+        -- whole drag and only snapped into place the instant you let go - live-caught reading as
+        -- "doesn't move while resizing" and, on a big enough shrink, as the bar ending up stuck
+        -- *inside* the now-smaller window (its stale position was still where the old, bigger
+        -- bottom edge used to be) until grabbing it forced a fresh, correct getTargets() read.
+        -- _syncDragBar itself reads self.window.size, which is deliberately NOT live mid-drag
+        -- (see this file's own header comment on why) - so this mirrors its exact math by hand
+        -- against the size/position just computed above instead of calling it.
+        if self.window.drag and self.window.drag.drag then
+            self.window.drag.drag.Position =
+                UDim2.new(target.X.Scale, target.X.Offset, target.Y.Scale, target.Y.Offset + clamped.Y / 2 + 15)
+        end
     end
 
     -- Bank the drag into self.size/self.customSize (everything downstream - the reveal target,
