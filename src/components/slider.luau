@@ -496,13 +496,21 @@ end
 function Slider:_renderProgress(info)
     local span = self.range[2] - self.range[1]
     local ratio = if span ~= 0 then math.clamp((self.value - self.range[1]) / span, 0, 1) else 0
-    local size = UDim2.fromScale(ratio, 1)
     -- the handle's centre goes from handleRadius (its left edge flush with the track's own
     -- left edge) to 1-scale minus handleRadius (its right edge flush with the track's own
     -- right edge) - expressed as one Scale+Offset pair so it works at any track width without
     -- reading AbsoluteSize, and never depends on the handle's own size the way anchoring it
     -- past the fill's edge with a fixed offset used to (see the handle's own comment).
-    local handlePos = UDim2.new(ratio, handleRadius - 2 * handleRadius * ratio, 0.5, 0)
+    local insetX = handleRadius - 2 * handleRadius * ratio
+    -- Fill width tracked the raw ratio (0 -> flush left, 1 -> flush right), so it always ran
+    -- past where the handle's own centre actually sat - invisible at ratio 0 (zero width either
+    -- way) but visibly overshot the handle everywhere else, worst at the low/high end of a grid
+    -- column's narrower track where the mismatch reads as a bigger fraction of it. Same
+    -- Scale+Offset expression as handlePos below, so the fill's edge and the handle's centre
+    -- are mathematically the same point at any track width, not just visually close at the one
+    -- width this got eyeballed at.
+    local size = UDim2.new(ratio, insetX, 1, 0)
+    local handlePos = UDim2.new(ratio, insetX, 0.5, 0)
     if info then
         variables.tweenService:Create(self.progress, info, { Size = size }):Play()
         variables.tweenService:Create(self.handle, info, { Position = handlePos }):Play()
