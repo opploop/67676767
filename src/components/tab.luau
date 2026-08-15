@@ -453,6 +453,16 @@ function Tab:CreateSection(properties)
     return self:_register(require(script.Parent.section).new(self, properties))
 end
 
+-- Label: a bare line of text, no card - for copy too slight for its own Paragraph
+function Tab:CreateLabel(properties)
+    return self:_register(require(script.Parent.label).new(self, properties))
+end
+
+-- Paragraph: a title + body card, for copy too long to hang off an element as a description
+function Tab:CreateParagraph(properties)
+    return self:_register(require(script.Parent.paragraph).new(self, properties))
+end
+
 -- Stat
 function Tab:CreateStat(properties)
     return self:_register(require(script.Parent.stat).new(self, properties))

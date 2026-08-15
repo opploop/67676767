@@ -62,6 +62,17 @@ export type SectionProps = {
     icon: (string | number)?,
 }
 
+export type LabelProps = {
+    text: string?,
+    icon: (string | number)?,
+}
+
+export type ParagraphProps = {
+    title: string?,
+    content: string?,
+    icon: (string | number)?,
+}
+
 export type GroupProps = {
     direction: string?, -- "row" | "column" (default row); "horizontal"/"vertical" also work
 }
@@ -465,6 +476,16 @@ export type Stat = Moveable & {
 
 export type Section = Moveable & {}
 
+export type Label = Moveable & {
+    Set: (self: Label, text: string) -> (),
+}
+
+export type Paragraph = Moveable & {
+    Set: (self: Paragraph, props: { title: string?, content: string? }) -> (),
+    SetTitle: (self: Paragraph, text: string) -> (),
+    SetContent: (self: Paragraph, text: string) -> (),
+}
+
 export type HoldButton = Moveable & {
     locked: boolean,
     SetLocked: (self: HoldButton, locked: boolean) -> (),
@@ -494,6 +515,8 @@ export type Collapsible = Moveable & {
     CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,
     CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,
     CreateSection: (self: Collapsible, props: SectionProps) -> Section,
+    CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,
+    CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,
     CreateGroup: (self: Collapsible, props: GroupProps?) -> Group,
 }
 
@@ -527,6 +550,8 @@ export type Group = Moveable & {
     CreateSlider: (self: Group, props: SliderProps) -> Slider,
     CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,
     CreateSection: (self: Group, props: SectionProps) -> Section,
+    CreateLabel: (self: Group, props: LabelProps?) -> Label,
+    CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,
     CreateGroup: (self: Group, props: GroupProps?) -> Group,
 }
 
@@ -546,6 +571,8 @@ export type Tab = {
     CreateGradientPicker: (self: Tab, props: GradientPickerProps?) -> GradientPicker,
     CreateStat: (self: Tab, props: StatProps) -> Stat,
     CreateSection: (self: Tab, props: SectionProps) -> Section,
+    CreateLabel: (self: Tab, props: LabelProps?) -> Label,
+    CreateParagraph: (self: Tab, props: ParagraphProps?) -> Paragraph,
     CreateProgressBar: (self: Tab, props: ProgressBarProps) -> ProgressBar,
     CreateScrollHint: (self: Tab, props: ScrollHintProps?) -> ScrollHint,
     CreateSegmentedPicker: (self: Tab, props: SegmentedPickerProps?) -> SegmentedPicker,

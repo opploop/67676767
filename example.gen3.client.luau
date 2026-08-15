@@ -471,4 +471,58 @@ tab6:CreateChangelog({
     },
 })
 
+-- Devlog 9: Label, Paragraph ------------------------------------------------------------------
+local tab9 = window:CreateTab({ name = "Devlog 9", icon = 100604009889706 })
+
+tab9:CreateSection({ name = "Label" })
+
+tab9:CreateLabel({ text = "A line of text on its own, with no card around it." })
+
+tab9:CreateLabel({
+    text = "With an icon beside it.",
+    icon = "lucide:home",
+})
+
+tab9:CreateLabel({
+    text = "Long enough to wrap onto a second line once the window is pulled in, "
+        .. "which it does on its own.",
+})
+
+tab9:CreateSection({ name = "Paragraph" })
+
+tab9:CreateParagraph({
+    title = "Title and body",
+    content = "A title with a body under it, on a card of its own. This is for copy that is "
+        .. "too long to hang off an element as a description.",
+})
+
+tab9:CreateParagraph({ title = "Title only" })
+
+tab9:CreateParagraph({
+    content = "Body only, no title. Either half is dropped when it is empty, so this is just "
+        .. "the copy on a card.",
+})
+
+tab9:CreateParagraph({
+    title = "With an icon",
+    content = "The icon sits beside the title, the same way it does on a section.",
+    icon = "lucide:home",
+})
+
+tab9:CreateSection({ name = "Set" })
+
+tab9:CreateLabel({ text = "Press the button below." })
+
+local demoParagraph = tab9:CreateParagraph({
+    title = "Before",
+    content = "This body is about to change.",
+})
+
+tab9:CreateButton({
+    name = "Change both",
+    callback = function()
+        demoParagraph:Set({ title = "After", content = "Both halves just changed at once." })
+    end,
+})
+
 window:Navigate("Devlog 1")

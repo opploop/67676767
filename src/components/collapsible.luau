@@ -251,7 +251,7 @@ end
 for _, name in {
     "CreateButton", "CreateFlipButton", "CreateCopyButton", "CreateRippleButton", "CreateToggle",
     "CreateSwitch", "CreateCheckbox", "CreateStat", "CreateSlider", "CreateDropdown", "CreateSection",
-    "CreateGroup",
+    "CreateLabel", "CreateParagraph", "CreateGroup",
 } do
     Collapsible[name] = function(self, properties)
         return self._group[name](self._group, properties)

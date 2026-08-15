@@ -197,6 +197,12 @@ end
 function Group:CreateSection(properties)
     return self:_add("section", properties)
 end
+function Group:CreateLabel(properties)
+    return self:_add("label", properties)
+end
+function Group:CreateParagraph(properties)
+    return self:_add("paragraph", properties)
+end
 
 -- a nested group: a column (for a grid) or another row inside this one
 function Group:_addGroup(properties)
