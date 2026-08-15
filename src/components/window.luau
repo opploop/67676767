@@ -2538,14 +2538,36 @@ function Window:_playLoadingSplash()
     local title = config.title or self.name
     local tips = config.tips
 
+    -- Opaque, not just "on top" - live-caught toggle tracks and other resting-state chrome (not
+    -- part of the staged reveal's own fade-in chain, styled visible at construction regardless
+    -- of self.hidden) showing straight through a transparent-background overlay, and the overlay
+    -- not filling the full card the way PlayGreeting's own opaque one does. Same white-base +
+    -- WindowColor-gradient recipe main itself uses (see main's own creation above) so this reads
+    -- as "the window itself, just showing loading content" rather than a mismatched flash, and
+    -- its own UICorner matches the window's rounding so a square overlay corner never pokes past
+    -- main's rounded one.
     local overlay = self:Create("Frame", {
         Size = UDim2.fromScale(1, 1),
-        BackgroundTransparency = 1,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
         ZIndex = constants.zIndex.loading,
 
         Parent = self.main,
     })
+
+    self:Create("UICorner", {
+        Parent = overlay,
+    }, { CornerRadius = "CornerRoundness" })
+
+    -- the gradient (not BackgroundColor3 itself) is what actually recolours the white base to
+    -- the theme's WindowColor - a Frame's BackgroundColor3 wants a Color3, not the ColorSequence
+    -- toColorSequence produces, same reason main's own gradient is a separate child instead
+    self:Create("UIGradient", {
+        Rotation = 270,
+        Offset = Vector2.new(0, -0.1),
+
+        Parent = overlay,
+    }, { Color = { "WindowColor", functions.toColorSequence } })
 
     local iconLabel
     if icon then
