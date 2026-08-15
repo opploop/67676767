@@ -2525,13 +2525,24 @@ function Window:_quickRestore()
 end
 
 local loadingFadeInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+-- Back/Out overshoots past the target then settles back - the "pop" on the icon. Safe to animate
+-- Size here specifically because this overlay is a free-floating Frame with hand-placed
+-- (Position-offset, not UIListLayout) children - nothing here reflows a sibling the way animating
+-- Size inside a UIListLayout-managed row would (see resize.luau/label.luau's own notes on that
+-- class of bug elsewhere in this codebase). None of that risk applies to a one-off splash with
+-- three fixed-position children.
+local loadingPopInfo = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local loadingTipSlideInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local loadingIconSize = 48
+local loadingIconStartSize = 22
 
 -- The dev-configured loading splash (see self.loading, set from WindowProps.loading in .new):
--- icon + title fade in centred on the still-blank window card, an optional tip line cycles
--- under them the same way PlayGreeting cycles its texts, then everything fades back out before
--- _firstShow's own staged reveal takes over. Unlike PlayGreeting there's no shrink/corner-round
--- wipe here - nothing underneath is visible yet for one to reveal, so a plain fade in and back
--- out is the whole trick.
+-- icon pops in (scale bounce + a soft accent glow) over the still-blank window card, the title
+-- fades in with it, an optional tip line cycles under them - crossfading with a slight upward
+-- slide, like a ticker - while a thin progress bar underneath fills across the splash's real
+-- total duration. Everything fades back out before _firstShow's own staged reveal takes over.
+-- Unlike PlayGreeting there's no shrink/corner-round wipe here - nothing underneath is visible
+-- yet for one to reveal, so a plain fade in and back out is the whole trick.
 function Window:_playLoadingSplash()
     local config = self.loading
     local icon = config.icon or self.icon
@@ -2569,11 +2580,11 @@ function Window:_playLoadingSplash()
         Parent = overlay,
     }, { Color = { "WindowColor", functions.toColorSequence } })
 
-    local iconLabel
+    local iconLabel, iconGlow
     if icon then
         iconLabel = self:Create("ImageLabel", {
             Image = icon,
-            Size = UDim2.fromOffset(48, 48),
+            Size = UDim2.fromOffset(loadingIconStartSize, loadingIconStartSize),
             Position = UDim2.new(0.5, 0, 0.5, -18),
             AnchorPoint = Vector2.new(0.5, 1),
             BackgroundTransparency = 1,
@@ -2582,6 +2593,9 @@ function Window:_playLoadingSplash()
 
             Parent = overlay,
         }, { ImageColor3 = "ContentColor" })
+
+        -- soft glow behind the icon, same helper every other accent glow in this codebase uses
+        iconGlow = self:CreateGlow(iconLabel, "AccentColor", 22, 1)
     end
 
     local titleLabel = self:Create("TextLabel", {
@@ -2600,11 +2614,12 @@ function Window:_playLoadingSplash()
         Parent = overlay,
     }, { TextColor3 = "ContentColor" })
 
+    local tipRestY = if icon then 36 else 22
     local tipLabel
     if #tips > 0 then
         tipLabel = self:Create("TextLabel", {
             Size = UDim2.fromScale(0.8, 0.08),
-            Position = UDim2.new(0.5, 0, 0.5, if icon then 36 else 22),
+            Position = UDim2.new(0.5, 0, 0.5, tipRestY + 6), -- starts a hair low, slides up as it fades in
             AnchorPoint = Vector2.new(0.5, 0),
             BackgroundTransparency = 1,
             TextSize = 14,
@@ -2617,37 +2632,93 @@ function Window:_playLoadingSplash()
         }, { TextColor3 = "ContentColor" })
     end
 
+    -- Thin fill bar under everything else, tracking real elapsed time against the splash's own
+    -- total duration - an actual progress readout, not just a decorative loop.
+    local barY = (if #tips > 0 then tipRestY + 26 else (if icon then 50 else 36))
+    local progressTrack = self:Create("Frame", {
+        Size = UDim2.fromOffset(120, 3),
+        Position = UDim2.new(0.5, 0, 0.5, barY),
+        AnchorPoint = Vector2.new(0.5, 0),
+        BorderSizePixel = 0,
+        ZIndex = constants.zIndex.loading,
+
+        BackgroundTransparency = 1, -- In = 0.85
+
+        Parent = overlay,
+    }, { BackgroundColor3 = "SurfaceStroke" })
+    self:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = progressTrack })
+
+    local progressFill = self:Create("Frame", {
+        Size = UDim2.fromScale(0, 1),
+        BorderSizePixel = 0,
+        ZIndex = constants.zIndex.loading,
+
+        BackgroundTransparency = 1, -- In = 0
+
+        Parent = progressTrack,
+    }, { BackgroundColor3 = "AccentColor" })
+    self:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = progressFill })
+
+    -- Real total time the splash stays up: the tip cycle's own length, floored by `duration` so
+    -- a single (or zero) tip doesn't flash by. The fill bar's own tween is timed to this exact
+    -- number, so it always finishes right as the splash starts fading out, never early or late.
+    local tipCycleTime = if #tips > 0 then #tips * config.tipHoldTime + (#tips - 1) * 0.15 else 0
+    local totalTime = math.max(config.duration, tipCycleTime)
+
     if iconLabel then
+        variables.tweenService
+            :Create(iconLabel, loadingPopInfo, { Size = UDim2.fromOffset(loadingIconSize, loadingIconSize) })
+            :Play()
         variables.tweenService:Create(iconLabel, loadingFadeInfo, { ImageTransparency = 0 }):Play()
+        if iconGlow then
+            variables.tweenService:Create(iconGlow, loadingFadeInfo, { Transparency = 0.75 }):Play()
+        end
     end
     variables.tweenService:Create(titleLabel, loadingFadeInfo, { TextTransparency = 0 }):Play()
+    variables.tweenService:Create(progressTrack, loadingFadeInfo, { BackgroundTransparency = 0.85 }):Play()
+    variables.tweenService:Create(progressFill, loadingFadeInfo, { BackgroundTransparency = 0 }):Play()
+    variables.tweenService
+        :Create(progressFill, TweenInfo.new(totalTime, Enum.EasingStyle.Linear), { Size = UDim2.fromScale(1, 1) })
+        :Play()
 
-    -- Cycle the tips (if any) the same way PlayGreeting cycles its texts, tracking how long that
-    -- actually took so a single (or zero) tip still holds the splash up for the full `duration`
-    -- floor rather than flashing by in one fade.
+    -- Cycle the tips (if any) the same way PlayGreeting cycles its texts, crossfading with a
+    -- slight upward slide (ticker feel) instead of a plain opacity swap. Tracks how long this
+    -- actually took so the wait below only ever makes up the difference to `totalTime`.
     local elapsed = 0
     if tipLabel then
         for i, tip in tips do
             tipLabel.Text = locale.resolve(tostring(tip))
-            variables.tweenService:Create(tipLabel, loadingFadeInfo, { TextTransparency = 0.4 }):Play()
+            tipLabel.Position = UDim2.new(0.5, 0, 0.5, tipRestY + 6)
+            variables.tweenService:Create(tipLabel, loadingTipSlideInfo, {
+                TextTransparency = 0.4,
+                Position = UDim2.new(0.5, 0, 0.5, tipRestY),
+            }):Play()
             task.wait(config.tipHoldTime)
             elapsed += config.tipHoldTime
             if i < #tips then
-                variables.tweenService:Create(tipLabel, loadingFadeInfo, { TextTransparency = 1 }):Play()
+                variables.tweenService:Create(tipLabel, loadingTipSlideInfo, {
+                    TextTransparency = 1,
+                    Position = UDim2.new(0.5, 0, 0.5, tipRestY - 6),
+                }):Play()
                 task.wait(0.15)
                 elapsed += 0.15
             end
         end
     end
 
-    if elapsed < config.duration then
-        task.wait(config.duration - elapsed)
+    if elapsed < totalTime then
+        task.wait(totalTime - elapsed)
     end
 
     if iconLabel then
         variables.tweenService:Create(iconLabel, loadingFadeInfo, { ImageTransparency = 1 }):Play()
+        if iconGlow then
+            variables.tweenService:Create(iconGlow, loadingFadeInfo, { Transparency = 1 }):Play()
+        end
     end
     variables.tweenService:Create(titleLabel, loadingFadeInfo, { TextTransparency = 1 }):Play()
+    variables.tweenService:Create(progressTrack, loadingFadeInfo, { BackgroundTransparency = 1 }):Play()
+    variables.tweenService:Create(progressFill, loadingFadeInfo, { BackgroundTransparency = 1 }):Play()
     if tipLabel then
         variables.tweenService:Create(tipLabel, loadingFadeInfo, { TextTransparency = 1 }):Play()
     end
