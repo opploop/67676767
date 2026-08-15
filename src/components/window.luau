@@ -2954,6 +2954,11 @@ function Window:_firstShow()
             { Size = UDim2.fromOffset(100, 4) }
         )
         :Play()
+    -- Same grow-and-fade, same moment - explicit ask to have the resize corner wake up
+    -- alongside the drag bar instead of just always having been there.
+    if self.resize then
+        self.resize:_reveal()
+    end
 
     self.animating = false
     self._revealing = false

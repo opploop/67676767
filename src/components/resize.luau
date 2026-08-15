@@ -105,16 +105,18 @@ function Resize.new(window)
 
     -- AnchorPoint (0.5, 0.5) means growing/shrinking Size on hover/drag never moves this point,
     -- so the small constant arcIconOffset correction stays valid across all three size states
-    -- without needing its own tween.
+    -- without needing its own tween. Starts fully hidden (transparent, zero size) rather than at
+    -- its usual rest state - see Resize:_reveal() below, called from the same point in
+    -- Window:_firstShow() the drag bar's own grow-in plays from, per an explicit ask to match it.
     self.icon = self.window:Create("ImageLabel", {
         Name = "Glyph",
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.new(0.5, arcIconOffset, 0.5, arcIconOffset),
-        Size = UDim2.fromOffset(arcImageSize, arcImageSize),
+        Size = UDim2.fromOffset(0, 0),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         Image = arcImage,
-        ImageTransparency = arcRestTransparency,
+        ImageTransparency = 1,
 
         Parent = self.grip,
     }, { ImageColor3 = "ContentColor" })
@@ -434,6 +436,23 @@ end
 -- own double-click already does.
 function Resize:ResetSize()
     self:_snapToDefault()
+end
+
+-- Grow-and-fade the icon in from nothing, called from the same point in Window:_firstShow() the
+-- drag bar's own dragCosmetic reveal plays from - same shape, same two TweenInfos, so the two
+-- read as one matched pair of "the window's controls waking up" rather than the bar arriving on
+-- its own and the resize corner just being there the whole time.
+function Resize:_reveal()
+    variables.tweenService
+        :Create(self.icon, TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            ImageTransparency = arcRestTransparency,
+        })
+        :Play()
+    variables.tweenService
+        :Create(self.icon, TweenInfo.new(1, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            Size = UDim2.fromOffset(arcImageSize, arcImageSize),
+        })
+        :Play()
 end
 
 return Resize
