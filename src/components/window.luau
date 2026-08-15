@@ -593,20 +593,20 @@ function Window.new(properties)
         -- same reasoning as self.main's own Active = true - stays clickable at any transparency
         Active = true,
 
-        -- Live-caught: StatBackground (a themed colour) landed close enough to self.main's own
-        -- background in practice to read as no dock at all - just the tabs floating directly on
-        -- the window, no visible surface behind the strip. segmentedpicker.luau's own dedicated
-        -- backdrop (see its self.main) sidesteps exactly this by not tying to a themed colour at
-        -- all - a fixed near-black that reads as "a dark card" against every theme's own accent,
-        -- rather than a colour that can end up blending into whatever's already behind it.
-        -- Matches that colour here for the same reason, on the same kind of element (a dedicated
-        -- backdrop wrapper, not the window body itself). Transparency stays literally 0.55, not
-        -- segmentedpicker's 0.5 - SetTransparency's "glass window" feature (below) tweens this
-        -- via 1 - 0.45 * windowOpacity, which lands on exactly 0.55 at the default full-opacity
-        -- windowOpacity of 1; drifting the baseline out of sync with that formula's own resting
-        -- value would just get silently overwritten back the next time it runs.
+        -- Live-caught (round 2): the colour fix alone still read as barely-there on most themes -
+        -- self.main itself is dark/near-black on most of them too, so even a matching near-black
+        -- dock at 0.55 transparency (45% opaque) was too thin a wash to read as a distinct card
+        -- against a background that's already close to the same shade. Dropped to 0.2 (80%
+        -- opaque) - segmentedpicker's own dedicated backdrop (see its self.main) reads clearly at
+        -- 0.5, but that card sits on ordinary tab-page content, not directly on self.main's own
+        -- background the way this dock does, so it needed to go noticeably darker than
+        -- segmentedpicker's own value to actually separate from what's behind it here.
+        -- SetTransparency's "glass window" feature (below) tweens this via
+        -- 1 - dockOpacityFactor * windowOpacity - kept that formula's own resting value in sync
+        -- with this baseline (both now target 0.2 at the default full-opacity windowOpacity of 1)
+        -- so it doesn't get silently overwritten back the next time that runs.
         BackgroundColor3 = Color3.fromRGB(24, 24, 24),
-        BackgroundTransparency = 0.55,
+        BackgroundTransparency = 0.2,
 
         Parent = self.main,
     })
@@ -934,7 +934,7 @@ end
 -- rather than a stack of independently-faded pieces. Cards ride along for free: ElementTransparency
 -- is an ordinary themeProperty already, so pushing a scaled value through ChangeTheme reaches
 -- every card the same way any other live theme change does. self.main and self.tabDock aren't
--- theme-bound (their own baselines - fully opaque and 0.55 - are plain literals set once at
+-- theme-bound (their own baselines - fully opaque and 0.2 - are plain literals set once at
 -- creation, not read from the theme), so those two get tweened directly instead.
 --
 -- Reaching literal BackgroundTransparency 1 is safe: a plain Frame's default Active is false,
@@ -954,7 +954,7 @@ function Window:SetTransparency(percent)
     local info = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     variables.tweenService:Create(self.main, info, { BackgroundTransparency = 1 - self.windowOpacity }):Play()
     variables.tweenService
-        :Create(self.tabDock, info, { BackgroundTransparency = 1 - 0.45 * self.windowOpacity })
+        :Create(self.tabDock, info, { BackgroundTransparency = 1 - 0.8 * self.windowOpacity })
         :Play()
 end
 
