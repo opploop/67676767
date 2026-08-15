@@ -44,13 +44,19 @@ local constants = require(utility.constants)
 -- Touch-friendly hit target, centred on the corner it straddles.
 local gripSize = 40
 
--- WindUI's own resize glyph, checked directly in their source (ResizeHandle's ImageLabel) -
--- a soft diagonal expand mark meant to read at a glance sitting half outside the window. Was
--- 26px - live-caught reading as tiny once it moved from a 40px inset grip to straddling the
--- corner, where it has to hold its own against the game visible behind half of it.
-local arcImageSize = 34
-local arcImageHoverSize = 40
-local arcImageDragSize = 37
+-- WindUI's own resize glyph, checked directly in their source (ResizeHandle's ImageLabel) - a
+-- curved diagonal swoosh mark. Downloaded and measured the actual asset: the visible stroke only
+-- fills a 130x130 box inside the image's full 420x420 canvas (WindUI itself renders it at 96px
+-- inside a 32px hit box, i.e. already 3x oversized on purpose) - rendering it anywhere near our
+-- old 26-34px range left the *visible mark* at an unreadable ~8-10px, which is what kept reading
+-- as tiny no matter how much the outer box grew. Sized up to match roughly the same overshoot
+-- WindUI itself uses, and the visible stroke also isn't centred in its own canvas (its own
+-- bounding box centres about 9.3% of the render size toward the bottom-right) - arcIconOffset
+-- below corrects for that so the *stroke*, not the image's empty canvas, centres on the corner.
+local arcImageSize = 80
+local arcImageHoverSize = 92
+local arcImageDragSize = 86
+local arcIconOffset = -8 -- pulls the visibly-offset stroke back onto the corner point, both axes
 local arcImage = "rbxassetid://120997033468887"
 -- WindUI's own three-state opacity: quite faint at rest, brighter on hover, fully opaque while
 -- actually dragging. Fainter than this grip needed at rest when it lived inside the card - it's
@@ -97,10 +103,13 @@ function Resize.new(window)
         Parent = self.window.main,
     })
 
+    -- AnchorPoint (0.5, 0.5) means growing/shrinking Size on hover/drag never moves this point,
+    -- so the small constant arcIconOffset correction stays valid across all three size states
+    -- without needing its own tween.
     self.icon = self.window:Create("ImageLabel", {
         Name = "Glyph",
         AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.5),
+        Position = UDim2.new(0.5, arcIconOffset, 0.5, arcIconOffset),
         Size = UDim2.fromOffset(arcImageSize, arcImageSize),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
@@ -110,9 +119,25 @@ function Resize.new(window)
         Parent = self.grip,
     }, { ImageColor3 = "ContentColor" })
 
-    -- Same soft white glow the drag bar sits on (dragCosmetic in drag.luau, same helper, same
-    -- colour/blur/transparency) - constant, not hover-gated, exactly like the bar's own.
-    self.window:CreateGlow(self.icon, Color3.fromRGB(255, 255, 255), 10, 0.5)
+    -- Not glowing self.icon directly - it's a mostly-empty 80px+ square with one small stroke in
+    -- the corner of it (see the sizing comment above), so a shadow shaped to its own bounds reads
+    -- as a flat square smear behind a tiny mark instead of a glow around it. A small round frame
+    -- sized to the *stroke*, not the image's canvas, gives the same soft halo the drag bar's own
+    -- rounded pill gets from the same CreateGlow call.
+    local glowAnchor = self.window:Create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(0.5, arcIconOffset, 0.5, arcIconOffset),
+        Size = UDim2.fromOffset(22, 22),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+
+        Parent = self.grip,
+    })
+    self.window:Create("UICorner", {
+        CornerRadius = UDim.new(0.5, 0),
+        Parent = glowAnchor,
+    })
+    self.window:CreateGlow(glowAnchor, Color3.fromRGB(255, 255, 255), 10, 0.5)
 
     self.interact = self.window:Create("TextButton", {
         Size = UDim2.fromScale(1, 1),
