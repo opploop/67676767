@@ -42,8 +42,12 @@ local gripSize = 40
 local arcBoxSize = 34
 local arcStrokeWeight = 8
 local arcColorKey = "PlaceholderColor"
-local arcRestTransparency = 0.25
-local arcHoverTransparency = 0.05
+-- Devlog 8 fix: 0.25 (confirmed in the Figma mockup) barely registered live - the mockup's
+-- preview card rendered the same arc at 160px+, so the same opacity read as plainly visible
+-- there but nearly vanished at the real 34px corner against the game behind it. Same colour,
+-- much more opaque, so it's actually legible at the size it really ships at.
+local arcRestTransparency = 0.05
+local arcHoverTransparency = 0
 local arcRestOffset = Vector2.new(-3, -3) -- iconGroup's resting Position, AnchorPoint (1,1)
 
 local snapBackInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
