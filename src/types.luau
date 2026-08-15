@@ -582,8 +582,12 @@ export type Window = {
     SetTabStyle: (self: Window, style: "white" | "accent") -> (), -- switch the shared tab pill live
     SetTabAccentColor: (self: Window, color: Color3) -> (), -- recolour the accent pill + its glow
     SetTabAccentGlow: (self: Window, shown: boolean) -> (), -- toggle the soft glow under the accent pill
-    -- live font swap: "Auto" (brand font) | "Builder" | "Gotham" | "Monospace"
+    -- live font swap: "Auto" (brand font) or any built-in Roblox font name
     SetFont: (self: Window, name: string) -> (),
+    -- Devlog 7 "glass window": 0 (opaque, default) to 100 (fully invisible)
+    SetTransparency: (self: Window, percent: number) -> (),
+    -- Devlog 7: frosts the game behind the window via a Lighting blur
+    SetAcrylic: (self: Window, enabled: boolean, size: number?) -> (),
     SetLocale: (self: Window, localeId: string) -> (),
     SetTranslator: (self: Window, translator: Translator?) -> (),
     RegisterTranslations: (self: Window, translations: Translations) -> (),

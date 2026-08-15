@@ -16,6 +16,7 @@ local log = require(utility.log)
 local hapticEngine = require(utility.HapticEngine)
 local windowSizing = require(utility.windowSizing)
 local icons = require(utility.icons)
+local acrylic = require(utility.acrylic)
 local chrome = require(script.Parent.chrome)
 local search = require(script.Parent.search)
 
@@ -74,15 +75,26 @@ local function resolveCustomSize(value): Vector2?
     return nil
 end
 
--- Devlog 6 Settings > Font picker. "auto" is the brand font (the default - a custom-downloaded
--- family via variables.brandFont); the rest are plain built-in Roblox font families. Keyed
--- lowercase so SetFont can match case-insensitively the same way ChangeTheme's theme names do.
-local fontChoices = {
-    auto = true,
-    builder = Enum.Font.BuilderSans,
-    gotham = Enum.Font.Gotham,
-    monospace = Enum.Font.RobotoMono,
-}
+-- Devlog 6/7 Settings > Font picker. "auto" is the brand font (the default - a custom-downloaded
+-- family via variables.brandFont); every other entry is a plain built-in Roblox font, all of
+-- them (Devlog 7 "complete font picker", was just 4) via Enum.Font:GetEnumItems(). Keyed
+-- lowercase so SetFont can match case-insensitively the same way ChangeTheme's theme names do;
+-- fontOptionNames keeps the proper-cased names for the Settings dropdown, which already has its
+-- own live search built in - exactly what "filter by name" asks for, no new search UI needed.
+local fontChoices: { [string]: Enum.Font } = {}
+local fontOptionNames = { "Auto" }
+for _, item in Enum.Font:GetEnumItems() do
+    fontChoices[string.lower(item.Name)] = item
+    table.insert(fontOptionNames, item.Name)
+end
+table.sort(fontOptionNames, function(a, b)
+    if a == "Auto" then
+        return true
+    elseif b == "Auto" then
+        return false
+    end
+    return a < b
+end)
 
 -- Same family, a different weight - Font.fromEnum only ever gives the enum's own default
 -- weight, so re-derive a Font at the weight we actually want from its family name instead.
@@ -214,6 +226,8 @@ function Window.new(properties)
         size = fitWindowSize(customSize),
         customSize = customSize,
         fontChoice = "auto",
+        windowOpacity = 1, -- Devlog 7 "window transparency": 1 = fully opaque (default)
+        acrylicEnabled = false,
         instances = {},
         connections = {},
 
@@ -831,13 +845,13 @@ function Window:ChangeTheme(theme)
     self:_syncLiveAnimation()
 end
 
--- Devlog 6 Settings > Font picker: "Auto" (the brand font), "Builder", "Gotham", or
--- "Monospace". Just a partial ChangeTheme under the hood - Font/TitleFont are already ordinary
+-- Devlog 6/7 Settings > Font picker: "Auto" (the brand font) or any built-in Roblox font by
+-- name. Just a partial ChangeTheme under the hood - Font/TitleFont are already ordinary
 -- themeProperties (every FontFace = "Font"/"TitleFont" binding made via Create), so swapping
 -- them through here reaches every live element the same way any other theme change does.
 function Window:SetFont(name)
     local key = string.lower(tostring(name or "auto"))
-    if fontChoices[key] == nil then
+    if key ~= "auto" and fontChoices[key] == nil then
         log.warn("Rayfield: unknown font '" .. tostring(name) .. "', using Auto")
         key = "auto"
     end
@@ -854,6 +868,34 @@ function Window:SetFont(name)
     end
 
     self:ChangeTheme({ Font = bodyFont, TitleFont = titleFont })
+end
+
+-- Devlog 7 "glass window": 0 (fully opaque, default) to 100 (fully invisible). Scales the
+-- window frame, the tab dock, and every card uniformly so it all reads as one sheet of glass
+-- rather than a stack of independently-faded pieces. Cards ride along for free: ElementTransparency
+-- is an ordinary themeProperty already, so pushing a scaled value through ChangeTheme reaches
+-- every card the same way any other live theme change does. self.main and self.tabDock aren't
+-- theme-bound (their own baselines - fully opaque and 0.55 - are plain literals set once at
+-- creation, not read from the theme), so those two get tweened directly instead.
+function Window:SetTransparency(percent)
+    percent = math.clamp(percent, 0, 100)
+    self.windowOpacity = 1 - percent / 100
+
+    self:ChangeTheme({ ElementTransparency = 1 - self.windowOpacity })
+
+    local info = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    variables.tweenService:Create(self.main, info, { BackgroundTransparency = 1 - self.windowOpacity }):Play()
+    variables.tweenService
+        :Create(self.tabDock, info, { BackgroundTransparency = 1 - 0.45 * self.windowOpacity })
+        :Play()
+end
+
+-- Devlog 7 "Acrylic Blur": frosts the game behind the window via a Lighting.BlurEffect (see
+-- acrylic.luau for why that, and not the DepthOfFieldEffect trick some other UI libraries lean
+-- on, is the right tool here). size is BlurEffect.Size (roughly 0-56); omit for a sane default.
+function Window:SetAcrylic(enabled, size)
+    self.acrylicEnabled = enabled and true or false
+    acrylic.setEnabled(self.acrylicEnabled, size)
 end
 
 function Window:_refreshElementThemes()
@@ -1911,10 +1953,30 @@ function Window:_buildSettingsUI()
 
     self.rfSettings:CreateDropdown({
         name = "Font",
-        options = { "Auto", "Builder", "Gotham", "Monospace" },
+        placeholder = "Search fonts...",
+        options = fontOptionNames,
         value = "Auto",
         callback = function(value)
             self:SetFont(value)
+        end,
+    })
+
+    self.rfSettings:CreateSlider({
+        name = "Window transparency",
+        range = { 0, 100 },
+        value = 0,
+        suffix = "%",
+        callback = function(value)
+            self:SetTransparency(value)
+        end,
+    })
+
+    self.rfSettings:CreateToggle({
+        name = "Acrylic blur",
+        description = "Frost the game behind a see-through window.",
+        value = false,
+        callback = function(value)
+            self:SetAcrylic(value)
         end,
     })
 
@@ -2044,6 +2106,123 @@ function Window:_buildSettingsUI()
             end,
         })
     end
+
+    self:_buildSessionDashboard()
+end
+
+-- Devlog 7 "live session dashboard": player name, players on the server, uptime, and FPS,
+-- refreshed every second. A plain card built straight onto rfSettings.tabPage rather than
+-- through Tab:_register - it's a settings-only utility display, not a real element type devs
+-- create, so it skips the reveal-fade system entirely and just renders opaque from the start.
+function Window:_buildSessionDashboard()
+    self.rfSettings:CreateSection({ name = "Session" })
+
+    local card = self:Create("Frame", {
+        Size = UDim2.new(1, -20, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BorderSizePixel = 0,
+        Name = "SessionDashboard",
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = 0,
+
+        Parent = self.rfSettings.tabPage,
+    }, { BackgroundTransparency = "ElementTransparency" })
+    self:StyleElementBody(card)
+
+    self:Create("UIPadding", {
+        PaddingLeft = UDim.new(0, 20),
+        PaddingRight = UDim.new(0, 20),
+        PaddingTop = UDim.new(0, 14),
+        PaddingBottom = UDim.new(0, 14),
+
+        Parent = card,
+    })
+
+    self:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Vertical,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 8),
+
+        Parent = card,
+    })
+
+    local function buildRow(order, labelText)
+        local row = self:Create("Frame", {
+            Size = UDim2.new(1, 0, 0, 16),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            LayoutOrder = order,
+
+            Parent = card,
+        })
+        self:Create("UIListLayout", {
+            FillDirection = Enum.FillDirection.Horizontal,
+            VerticalAlignment = Enum.VerticalAlignment.Center,
+            HorizontalFlex = Enum.UIFlexAlignment.SpaceBetween,
+
+            Parent = row,
+        })
+        self:Create("TextLabel", {
+            Text = locale.t(labelText),
+            Size = UDim2.fromOffset(0, 16),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            TextSize = 14,
+            TextXAlignment = Enum.TextXAlignment.Left,
+
+            Parent = row,
+        }, { TextColor3 = "PlaceholderColor", FontFace = "Font" })
+        local value = self:Create("TextLabel", {
+            Text = "-",
+            Size = UDim2.fromOffset(0, 16),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            TextSize = 14,
+            TextXAlignment = Enum.TextXAlignment.Right,
+            LayoutOrder = 1,
+
+            Parent = row,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+        return value
+    end
+
+    local playerValue = buildRow(1, "Player")
+    local playersValue = buildRow(2, "Players online")
+    local uptimeValue = buildRow(3, "Uptime")
+    local fpsValue = buildRow(4, "FPS")
+
+    local playersService = game:GetService("Players")
+    local localPlayer = playersService.LocalPlayer
+    local sessionStart = os.clock()
+    local frameCount = 0
+
+    self:Connect(variables.runService.RenderStepped, function()
+        frameCount += 1
+    end)
+
+    local function formatUptime(seconds)
+        seconds = math.floor(seconds)
+        local h = math.floor(seconds / 3600)
+        local m = math.floor((seconds % 3600) / 60)
+        local s = seconds % 60
+        if h > 0 then
+            return string.format("%d:%02d:%02d", h, m, s)
+        end
+        return string.format("%d:%02d", m, s)
+    end
+
+    task.spawn(function()
+        while not self.unloaded do
+            playerValue.Text = if localPlayer then localPlayer.Name else "-"
+            playersValue.Text = tostring(#playersService:GetPlayers())
+            uptimeValue.Text = formatUptime(os.clock() - sessionStart)
+            fpsValue.Text = tostring(frameCount) -- frames counted over the last ~1s window
+            frameCount = 0
+            task.wait(1)
+        end
+    end)
 end
 
 function Window:SaveSettings()
@@ -2248,7 +2427,7 @@ function Window:_firstShow()
         :Create(
             self.main,
             TweenInfo.new(1, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut),
-            { BackgroundTransparency = 0, Size = self.size }
+            { BackgroundTransparency = 1 - self.windowOpacity, Size = self.size }
         )
         :Play()
     task.wait(0.85) -- let the frame actually read as a window before anything shows on top of it
@@ -3255,6 +3434,12 @@ end
 
 function Window:Unload()
     self.unloaded = true
+    -- Acrylic is a global Lighting effect, not scoped to this window's own ScreenGui - leaving
+    -- it on here would leak a permanent blur into the game with nothing left to ever turn it
+    -- back off.
+    if self.acrylicEnabled then
+        acrylic.setEnabled(false)
+    end
     -- drop our effects and release the gui they hung on, but leave the enabled flag alone -
     -- another window may still be open and haptics arent ours to switch off for it
     hapticEngine.teardown()

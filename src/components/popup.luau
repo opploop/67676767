@@ -27,6 +27,14 @@ local enterInfo = TweenInfo.new(0.5, Enum.EasingStyle.Exponential, Enum.EasingDi
 local fadeLong = TweenInfo.new(0.4, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out) -- fill + stroke
 local fadeShort = TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out) -- content + shadow
 local backdropInfo = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
+-- Devlog 7 "smooth dialog motion": a light scale pop alongside the existing fade/drift, tuned
+-- with Back rather than the literal Elastic easing style - Elastic overshoots and settles in
+-- several visible bounces, which reads as springy/toylike on something as small as this card;
+-- Back gives the same "landed with a little life in it" feel in one clean overshoot.
+local scaleEnterInfo = TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local scaleExitInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+local scaleFrom = 0.9 -- starting scale on enter
+local scaleTo = 0.96 -- scale settled to on exit (a subtle shrink-away, not a full collapse)
 
 -- Card metrics.
 local cardWidth = 400
@@ -170,6 +178,15 @@ function Popup:_build()
         Parent = self.screenGui,
     })
     self:_fade(self.card, "BackgroundTransparency", 0)
+
+    -- Devlog 7: the light elastic-ish scale pop on open/close (see _show/Close) - a UIScale
+    -- rather than resizing Size directly, so it scales everything inside uniformly (text
+    -- included) around the card's own centre without disturbing the fixed height computed below.
+    self.cardScale = window:Create("UIScale", {
+        Scale = scaleFrom,
+
+        Parent = self.card,
+    })
 
     window:Create("UIGradient", {
         Rotation = 270,
@@ -750,6 +767,7 @@ function Popup:_show()
     hapticEngine.notify()
 
     variables.tweenService:Create(self.card, enterInfo, { Position = UDim2.new(0.5, 0, 0.5, 0) }):Play()
+    variables.tweenService:Create(self.cardScale, scaleEnterInfo, { Scale = 1 }):Play()
 
     for _, entry in self._reveal do
         local info = if entry.instance == self.backdrop then backdropInfo else fadeLong
@@ -779,6 +797,7 @@ function Popup:Close()
     end
 
     variables.tweenService:Create(self.card, fadeShort, { Position = UDim2.new(0.5, 0, 0.5, 10) }):Play()
+    variables.tweenService:Create(self.cardScale, scaleExitInfo, { Scale = scaleTo }):Play()
 
     for _, entry in self._reveal do
         variables.tweenService:Create(entry.instance, fadeShort, { [entry.prop] = 1 }):Play()

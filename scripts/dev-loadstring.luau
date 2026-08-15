@@ -116,6 +116,7 @@ end
 
 local utility = makeFolder("utility", Rayfield)
 local utilityFiles = {
+    "acrylic",
     "assetResolver",
     "clipboard",
     "colors",
