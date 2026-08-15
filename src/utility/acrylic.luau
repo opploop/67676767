@@ -5,35 +5,54 @@
 -- License, v. 2.0. If a copy of the MPL was not distributed with this
 -- file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
--- Devlog 7 "Acrylic Blur", reworked: the blur has to live ON the window, not on the game behind
--- it. A first pass used a Lighting.BlurEffect, which reads correctly as "frosted glass in front of
--- a soft-focus world" - but that's backwards from what was asked for: the whole 3D viewport went
--- soft while the window itself stayed perfectly crisp, when the window is the thing that should
--- look like frosted glass. Roblox has no property that blurs a single 2D GuiObject or a screen
--- region behind one - Lighting post-processing only ever touches the 3D render, uniformly, for
--- the whole client - so an actual per-pixel blur of "whatever's behind this window" would mean
--- capturing the 3D scene through a second camera and re-rendering it every frame just to sit
--- behind the window, which is expensive and fragile for what's meant to be a visual polish knob.
---
--- Instead this fakes the *look* of frosted glass entirely within the UI layer: a soft translucent
--- wash layered on top of each surface's own background, with an off-angle gradient so the wash
--- reads as uneven light scatter instead of a flat tint - the same trick real glassmorphism CSS
--- uses (a translucent overlay + subtle gradient, no actual blur convolution). Zero render cost,
--- confined entirely to the window's own instances, and never touches Lighting or the game world.
+-- Devlog 7 "frost the game behind the window": a Lighting.BlurEffect toggled on/off. Works
+-- because post-processing effects in Lighting only ever touch the 3D viewport render - the 2D
+-- GUI layer composites on top afterward untouched - so the game world blurs while the window
+-- itself (and every other ScreenGui) stays perfectly crisp, reading as a frosted sheet of glass
+-- sitting in front of a soft-focus world. BlurEffect over DepthOfFieldEffect (the technique
+-- WindUI/Fluent use, see WindUI's src/utils/Acrylic) on purpose: DepthOfField's blur strength
+-- varies with distance from the in-focus point, which is the wrong shape for "uniformly frost
+-- everything" - BlurEffect's single Size property blurs the whole frame evenly regardless of
+-- depth. Uses its own dedicated, uniquely-named effect instance rather than touching (or
+-- disabling) any BlurEffect the game itself already has in Lighting, so this never fights with
+-- or clobbers a host game's own visual effects.
 
 local acrylic = {}
 
--- Default wash strength: how opaque the frosted wash gets at its most opaque point, 0-1.
-acrylic.defaultStrength = 0.16
+local effectName = "__RayfieldAcrylicBlur"
+local blurInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
-local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local lighting = game:GetService("Lighting")
+local tweenService = game:GetService("TweenService")
 
--- Tweens a pre-built overlay (see Window:_buildAcrylicOverlay) toward "frosted" or "off".
--- strength: how opaque the wash reads at its most opaque point, 0-1 (defaults to acrylic.defaultStrength).
-function acrylic.apply(overlay: Frame, enabled: boolean, strength: number?)
-    local clamped = math.clamp(strength or acrylic.defaultStrength, 0, 1)
-    local targetTransparency = if enabled then 1 - clamped else 1
-    game:GetService("TweenService"):Create(overlay, tweenInfo, { BackgroundTransparency = targetTransparency }):Play()
+local effect: BlurEffect? = nil
+
+local function ensure(): BlurEffect
+    if effect and effect.Parent then
+        return effect
+    end
+    local existing = lighting:FindFirstChild(effectName)
+    if existing and existing:IsA("BlurEffect") then
+        effect = existing
+        return existing
+    end
+    local blur = Instance.new("BlurEffect")
+    blur.Name = effectName
+    blur.Size = 0
+    blur.Parent = lighting
+    effect = blur
+    return blur
+end
+
+-- size: blur radius in Roblox's own BlurEffect.Size units (0-56ish is the sane range; defaults
+-- to a moderate 18 - noticeably frosted without turning the background to mush).
+function acrylic.setEnabled(enabled: boolean, size: number?)
+    local blur = ensure()
+    tweenService:Create(blur, blurInfo, { Size = if enabled then (size or 18) else 0 }):Play()
+end
+
+function acrylic.isEnabled(): boolean
+    return effect ~= nil and effect.Size > 0
 end
 
 return acrylic
