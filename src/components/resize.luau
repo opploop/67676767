@@ -71,16 +71,26 @@ function Resize.new(window)
         Parent = self.window.main,
     })
 
-    local glyph = icons.find("move-diagonal-2", "lucide") or icons.find("corner-right-down", "lucide")
+    -- craft's expand-corner-02-stroke (a NW/SE double-headed diagonal arrow) over lucide's own
+    -- resize-shaped icons (maximize-2/move-diagonal-2) - lucide doesn't have the one asked for.
+    -- Falls back through a couple of near-equivalents from other packs before the hand-drawn bars.
+    local glyph = icons.find("expand-corner-02-stroke", "craft")
+        or icons.find("expand-corner-01-stroke", "craft")
+        or icons.find("corner-down-right", "lucide")
     if glyph then
+        -- craft is a spritesheet pack (see icons.luau) - the icon's actual pixels are a rect cut
+        -- out of a shared sheet image, not the whole file, so ImageRectSize/Offset matter here
+        -- and not just Image the way a flat-pack icon (lucide etc.) would.
         self.icon = self.window:Create("ImageLabel", {
             AnchorPoint = Vector2.new(1, 1),
-            Position = UDim2.fromScale(1, 1),
-            Size = UDim2.fromOffset(14, 14),
+            Position = UDim2.new(1, -3, 1, -3),
+            Size = UDim2.fromOffset(20, 20),
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
             Image = glyph.Image,
-            ImageTransparency = 0.55,
+            ImageRectSize = glyph.ImageRectSize or Vector2.zero,
+            ImageRectOffset = glyph.ImageRectOffset or Vector2.zero,
+            ImageTransparency = 0.25,
 
             Parent = self.grip,
         }, { ImageColor3 = "PlaceholderColor" })
@@ -96,7 +106,7 @@ function Resize.new(window)
                 Rotation = -45,
                 Size = UDim2.fromOffset(8 - i * 2, 2),
                 BorderSizePixel = 0,
-                BackgroundTransparency = 0.55,
+                BackgroundTransparency = 0.25,
 
                 Parent = self.grip,
             }, { BackgroundColor3 = "PlaceholderColor" })
@@ -116,7 +126,7 @@ function Resize.new(window)
 
     -- Brighten on hover so the grip reads as interactive without shouting for attention at rest.
     local function setHoverTransparency(hovering)
-        local target = if hovering then 0.15 else 0.55
+        local target = if hovering then 0.05 else 0.25
         if self.icon then
             variables.tweenService:Create(self.icon, hoverInfo, { ImageTransparency = target }):Play()
         else

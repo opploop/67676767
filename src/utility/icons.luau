@@ -95,8 +95,20 @@ function icons.find(name: string, pack: string?): IconEntry?
         if not entry or not entry.Image then
             return nil
         end
+        -- entry.Image is an index into data.Spritesheets (e.g. 4), not a usable rbxassetid on
+        -- its own - a spritesheet icon pack packs many icons' rects onto a handful of shared
+        -- sheet images, and this is which one to slice this icon's rect out of. Every
+        -- geist/craft lookup was returning that bare number as Image until now, which Roblox
+        -- silently renders as nothing (no error, just an empty ImageLabel). tostring() matters:
+        -- entry.Image decodes as a Lua number, but Spritesheets' own keys decode as strings (the
+        -- JSON-shaped source has them quoted) - a number 4 and a string "4" are different table
+        -- keys in Lua, so the unconverted lookup silently missed every single time.
+        local sheet = data.Spritesheets and data.Spritesheets[tostring(entry.Image)]
+        if not sheet then
+            return nil
+        end
         return {
-            Image = entry.Image,
+            Image = sheet,
             ImageRectSize = entry.ImageRectSize,
             ImageRectOffset = entry.ImageRectPosition,
         }
