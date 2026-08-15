@@ -45,9 +45,13 @@ local constants = require(utility.constants)
 local gripSize = 40
 
 -- WindUI's own resize glyph, checked directly in their source (ResizeHandle's ImageLabel) -
--- a soft diagonal expand mark meant to read at a glance sitting half outside the window.
+-- a soft diagonal expand mark meant to read at a glance sitting half outside the window. Was
+-- 26px - live-caught reading as tiny once it moved from a 40px inset grip to straddling the
+-- corner, where it has to hold its own against the game visible behind half of it.
+local arcImageSize = 34
+local arcImageHoverSize = 40
+local arcImageDragSize = 37
 local arcImage = "rbxassetid://120997033468887"
-local arcImageSize = 26
 -- WindUI's own three-state opacity: quite faint at rest, brighter on hover, fully opaque while
 -- actually dragging. Fainter than this grip needed at rest when it lived inside the card - it's
 -- not sitting on a solid background anymore, it's half over whatever's behind the window.
@@ -56,7 +60,9 @@ local arcHoverTransparency = 0.35
 local arcDragTransparency = 0
 
 local snapBackInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-local hoverInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+-- Same feel as the drag bar's own hover/grab animation (dragCosmetic in drag.luau) - a small
+-- Back/Out pop rather than a plain linear-ish ease, so growing on hover reads as a springy nudge.
+local hoverInfo = TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
 -- Two clicks this close together are a double-click; anything slower is two separate
 -- single clicks (the second one just starts a fresh drag).
@@ -104,6 +110,10 @@ function Resize.new(window)
         Parent = self.grip,
     }, { ImageColor3 = "ContentColor" })
 
+    -- Same soft white glow the drag bar sits on (dragCosmetic in drag.luau, same helper, same
+    -- colour/blur/transparency) - constant, not hover-gated, exactly like the bar's own.
+    self.window:CreateGlow(self.icon, Color3.fromRGB(255, 255, 255), 10, 0.5)
+
     self.interact = self.window:Create("TextButton", {
         Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
@@ -113,21 +123,25 @@ function Resize.new(window)
         Parent = self.grip,
     })
 
-    -- Three states, matching WindUI's own: faint at rest, brighter on hover, fully opaque while
-    -- actually dragging (covers touch, which never fires MouseEnter/MouseLeave) - so the grip
-    -- reads as interactive without shouting for attention sitting over the game behind it.
-    local function setIconOpacity(target)
-        variables.tweenService:Create(self.icon, hoverInfo, { ImageTransparency = target }):Play()
+    -- Three states, matching WindUI's own opacity scheme, plus the drag bar's own "grows a
+    -- little on hover/grab" pop (dragCosmetic's MouseEnter/InputBegan tweens in drag.luau) - so
+    -- the grip reads as interactive without shouting for attention sitting over the game behind
+    -- it, and covers touch (which never fires MouseEnter/MouseLeave) the same way the bar does.
+    local function setIconState(transparency, size)
+        variables.tweenService:Create(self.icon, hoverInfo, {
+            ImageTransparency = transparency,
+            Size = UDim2.fromOffset(size, size),
+        }):Play()
     end
 
     self.window:Connect(self.interact.MouseEnter, function()
         if not self.resizing then
-            setIconOpacity(arcHoverTransparency)
+            setIconState(arcHoverTransparency, arcImageHoverSize)
         end
     end)
     self.window:Connect(self.interact.MouseLeave, function()
         if not self.resizing then
-            setIconOpacity(arcRestTransparency)
+            setIconState(arcRestTransparency, arcImageSize)
         end
     end)
     -- MouseEnter/MouseLeave don't fire for touch - a tap both starts the drag AND should pop the
@@ -179,7 +193,7 @@ function Resize.new(window)
         end
         self.resizing = false
         commitResize()
-        setIconOpacity(arcRestTransparency)
+        setIconState(arcRestTransparency, arcImageSize)
     end
 
     -- Double-click: snap back to the window's original screen-fit size instead of starting a
@@ -236,7 +250,7 @@ function Resize.new(window)
         self._lastClickAt = now
 
         self.resizing = true
-        setIconOpacity(arcDragTransparency)
+        setIconState(arcDragTransparency, arcImageDragSize)
         dragStartMouse = variables.userInputService:GetMouseLocation()
         dragStartSize = Vector2.new(self.window.main.Size.X.Offset, self.window.main.Size.Y.Offset)
         dragStartCentreAbs = self.window.main.AbsolutePosition
