@@ -94,16 +94,29 @@ function Resize.new(window)
     })
 
     -- The arc is the same "clip a full circle" trick used elsewhere in this codebase: a circle
-    -- twice iconGroup's own size, corner-anchored so its own bottom-right point lands on the clip
-    -- box's bottom-right point - only the quarter of the circle inside the box ever renders.
-    -- Where that clip cuts the stroke off (both open ends of the visible arc) reads as a flat,
-    -- square cut - UIStroke has no equivalent of a rounded line cap on a closed shape like this -
-    -- so two small round dots are added by hand at those exact two points to fake it.
+    -- twice arcBoxSize, corner-anchored so its own bottom-right point lands on the clip box's
+    -- bottom-right point - only the quarter of the circle inside the box ever renders.
+    --
+    -- The clip box itself is arcBoxSize + half the stroke weight, not arcBoxSize on the nose -
+    -- live-caught what that half-weight of slack actually buys: a UIStroke's width straddles the
+    -- shape's true edge (half in, half out), so right at the two open ends of the visible arc
+    -- (where the circle is tangent to the box) the outer half of that width falls outside a
+    -- box sized exactly to the circle's own radius and gets clipped away, tapering the last
+    -- stretch of the stroke down to half thickness - a "banana" silhouette, not a clean uniform
+    -- curve. The extra margin keeps the *entire* ring width inside the box at every angle instead.
+    -- Two small round dots at those same two points (now with room to sit fully inside the
+    -- enlarged box rather than straddling its edge) fake the rounded line caps UIStroke has no
+    -- equivalent of on a closed shape like this - drawn after the ring, so they also paper over
+    -- the sliver of the *other* 270° of the circle the wider box now just barely lets through
+    -- right at each corner.
+    local arcMargin = arcStrokeWeight / 2
+    local clipSize = arcBoxSize + arcMargin
+
     self.iconGroup = self.window:Create("Frame", {
         Name = "IconGroup",
         AnchorPoint = Vector2.new(1, 1),
         Position = UDim2.new(1, arcRestOffset.X, 1, arcRestOffset.Y),
-        Size = UDim2.fromOffset(arcBoxSize, arcBoxSize),
+        Size = UDim2.fromOffset(clipSize, clipSize),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         ClipsDescendants = true,
@@ -128,12 +141,13 @@ function Resize.new(window)
     self.arcStroke = self.window:Create("UIStroke", {
         Thickness = arcStrokeWeight,
         Transparency = arcRestTransparency,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 
         Parent = arcCircle,
     }, { Color = arcColorKey })
 
     self.arcCaps = {}
-    for _, point in { Vector2.new(arcBoxSize, 0), Vector2.new(0, arcBoxSize) } do
+    for _, point in { Vector2.new(arcBoxSize + arcMargin, arcMargin), Vector2.new(arcMargin, arcBoxSize + arcMargin) } do
         local cap = self.window:Create("Frame", {
             Name = "ArcCap",
             AnchorPoint = Vector2.new(0.5, 0.5),
