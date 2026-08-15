@@ -158,11 +158,13 @@ function Resize.new(window)
     local dragStartSize = Vector2.zero
     local dragStartCentreAbs = Vector2.zero
 
-    -- The exact same exponential-smoothing constant drag.luau's own mainRemaining uses, for the
-    -- same "weighted, slightly elastic" follow feel on the window itself while its size changes -
-    -- requested outright ("a mesma animação do drag handle"). A per-frame lerp toward the target
-    -- instead of a fresh tween every frame, same technique and same reasoning as the drag handle.
+    -- The exact same exponential-smoothing constants drag.luau's own mainRemaining/barRemaining
+    -- use - main (the window body) lags noticeably behind its own target; the bar tracks its own
+    -- target almost instantly, which is what actually reads as "elastic": the bar stays close to
+    -- the cursor while the body visibly drags behind it. resizeRemaining plays main's role here;
+    -- gripRemaining plays the bar's.
     local resizeRemaining = 1e-7
+    local gripRemaining = 1e-60
 
     -- The exact target this frame resolved to, before the lerp above eases main toward it -
     -- commitResize banks and settles onto this on release rather than whatever main's own
@@ -255,16 +257,19 @@ function Resize.new(window)
             )
         end
 
-        -- The actual ask: the icon itself reaching toward the cursor while you drag it, same
-        -- elastic chase as the drag bar visibly has while you move the window around - not just
-        -- the window's own Size/Position easing (which already worked; the icon just never
-        -- showed any of it, sitting rigidly on the corner the entire time). cornerAbs is where
-        -- the grip sits with zero offset (main's own just-eased corner, from the Lerp above, not
-        -- the raw unclamped target) - the gap between that and the live mouse is what the icon
-        -- eases toward closing.
+        -- First attempt at this chased the raw mouse relative to main's own *already-lagging*
+        -- corner, which double-counts main's own lag on top of the icon's - the two stack, and
+        -- the icon ends up much further from the corner than intended ("vai muito longe",
+        -- live-caught). drag.luau doesn't do that either: the bar doesn't chase the window body,
+        -- it chases the *same fresh target* the body chases, just with its own, much snappier
+        -- constant - so it stays close while the body visibly trails behind it. Mirrors that
+        -- exactly: trueCornerAbs is where the corner *should* be this instant (from target/
+        -- clamped, before easing main toward it, not main's actual current position), and the
+        -- grip eases toward that - independently of how far main itself has caught up yet.
+        local trueCornerAbs = Vector2.new(target.X.Offset, target.Y.Offset) + clamped / 2
         local cornerAbs = self.window.main.AbsolutePosition + self.window.main.AbsoluteSize
-        local targetNudge = mouseLocation - cornerAbs
-        gripDragOffset = gripDragOffset:Lerp(targetNudge, settle)
+        local targetNudge = trueCornerAbs - cornerAbs
+        gripDragOffset = gripDragOffset:Lerp(targetNudge, 1 - gripRemaining ^ dt)
         self.grip.Position = UDim2.new(1, gripDragOffset.X, 1, gripDragOffset.Y)
     end
 
