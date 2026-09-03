@@ -31,10 +31,16 @@ local log = require(utility.log)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
 
-local headerHeight = 30
+-- main's own UIPadding eats outerPad on every side - collapsed height is outerPad*2 +
+-- headerRowHeight, NOT just one flat "header height" constant (that was the actual bug: an
+-- arbitrary 30 that didn't leave room for the 14px padding above *and* below a 24px icon badge,
+-- so the collapsed card came out shorter than its own header content and the icon visibly
+-- poked out - live-caught, "quando fecha o icone fica pra fora").
+local outerPad = 14
+local headerRowHeight = 24 -- matches the icon badge's own height; title/chevron centre within it
+local headerGap = 10 -- breathing room between the header and the first row, only present when expanded
 local chevronInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local heightInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-local rowPadTop, rowPadBottom = 6, 2
 
 local function keyOf(row)
     return row.key or row.Key or row.label or row.Label
@@ -70,7 +76,7 @@ function StatusCard.new(tab, properties)
 
     self.main = window:Create("Frame", {
         Name = self.name,
-        Size = UDim2.fromOffset(self.width, headerHeight),
+        Size = UDim2.fromOffset(self.width, outerPad * 2 + headerRowHeight),
         BorderSizePixel = 0,
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         Active = true, -- Devlog 7 fix - see Window:StyleElementBody's own comment on why
@@ -87,17 +93,20 @@ function StatusCard.new(tab, properties)
     end
 
     self.padding = window:Create("UIPadding", {
-        PaddingLeft = UDim.new(0, 14),
-        PaddingRight = UDim.new(0, 14),
-        PaddingTop = UDim.new(0, 12),
-        PaddingBottom = UDim.new(0, 12),
+        PaddingLeft = UDim.new(0, outerPad),
+        PaddingRight = UDim.new(0, outerPad),
+        PaddingTop = UDim.new(0, outerPad),
+        PaddingBottom = UDim.new(0, outerPad),
 
         Parent = self.main,
     })
 
-    -- Header: icon badge + title, chevron on the right if collapsible.
+    -- Header: icon badge + title, chevron on the right if collapsible. Sized to headerRowHeight
+    -- exactly (matches the icon badge's own 24px, the tallest thing in it) - main's own height
+    -- accounts for this plus outerPad above *and* below explicitly (see _setHeight), so the
+    -- collapsed card is never shorter than its own padding + header actually need.
     self.header = window:Create("Frame", {
-        Size = UDim2.new(1, 0, 0, headerHeight - 12), -- padding above already covers the rest
+        Size = UDim2.new(1, 0, 0, headerRowHeight),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
 
@@ -201,7 +210,7 @@ function StatusCard.new(tab, properties)
     -- rowsContainer's own real AbsoluteSize.Y - same shape collapsible.luau's own contentWrapper
     -- uses, for the same reason (see _setHeight below).
     self.contentWrapper = window:Create("Frame", {
-        Position = UDim2.fromOffset(0, headerHeight - 12),
+        Position = UDim2.fromOffset(0, headerRowHeight),
         Size = UDim2.new(1, 0, 0, 0),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
@@ -210,8 +219,11 @@ function StatusCard.new(tab, properties)
         Parent = self.main,
     })
 
+    -- headerGap lives *inside* the clipped wrapper (not as a fixed offset outside it) so it
+    -- collapses away to nothing along with the rows when hidden, instead of leaving a bare gap
+    -- floating under the header with nothing below it.
     self.rowsContainer = window:Create("Frame", {
-        Position = UDim2.fromOffset(0, rowPadTop),
+        Position = UDim2.fromOffset(0, headerGap),
         Size = UDim2.new(1, 0, 0, 0),
         AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
@@ -246,17 +258,21 @@ function StatusCard.new(tab, properties)
     return self
 end
 
+-- contentWrapper's own target height when expanded: the gap down to the first row, plus every
+-- row stacked (rowsContainer's real AbsoluteSize.Y already accounts for the rows' own padding).
 function StatusCard:_contentHeight()
-    return self.rowsContainer.AbsoluteSize.Y + rowPadTop + rowPadBottom
+    return headerGap + self.rowsContainer.AbsoluteSize.Y
 end
 
 -- Drives contentWrapper's height AND main's own height together, exactly like Collapsible's own
 -- _setHeight - confirmed live on this executor that AutomaticSize.Y on a parent doesn't reliably
 -- follow a *tweened* child Size change, so main's height is driven explicitly here instead of
--- left on AutomaticSize.
+-- left on AutomaticSize. main's own height is outerPad on both sides of the header, PLUS
+-- contentWrapper's current height - forgetting the padding here is exactly what made the
+-- collapsed card shorter than its own header content (see outerPad's own comment above).
 function StatusCard:_setHeight(targetContentHeight, animate)
     local contentSize = UDim2.new(1, 0, 0, targetContentHeight)
-    local mainSize = UDim2.fromOffset(self.width, headerHeight + targetContentHeight)
+    local mainSize = UDim2.fromOffset(self.width, outerPad * 2 + headerRowHeight + targetContentHeight)
     if animate then
         variables.tweenService:Create(self.contentWrapper, heightInfo, { Size = contentSize }):Play()
         variables.tweenService:Create(self.main, heightInfo, { Size = mainSize }):Play()
@@ -395,7 +411,12 @@ end
 -- Appends a new row (or inserts at `index`, matching MoveTo's own 1-based indexing) after
 -- construction - a script whose readouts aren't all known up front (an auto-farm that only shows
 -- "Chests ready" once it's actually found one, say) can grow the card instead of pre-declaring
--- every possible row hidden.
+-- every possible row hidden. Doesn't call _setHeight itself - adding/removing a row always
+-- changes rowsContainer's own AbsoluteSize, and the constructor's own
+-- GetPropertyChangedSignal("AbsoluteSize") listener already reacts to that; calling _setHeight
+-- again here raced that same listener's own call (both landing a tween on the same instance
+-- within the same frame, one interrupting the other) - live-caught as the card settling at the
+-- wrong height after Add/Remove.
 function StatusCard:AddRow(row, index)
     self:_buildRow(row)
     if index then
@@ -408,9 +429,6 @@ function StatusCard:AddRow(row, index)
             e.frame.LayoutOrder = i
         end
     end
-    if self.expanded then
-        self:_setHeight(self:_contentHeight(), true)
-    end
 end
 
 function StatusCard:RemoveRow(key)
@@ -418,9 +436,6 @@ function StatusCard:RemoveRow(key)
         if entry.key == key then
             self.window:DestroySubtree(entry.frame)
             table.remove(self._rows, i)
-            if self.expanded then
-                self:_setHeight(self:_contentHeight(), true)
-            end
             return
         end
     end
@@ -428,6 +443,11 @@ end
 
 -- Bulk replace: clears every existing row and rebuilds from `rows`, for a script that's easier
 -- to write as "here's the whole current state" each update rather than a stream of SetRow calls.
+-- Same "don't also call _setHeight here" reasoning as AddRow/RemoveRow above - the constructor's
+-- own AbsoluteSize-changed listener reacts to the row-count change on its own. The one edge case
+-- this leaves uncovered - a Set() whose new rows net the exact same total height as the old ones
+-- (e.g. clearing to zero rows when there already were none) - never actually needs a resize
+-- either, since nothing about the real height changed.
 function StatusCard:Set(rows)
     for _, entry in self._rows do
         self.window:DestroySubtree(entry.frame)
@@ -435,9 +455,6 @@ function StatusCard:Set(rows)
     table.clear(self._rows)
     for _, row in rows or {} do
         self:_buildRow(row)
-    end
-    if self.expanded then
-        self:_setHeight(self:_contentHeight(), true)
     end
 end
 
