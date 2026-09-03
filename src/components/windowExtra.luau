@@ -1266,6 +1266,53 @@ function Window:_runGuarded(element, fn, ...)
     end)
 end
 
+-- Runs fn(...) in a pcall and logs a warning on failure instead of letting it fail silently or
+-- propagate uncaught - the general-purpose version of the same "never let an error just
+-- disappear" principle _runGuarded/Toggle:Loop apply to a callback/loop tick specifically. Meant
+-- for any one-off risky call a feature makes on its own (an instance lookup that might not
+-- exist, a remote invoke) that isn't already wrapped by one of those. Returns exactly what pcall
+-- returns (ok, result...) - this doesn't swallow the failure, just makes sure it's never
+-- invisible, so the caller can still branch on `ok` itself.
+function Window:Safe(fn, ...)
+    local results = table.pack(pcall(fn, ...))
+    if not results[1] then
+        log.warn("Rayfield: Window:Safe call errored - " .. tostring(results[2]))
+    end
+    return table.unpack(results, 1, results.n)
+end
+
+-- Retries fn(attempt) up to options.attempts times (default 3), waiting
+-- options.baseDelay * 2^(attempt-1) seconds between each (default 1s base: 1s, 2s, 4s, ...),
+-- capped at options.maxDelay (default 10s) - exponential backoff so a flaky remote call/HTTP
+-- request gets a few real chances to recover from a transient hiccup without hammering it (or a
+-- rate limit) on a tight retry loop. Returns the same (ok, result) shape pcall/Safe do: true plus
+-- fn's own result the moment it succeeds, or false plus the last error once every attempt is
+-- spent. Only for something worth retrying at all - a resource that's actually gone for good
+-- (an instance that got destroyed, a bad argument) just fails the same way every attempt and
+-- burns the whole backoff for nothing; reach for Window:Safe instead for those.
+function Window:RetryWithBackoff(fn, options: { attempts: number?, baseDelay: number?, maxDelay: number? }?)
+    options = if typeof(options) == "table" then options else {}
+    local attempts = options.attempts or 3
+    local baseDelay = options.baseDelay or 1
+    local maxDelay = options.maxDelay or 10
+
+    local lastError
+    for attempt = 1, attempts do
+        local ok, result = pcall(fn, attempt)
+        if ok then
+            return true, result
+        end
+        lastError = result
+        if attempt < attempts then
+            task.wait(math.min(baseDelay * (2 ^ (attempt - 1)), maxDelay))
+        end
+    end
+    log.warn(
+        "Rayfield: Window:RetryWithBackoff gave up after " .. attempts .. " attempts - " .. tostring(lastError)
+    )
+    return false, lastError
+end
+
 -- Standard element body: white base + gradient fill + rounded corner + flat stroke (hidden until shown).
 -- Returns the stroke; call after creating `main` with a white BackgroundColor3.
 function Window:StyleElementBody(main)

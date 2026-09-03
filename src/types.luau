@@ -835,6 +835,16 @@ export type Window = {
     DeleteConfig: (self: Window, name: string) -> boolean,
     Unload: (self: Window) -> (),
     OnUnload: (self: Window, callback: () -> ()) -> (),
+    -- pcalls fn(...) and logs a warning on failure instead of letting it fail silently - returns
+    -- exactly what pcall returns (ok, result...).
+    Safe: (self: Window, fn: (...any) -> ...any, ...any) -> ...any,
+    -- Retries fn(attempt) with exponential backoff (default 3 attempts, 1s/2s/4s...) - for a
+    -- flaky remote call/HTTP request worth a few real chances before giving up.
+    RetryWithBackoff: (
+        self: Window,
+        fn: (attempt: number) -> any,
+        options: { attempts: number?, baseDelay: number?, maxDelay: number? }?
+    ) -> (boolean, any),
 }
 
 export type Rayfield = {
