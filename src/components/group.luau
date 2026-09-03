@@ -121,7 +121,14 @@ function Group.new(tab, properties)
         FillDirection = direction,
         SortOrder = Enum.SortOrder.LayoutOrder,
         Padding = UDim.new(0, elementPadding),
-        VerticalAlignment = if horizontal then Enum.VerticalAlignment.Center else Enum.VerticalAlignment.Top,
+        -- Top, not Center, for a row: every original compact type (Button/Toggle/Stat/Slider/...)
+        -- shares roughly the same height, so this looked identical either way until StatusCard
+        -- (a taller, resizable card) could sit in a row too - Center meant a StatusCard
+        -- expanding/collapsing changed the *row's* own height, which re-centred every other,
+        -- fixed-height sibling in it - live-reported as "a toggle desce sozinha", when the
+        -- toggle itself never actually moved or resized, everything around it did. Top pins
+        -- every child to the row's own top edge regardless of what a taller sibling is doing.
+        VerticalAlignment = Enum.VerticalAlignment.Top,
         HorizontalAlignment = if horizontal then Enum.HorizontalAlignment.Left else Enum.HorizontalAlignment.Center,
 
         Parent = self.main,
