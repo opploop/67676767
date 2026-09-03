@@ -1959,25 +1959,39 @@ function Window:_buildSettingsUI()
         self.rfSettings:CreateSection({ name = "Configurations" })
 
         local selected = self:ListConfigs()[1]
-        local configDropdown, nameInput
+        local configDropdown, nameInput, autoTargetLabel
+
+        local function autoTargetText()
+            if selected and selected ~= "" then
+                return locale.resolve("Applies to") .. ": " .. selected
+            end
+            return locale.resolve("Applies to: no configuration selected")
+        end
 
         -- Persist which configuration is "selected" here across restarts - same
         -- Window:RegisterFlag pattern the hub template's own sidebar width/HUD position use for a
         -- plain value with no visible control of its own (see its doc comment). On its own this
         -- only keeps the dropdown showing the right name after a restart; autoLoadConfigFlag below
-        -- decides whether restoring it also *applies* it live, and Window:_persist reads
-        -- self._selectedConfigName to know which file Auto Save Config should target.
+        -- decides whether restoring it also *applies* it on the next script start, and
+        -- Window:_persist reads self._selectedConfigName to know which file Auto Save Config
+        -- should target - both read this exact same selection, which is also what
+        -- autoTargetLabel below exists to make visible next to the two toggles.
         local selectedFlag = self:RegisterFlag("_SelectedConfig", selected, function(name)
             selected = name
             self._selectedConfigName = name
             if configDropdown and name and configDropdown.value ~= name then
                 configDropdown:Set(name, true)
             end
+            if autoTargetLabel then
+                autoTargetLabel:Set(autoTargetText())
+            end
         end)
         self._selectedConfigName = selected
 
-        -- Auto Load Config: when on, picking a different entry in the dropdown below applies it
-        -- immediately - no separate Load click needed.
+        -- Auto Load Config: when on, this selected configuration is what gets applied
+        -- automatically the next time this script starts (see Window:Show's own
+        -- self._autoLoadConfigEnabled check) - not on every pick here, only once on load, so
+        -- switching configs mid-session to compare them doesn't overwrite anything by surprise.
         local autoLoadConfigFlag = self:RegisterFlag("_AutoLoadConfig", false)
 
         -- Auto Save Config: when on, Window:_persist also re-saves straight into whichever
@@ -2009,13 +2023,6 @@ function Window:_buildSettingsUI()
             placeholder = "No saved configurations",
             callback = function(value)
                 selectedFlag:Set(value)
-                if autoLoadConfigFlag.value then
-                    if self:_applyNamedConfig(value) then
-                        self:Toast({ title = locale.resolve("Loaded configuration"), subtitle = value })
-                    else
-                        self:Toast({ title = locale.resolve("Couldn't load configuration"), subtitle = value })
-                    end
-                end
             end,
         })
 
@@ -2139,6 +2146,14 @@ function Window:_buildSettingsUI()
             end,
         })
 
+        -- Both toggles below only ever act on whatever's picked in "Saved Configurations" above -
+        -- easy to lose track of once you've scrolled past it, so this stays in view right next to
+        -- them and updates live off the same selectedFlag everything else here reads.
+        autoTargetLabel = self.rfSettings:CreateLabel({
+            text = autoTargetText(),
+            icon = constants.icons.config,
+        })
+
         -- A row Group (its default direction) sits both toggles side by side instead of each
         -- taking the full row - see group.luau's own compactCapable table for why Toggle can do
         -- this and most other element types can't.
@@ -2147,7 +2162,7 @@ function Window:_buildSettingsUI()
         autoGroup:CreateToggle({
             name = "Auto Load Config",
             icon = "lucide:download",
-            description = "Loads a configuration the instant you pick it above, instead of needing Load.",
+            description = "Loads the configuration above automatically the next time this script starts.",
             value = autoLoadConfigFlag.value,
             callback = function(state)
                 autoLoadConfigFlag:Set(state)
@@ -2157,7 +2172,7 @@ function Window:_buildSettingsUI()
         autoGroup:CreateToggle({
             name = "Auto Save Config",
             icon = "lucide:refresh-cw",
-            description = "Keeps the selected configuration itself updated as you change things.",
+            description = "Keeps the configuration above updated as you change things.",
             value = autoSaveConfigFlag.value,
             callback = function(state)
                 autoSaveConfigFlag:Set(state)

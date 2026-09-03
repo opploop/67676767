@@ -134,6 +134,21 @@ function Window:Show()
         if not ok then
             log.warn("Rayfield: Failed to load configuration - " .. tostring(err))
         end
+
+        -- Auto Load Config (see the Configurations section in windowMethods.luau's
+        -- _buildSettingsUI): the default file just restored above tells us both whether this is
+        -- even on (self._autoLoadConfigEnabled) and which configuration was selected
+        -- (self._selectedConfigName) - once that's known, apply that named configuration too, so
+        -- reopening this exact script lands on it rather than whatever raw flags happened to be
+        -- sitting in the default file. Deliberately only here, once - not on every dropdown pick
+        -- (see that section's own comment), so switching configs mid-session to compare them
+        -- doesn't get silently reverted by this.
+        if self._autoLoadConfigEnabled and self._selectedConfigName and self._selectedConfigName ~= "" then
+            local loadOk, loadErr = pcall(self._applyNamedConfig, self, self._selectedConfigName)
+            if not loadOk then
+                log.warn("Rayfield: Failed to auto-load configuration '" .. tostring(self._selectedConfigName) .. "' - " .. tostring(loadErr))
+            end
+        end
     end
 
     self.hidden = false
