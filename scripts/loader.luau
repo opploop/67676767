@@ -8,30 +8,24 @@
 -- full component/theme/utility file lists, the module-tree build, the executor-safe
 -- customRequire) lives here, once, instead of copy-pasted into every hub.
 --
--- Usage from a hub script - only the pinned src commit SHA is script-specific:
+-- Usage from a hub script - no arguments needed, always tracks `main`:
 --   local Rayfield = loadstring(game:HttpGet(
 --       "https://raw.githubusercontent.com/opploop/67676767/main/scripts/loader.luau"
---   ))("<40-char commit SHA>")
+--   ))()
 --
--- Why this file itself is fetched from `main` while the SHA argument stays pinned: this
--- file only changes when the file list changes (a new component added) - the actual
--- surface that broke a hub before (see 01_ARCHITECTURE.md's re-pin warning) is the src/
--- payload, not this bootstrap. That payload is always fetched from the SHA you pass in,
--- never from main, so an unrelated future src/ change still can't shift a shipped hub's
--- behavior out from under it. If you'd rather not depend on main at all, download this
--- file's contents once and inline it - it's plain data from here on, no different from
--- vendoring any other dependency.
+-- Pass a commit SHA or branch name instead if you specifically want to pin a shipped hub
+-- to a version that won't move under it later:
+--   loadstring(...)("<40-char commit SHA>")
 
-local commit = ...
-assert(
-    type(commit) == "string" and #commit > 0,
-    'Rayfield loader: pass a pinned src commit SHA, e.g. loadstring(...)("<40-char sha>")'
-)
+local ref = ...
+if type(ref) ~= "string" or #ref == 0 then
+    ref = "main"
+end
 
 local owner = "opploop"
 local repo = "67676767"
 
-local REPO_RAW = ("https://raw.githubusercontent.com/%s/%s/%s/"):format(owner, repo, commit)
+local REPO_RAW = ("https://raw.githubusercontent.com/%s/%s/%s/"):format(owner, repo, ref)
 
 local function fetch(path)
     local ok, body = pcall(function()
