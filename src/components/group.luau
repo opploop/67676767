@@ -41,6 +41,11 @@ local compactCapable = {
     flipbutton = true,
     ripplebutton = true,
     holdbutton = true,
+    -- fixed-width by design (see statuscard.luau's own header comment), so it sits fine next to
+    -- a row's other compact elements without needing the wrap-to-content-width treatment those
+    -- get from Group:_wrapChild - it still goes through that path (its own _minWidth just
+    -- returns the width it already has), so it participates in row wrapping like anything else.
+    statuscard = true,
 }
 
 function Group.new(tab, properties)
@@ -237,6 +242,9 @@ function Group:CreateCheckbox(properties)
 end
 function Group:CreateStat(properties)
     return self:_add("stat", properties)
+end
+function Group:CreateStatusCard(properties)
+    return self:_add("statuscard", properties)
 end
 function Group:CreateSlider(properties)
     return self:_add("slider", properties)

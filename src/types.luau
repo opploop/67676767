@@ -447,6 +447,26 @@ export type StatProps = {
     numberEasing: boolean?,
 }
 
+-- One line of a StatusCard: label (dim, translated like any other dev-authored copy) · value
+-- (live data - never auto-translated, since it changes at runtime). key defaults to `label` if
+-- omitted; give it explicitly when the label itself might repeat or change.
+export type StatusCardRow = {
+    key: string?,
+    label: string,
+    value: string,
+    muted: boolean?, -- renders the value in a plain, unremarkable colour instead of the theme accent
+}
+
+export type StatusCardProps = {
+    name: string?, -- header title, default "Status"
+    icon: (string | number)?,
+    width: number?, -- card width in pixels, default 260 - fixed-width by design, not full tab width
+    collapsible: boolean?, -- shows the header chevron, default true
+    expanded: boolean?, -- default true
+    glow: boolean?, -- ambient glow behind the card, default true
+    rows: { StatusCardRow }?,
+}
+
 export type NotifyProps = {
     title: string?,
     content: string?,
@@ -639,6 +659,16 @@ export type Stat = Moveable & {
     ResetBaseline: (self: Stat, value: number?) -> (),
 }
 
+export type StatusCard = Moveable & {
+    expanded: boolean,
+    SetRow: (self: StatusCard, key: string, value: string, muted: boolean?) -> (),
+    AddRow: (self: StatusCard, row: StatusCardRow, index: number?) -> (),
+    RemoveRow: (self: StatusCard, key: string) -> (),
+    Set: (self: StatusCard, rows: { StatusCardRow }) -> (),
+    SetExpanded: (self: StatusCard, expanded: boolean) -> (),
+    Toggle: (self: StatusCard) -> (),
+}
+
 export type Section = Moveable & {}
 
 export type Label = Moveable & {
@@ -681,6 +711,7 @@ export type Collapsible = Moveable & {
     CreateSwitch: (self: Collapsible, props: ToggleProps) -> Toggle,
     CreateCheckbox: (self: Collapsible, props: CheckboxProps) -> Checkbox,
     CreateStat: (self: Collapsible, props: StatProps) -> Stat,
+    CreateStatusCard: (self: Collapsible, props: StatusCardProps) -> StatusCard,
     CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,
     CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,
     CreateSection: (self: Collapsible, props: SectionProps) -> Section,
@@ -717,6 +748,7 @@ export type Group = Moveable & {
     CreateSwitch: (self: Group, props: ToggleProps) -> Toggle,
     CreateCheckbox: (self: Group, props: CheckboxProps) -> Checkbox,
     CreateStat: (self: Group, props: StatProps) -> Stat,
+    CreateStatusCard: (self: Group, props: StatusCardProps) -> StatusCard,
     CreateSlider: (self: Group, props: SliderProps) -> Slider,
     CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,
     CreateSection: (self: Group, props: SectionProps) -> Section,
@@ -741,6 +773,7 @@ export type Tab = {
     CreateColorPicker: (self: Tab, props: ColorPickerProps) -> ColorPicker,
     CreateGradientPicker: (self: Tab, props: GradientPickerProps?) -> GradientPicker,
     CreateStat: (self: Tab, props: StatProps) -> Stat,
+    CreateStatusCard: (self: Tab, props: StatusCardProps) -> StatusCard,
     CreateSection: (self: Tab, props: SectionProps) -> Section,
     CreateLabel: (self: Tab, props: LabelProps?) -> Label,
     CreateParagraph: (self: Tab, props: ParagraphProps?) -> Paragraph,

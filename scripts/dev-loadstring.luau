@@ -103,6 +103,7 @@ local componentFiles = {
     "slider",
     "spacer",
     "stat",
+    "statuscard",
     "tab",
     "tag",
     "tabbox",

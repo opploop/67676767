@@ -544,6 +544,11 @@ function Tab:CreateStat(properties)
     return self:_register(require(script.Parent.stat).new(self, properties))
 end
 
+-- Compact, collapsible multi-row status widget - see statuscard.luau's own header comment.
+function Tab:CreateStatusCard(properties)
+    return self:_register(require(script.Parent.statuscard).new(self, properties))
+end
+
 -- Slider
 function Tab:CreateSlider(properties)
     return self:_register(require(script.Parent.slider).new(self, properties))
