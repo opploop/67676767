@@ -626,7 +626,10 @@ function Toggle:Set(value, skipCallback)
 
     if changed then
         self:_animateIndicator()
-        if self._loopFn then
+        -- Loop is part of "what being on actually does", same as callback - a skipCallback Set
+        -- (syncing the visual/value state without triggering side effects, e.g. the F9 shortcut
+        -- keeping its own Settings toggle in sync) shouldn't start or stop the feature either.
+        if self._loopFn and not skipCallback then
             if value then
                 self:_startLoop()
             else
