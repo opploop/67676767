@@ -652,8 +652,19 @@ end
 function Window:_persist(control)
     -- _loading: a config restore fires every control's callback, but must not autosave back over
     -- the file it's reading (or storm Save once per control)
-    if control.flag and not control.forgetState and self.configuration.autoSave and not self._loading then
+    if not control.flag or control.forgetState or self._loading then
+        return
+    end
+    if self.configuration.autoSave then
         self:_scheduleAutoSave()
+    end
+    -- Auto Save Config (see the Configurations section in _buildSettingsUI): additionally keeps
+    -- whichever named configuration is currently selected up to date, independent of the single
+    -- default file above. self._autoSaveConfigEnabled/_selectedConfigName are plain fields rather
+    -- than reads through a control specifically so this works even before that UI section has
+    -- built (or if a consumer script sets them directly without ever showing it).
+    if self._autoSaveConfigEnabled then
+        self:_scheduleAutoSaveConfig()
     end
 end
 
@@ -672,6 +683,21 @@ function Window:_scheduleAutoSave()
     task.delay(autoSaveDebounce, function()
         if self._autoSaveGeneration == generation and not self._loading then
             self:Save()
+        end
+    end)
+end
+
+-- Same debounce/generation shape as _scheduleAutoSave, targeting self._selectedConfigName
+-- instead of the default file. Re-reads both the enabled flag and the target name at fire time
+-- (not just at schedule time) since either can change mid-debounce - e.g. switching the
+-- dropdown's selection again before the first save actually lands.
+function Window:_scheduleAutoSaveConfig()
+    self._autoSaveConfigGeneration = (self._autoSaveConfigGeneration or 0) + 1
+    local generation = self._autoSaveConfigGeneration
+    task.delay(autoSaveDebounce, function()
+        local name = self._selectedConfigName
+        if self._autoSaveConfigGeneration == generation and not self._loading and self._autoSaveConfigEnabled and name and name ~= "" then
+            self:Save(name)
         end
     end)
 end
@@ -1935,6 +1961,35 @@ function Window:_buildSettingsUI()
         local selected = self:ListConfigs()[1]
         local configDropdown, nameInput
 
+        -- Persist which configuration is "selected" here across restarts - same
+        -- Window:RegisterFlag pattern the hub template's own sidebar width/HUD position use for a
+        -- plain value with no visible control of its own (see its doc comment). On its own this
+        -- only keeps the dropdown showing the right name after a restart; autoLoadConfigFlag below
+        -- decides whether restoring it also *applies* it live, and Window:_persist reads
+        -- self._selectedConfigName to know which file Auto Save Config should target.
+        local selectedFlag = self:RegisterFlag("_SelectedConfig", selected, function(name)
+            selected = name
+            self._selectedConfigName = name
+            if configDropdown and name and configDropdown.value ~= name then
+                configDropdown:Set(name, true)
+            end
+        end)
+        self._selectedConfigName = selected
+
+        -- Auto Load Config: when on, picking a different entry in the dropdown below applies it
+        -- immediately - no separate Load click needed.
+        local autoLoadConfigFlag = self:RegisterFlag("_AutoLoadConfig", false)
+
+        -- Auto Save Config: when on, Window:_persist also re-saves straight into whichever
+        -- configuration is currently selected (self._autoSaveConfigEnabled, checked there) any
+        -- time a registered control changes - not just the single default file
+        -- `configuration.autoSave` already keeps current, so switching to "PvP Loadout" and
+        -- tweaking a slider keeps "PvP Loadout" itself up to date without a manual Save click.
+        local autoSaveConfigFlag = self:RegisterFlag("_AutoSaveConfig", false, function(value)
+            self._autoSaveConfigEnabled = value
+        end)
+        self._autoSaveConfigEnabled = autoSaveConfigFlag.value
+
         local function refreshConfigs()
             local names = self:ListConfigs()
             configDropdown:Refresh(names)
@@ -1942,7 +1997,7 @@ function Window:_buildSettingsUI()
                 selected = names[1]
             end
             if selected then
-                configDropdown:Set(selected, true)
+                selectedFlag:Set(selected)
             end
         end
 
@@ -1953,7 +2008,34 @@ function Window:_buildSettingsUI()
             value = selected,
             placeholder = "No saved configurations",
             callback = function(value)
-                selected = value
+                selectedFlag:Set(value)
+                if autoLoadConfigFlag.value then
+                    if self:_applyNamedConfig(value) then
+                        self:Toast({ title = locale.resolve("Loaded configuration"), subtitle = value })
+                    else
+                        self:Toast({ title = locale.resolve("Couldn't load configuration"), subtitle = value })
+                    end
+                end
+            end,
+        })
+
+        self.rfSettings:CreateToggle({
+            name = "Auto Load Config",
+            icon = "lucide:download",
+            description = "Loads a configuration the instant you pick it above, instead of needing Load.",
+            value = autoLoadConfigFlag.value,
+            callback = function(state)
+                autoLoadConfigFlag:Set(state)
+            end,
+        })
+
+        self.rfSettings:CreateToggle({
+            name = "Auto Save Config",
+            icon = "lucide:refresh-cw",
+            description = "Keeps the selected configuration itself updated as you change things.",
+            value = autoSaveConfigFlag.value,
+            callback = function(state)
+                autoSaveConfigFlag:Set(state)
             end,
         })
 
@@ -1981,7 +2063,7 @@ function Window:_buildSettingsUI()
                 end
                 if self:Save(name) then
                     nameInput:Set("")
-                    selected = name
+                    selectedFlag:Set(name)
                     refreshConfigs()
                     self:Toast({
                         title = locale.resolve("Saved configuration"),
