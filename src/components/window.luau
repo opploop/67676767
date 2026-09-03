@@ -233,6 +233,12 @@ function Window.new(properties)
     -- Fired from _applySidebarWidth itself so drag, SetSidebarWidth, and CreateTab's own
     -- re-application all reach it through the one funnel.
     self._sidebarWidthChangedCallbacks = {}
+    -- Window:Unload() already tears down every instance/connection it owns on its own - this is
+    -- for the part it has no way to know about: a consumer script's own state that needs
+    -- resetting (stop a loop's flag, put the character back at spawn, drop a highlight) rather
+    -- than just disconnected. Fired synchronously, before anything is torn down, so a callback
+    -- can still safely read/use every instance the window built.
+    self._unloadCallbacks = {}
     -- Settings > General toggles a hub can hide when it wants that behaviour pinned rather than
     -- player-adjustable (e.g. a "Welcome toast" a dev always wants on, or "Haptics"/"Sound
     -- Effects" it never wants on at all) - hiding the toggle doesn't itself change

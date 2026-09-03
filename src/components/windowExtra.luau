@@ -1720,6 +1720,17 @@ function Window:DestroySubtree(root)
 end
 
 function Window:Unload()
+    -- Run every OnUnload callback first, while every instance is still alive and self.unloaded is
+    -- still false - a callback that reads window state (a toggle's own .value, an element still
+    -- on screen) sees it exactly as it was the moment Unload was called. pcall'd individually so
+    -- one throwing dev callback can't stop the rest from running or strand the real teardown below.
+    for _, callback in self._unloadCallbacks do
+        local ok, err = pcall(callback)
+        if not ok then
+            log.warn("Rayfield: an OnUnload callback errored - " .. tostring(err))
+        end
+    end
+
     self.unloaded = true
     -- drop our own slot in the singleton registry, but only if it's still us - a newer window
     -- with the same name may have already replaced us there (that's what called us in the first
@@ -1763,6 +1774,17 @@ function Window:Unload()
     table.clear(self.localeProperties)
     table.clear(self.controls)
     table.clear(self.tabs)
+end
+
+-- Register cleanup for your own state that Window:Unload has no way to know about on its own -
+-- stopping a loop's flag, putting the character back at spawn, dropping a highlight, whatever a
+-- feature needs undone. Fires synchronously, in registration order, right as Unload starts -
+-- before self.unloaded flips true and before any instance is torn down, so a callback can still
+-- safely read anything (a toggle's own .value, an element still on screen) exactly as it was the
+-- moment Unload was called. A throwing callback is caught and logged, not left to strand the
+-- real teardown that follows it.
+function Window:OnUnload(callback: () -> ())
+    table.insert(self._unloadCallbacks, callback)
 end
 
 return Window

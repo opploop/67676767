@@ -828,6 +828,7 @@ export type Window = {
     ListConfigs: (self: Window) -> { string },
     DeleteConfig: (self: Window, name: string) -> boolean,
     Unload: (self: Window) -> (),
+    OnUnload: (self: Window, callback: () -> ()) -> (),
 }
 
 export type Rayfield = {
