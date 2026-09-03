@@ -2019,26 +2019,6 @@ function Window:_buildSettingsUI()
             end,
         })
 
-        self.rfSettings:CreateToggle({
-            name = "Auto Load Config",
-            icon = "lucide:download",
-            description = "Loads a configuration the instant you pick it above, instead of needing Load.",
-            value = autoLoadConfigFlag.value,
-            callback = function(state)
-                autoLoadConfigFlag:Set(state)
-            end,
-        })
-
-        self.rfSettings:CreateToggle({
-            name = "Auto Save Config",
-            icon = "lucide:refresh-cw",
-            description = "Keeps the selected configuration itself updated as you change things.",
-            value = autoSaveConfigFlag.value,
-            callback = function(state)
-                autoSaveConfigFlag:Set(state)
-            end,
-        })
-
         nameInput = self.rfSettings:CreateInput({
             name = "Configuration Name",
             icon = "lucide:tag",
@@ -2156,6 +2136,31 @@ function Window:_buildSettingsUI()
                 else
                     self:Toast({ title = locale.resolve("That doesn't look like a valid configuration") })
                 end
+            end,
+        })
+
+        -- A row Group (its default direction) sits both toggles side by side instead of each
+        -- taking the full row - see group.luau's own compactCapable table for why Toggle can do
+        -- this and most other element types can't.
+        local autoGroup = self.rfSettings:CreateGroup()
+
+        autoGroup:CreateToggle({
+            name = "Auto Load Config",
+            icon = "lucide:download",
+            description = "Loads a configuration the instant you pick it above, instead of needing Load.",
+            value = autoLoadConfigFlag.value,
+            callback = function(state)
+                autoLoadConfigFlag:Set(state)
+            end,
+        })
+
+        autoGroup:CreateToggle({
+            name = "Auto Save Config",
+            icon = "lucide:refresh-cw",
+            description = "Keeps the selected configuration itself updated as you change things.",
+            value = autoSaveConfigFlag.value,
+            callback = function(state)
+                autoSaveConfigFlag:Set(state)
             end,
         })
     end
