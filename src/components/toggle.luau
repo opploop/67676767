@@ -218,14 +218,16 @@ function Toggle:_buildSwitch(parent)
 end
 
 -- flip, animate, run callback (error-flash on fail), autosave. press anim is per-layout
+-- Delegates to Set rather than duplicating its logic inline (this used to flip self.value,
+-- animate, run the callback, and persist by hand, all separately from Set's own copy of the
+-- same steps) - confirmed live that the duplication had actually drifted: a real click never
+-- went through Set at all, so Toggle:Loop (which only hooks Set) silently never started or
+-- stopped for an interactive toggle, only ever for a programmatic :Set() call. One path now,
+-- so anything added to Set in the future reaches an interactive click for free too.
 function Toggle:_performToggle()
     hapticEngine.click()
     soundEngine.click()
-    self.value = not self.value
-    self:_animateIndicator()
-
-    self.window:_runGuarded(self, self.callback, self.value)
-    self.window:_persist(self)
+    self:Set(not self.value)
 end
 
 -- full-width: title/icon left, pill pinned right, width-bounce
