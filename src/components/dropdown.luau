@@ -607,36 +607,23 @@ function Dropdown.new(tab, properties)
                         self:_close()
                         return
                     end
-                    table.clear(self.value)
-                    table.insert(self.value, optionName)
-                else
-                    if sel then
-                        local idx = table.find(self.value, optionName)
-                        if idx then
-                            table.remove(self.value, idx)
-                        end
-                    else
-                        table.insert(self.value, optionName)
-                    end
-                end
-
-                -- the visible selection is now the player's intent; a later Refresh must build
-                -- on this, not revert to whatever was restored before they touched it
-                self._desiredValue = table.clone(self.value)
-
-                for _, d in self._optionFrames do
-                    renderOptionState(d, true)
-                end
-
-                updateSelectedLabel()
-
-                self.window:_runGuarded(self, self.callback, self:_callbackValue())
-                self.window:_persist(self)
-
-                if not self.multiSelect then
+                    self:Set({ optionName })
                     task.wait(0.1)
                     self:_close()
+                    return
                 end
+
+                local newValue = table.clone(self.value)
+                if sel then
+                    local idx = table.find(newValue, optionName)
+                    if idx then
+                        table.remove(newValue, idx)
+                    end
+                else
+                    table.insert(newValue, optionName)
+                end
+
+                self:Set(newValue)
             end)
         )
 
