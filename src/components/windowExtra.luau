@@ -128,26 +128,16 @@ function Window:Show()
     -- autoLoad reflects the saved config once, on first open. Re-loading on every show would
     -- wipe any changes the user made and closed without saving. a load that throws must not
     -- strand animating=true, or the window could never open again.
+    -- Auto Load Config (see the Configurations section in windowMethods.luau's
+    -- _buildSettingsUI): its own button already calls _applyNamedConfig, which both applies the
+    -- chosen configuration live and re-saves the default file to match - so the plain Load right
+    -- here already restores whatever that button last committed, with nothing extra needed on
+    -- this end.
     if self.configuration.autoLoad and not self._autoLoaded then
         self._autoLoaded = true
         local ok, err = pcall(self.Load, self)
         if not ok then
             log.warn("Rayfield: Failed to load configuration - " .. tostring(err))
-        end
-
-        -- Auto Load Config (see the Configurations section in windowMethods.luau's
-        -- _buildSettingsUI): the default file just restored above tells us both whether this is
-        -- even on (self._autoLoadConfigEnabled) and which configuration was selected
-        -- (self._selectedConfigName) - once that's known, apply that named configuration too, so
-        -- reopening this exact script lands on it rather than whatever raw flags happened to be
-        -- sitting in the default file. Deliberately only here, once - not on every dropdown pick
-        -- (see that section's own comment), so switching configs mid-session to compare them
-        -- doesn't get silently reverted by this.
-        if self._autoLoadConfigEnabled and self._selectedConfigName and self._selectedConfigName ~= "" then
-            local loadOk, loadErr = pcall(self._applyNamedConfig, self, self._selectedConfigName)
-            if not loadOk then
-                log.warn("Rayfield: Failed to auto-load configuration '" .. tostring(self._selectedConfigName) .. "' - " .. tostring(loadErr))
-            end
         end
     end
 
