@@ -19,6 +19,9 @@ local moveable = require(utility.moveable)
 local locale = require(utility.locale)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
+local log = require(utility.log)
+
+local defaultLoopInterval = 0.5
 
 function Toggle.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
@@ -68,7 +71,66 @@ function Toggle.new(tab, properties)
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })
     end
 
+    -- Loop() below uses task.spawn/task.wait, not a Window:Connect signal, so Window:Unload's
+    -- own connection-teardown never reaches it on its own - this closes that gap unconditionally
+    -- (cheap no-op on a toggle that never calls Loop at all).
+    self.window:OnUnload(function()
+        self:_stopLoop()
+    end)
+
     return self
+end
+
+-- Runs `fn(toggle)` on a repeating timer for as long as this toggle is on - starts immediately
+-- if it's already on when this is called (e.g. autoLoad already restored `true` before your
+-- script gets a chance to call this), stops the moment it's turned off, and restarts fresh every
+-- time it's turned back on. fn can return a number to wait before the next call instead of
+-- `interval` (default 0.5s) - the same "return your own next-tick delay" shape a hand-rolled
+-- `while` loop already uses in most feature scripts, just managed.
+--
+-- The point of this over a hand-rolled `while toggle.value do task.wait() ... end` in the
+-- toggle's own callback: an uncaught error in a raw loop like that kills its coroutine silently
+-- (task.spawn swallows it) with nothing to restart it and nothing telling the toggle it's now
+-- lying about the feature's real state - exactly the "turn it on and it does nothing, or it runs
+-- for a while then quietly stops" symptom a hand-rolled loop is prone to. Loop() below pcalls
+-- every single iteration instead of the whole loop, so one bad tick logs a warning and tries
+-- again next tick rather than ending the feature for the rest of the session.
+function Toggle:Loop(fn: (toggle: any) -> number?, interval: number?)
+    self._loopFn = fn
+    self._loopInterval = interval or defaultLoopInterval
+    if self.value then
+        self:_startLoop()
+    end
+end
+
+function Toggle:_startLoop()
+    if self._loopRunning or not self._loopFn then
+        return
+    end
+    self._loopRunning = true
+    -- stamped so a stale iteration that's mid-task.wait when the loop is stopped (and possibly
+    -- restarted before that wait resumes) can tell it's no longer the current run and exit
+    -- instead of doubling up with the fresh one.
+    self._loopGeneration = (self._loopGeneration or 0) + 1
+    local generation = self._loopGeneration
+    task.spawn(function()
+        while self._loopRunning and self._loopGeneration == generation do
+            local ok, result = pcall(self._loopFn, self)
+            if not ok then
+                log.warn("Rayfield: Toggle '" .. tostring(self.name) .. "' loop errored - " .. tostring(result))
+            end
+            if self._loopGeneration ~= generation then
+                break -- stopped (or restarted) while fn itself was running
+            end
+            local delay = if ok and typeof(result) == "number" then result else self._loopInterval
+            task.wait(math.max(delay, 0.03))
+        end
+    end)
+end
+
+function Toggle:_stopLoop()
+    self._loopRunning = false
+    self._loopGeneration = (self._loopGeneration or 0) + 1
 end
 
 -- the pill switch. same in both layouts; caller places it (pinned right / flex item)
@@ -564,6 +626,13 @@ function Toggle:Set(value, skipCallback)
 
     if changed then
         self:_animateIndicator()
+        if self._loopFn then
+            if value then
+                self:_startLoop()
+            else
+                self:_stopLoop()
+            end
+        end
     end
 
     -- fire even when unchanged: config load calls Set and relies on the callback to apply

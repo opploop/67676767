@@ -609,6 +609,12 @@ export type Toggle = Moveable & {
     locked: boolean,
     Set: (self: Toggle, value: boolean, skipCallback: boolean?) -> (),
     SetLocked: (self: Toggle, locked: boolean) -> (),
+    SetStatus: (self: Toggle, text: string) -> (),
+    -- Runs fn(toggle) on a repeating timer for as long as this toggle is on; fn can return a
+    -- number to override the wait before the next call instead of `interval` (default 0.5s).
+    -- Managed and error-isolated per tick - see toggle.luau's own comment on why this beats a
+    -- hand-rolled while loop in the toggle's own callback.
+    Loop: (self: Toggle, fn: (toggle: any) -> number?, interval: number?) -> (),
 }
 
 export type Checkbox = Moveable & {
