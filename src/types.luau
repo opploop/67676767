@@ -869,6 +869,10 @@ export type Window = {
     -- Sidebar tabsMode only - a heading in the tab rail grouping the rows created after it. See
     -- tabSection.luau's own header comment for why it's inert on the top strip.
     CreateSection: (self: Window, props: SectionProps) -> Section,
+    -- Programmatic equivalent of the Settings "Haptics" toggle - for pinning it one way or the
+    -- other when showHapticsToggle hides that control. Haptics default on as of this fork's port
+    -- of upstream Rayfield Gen2 1.2 (was off).
+    SetHaptics: (self: Window, enabled: boolean) -> (),
     CreateTag: (self: Window, props: TagProps) -> Tag,
     Notify: (self: Window, props: NotifyProps) -> (),
     Toast: (self: Window, props: ToastProps) -> (),

@@ -1859,6 +1859,17 @@ function Window:_bindTopbarDrag()
     end)
 end
 
+-- Programmatic equivalent of the Settings "Haptics" toggle - for a hub that hides that toggle
+-- (showHapticsToggle = false) but still wants to pin the value one way or the other, since
+-- hapticEngine keeps its own enabled flag separate from self.settings.haptics (only synced at
+-- construction and from the toggle's own callback otherwise).
+function Window:SetHaptics(enabled)
+    enabled = enabled == true
+    self.settings.haptics = enabled
+    hapticEngine.setEnabled(enabled)
+    self:SaveSettings()
+end
+
 function Window:_buildSettingsUI()
     self.rfSettings:CreateSection({ name = "General" })
 
@@ -1906,9 +1917,7 @@ function Window:_buildSettingsUI()
             description = "A subtle tap as you interact, on devices that support haptics.",
             value = self.settings.haptics,
             callback = function(state)
-                self.settings.haptics = state
-                hapticEngine.setEnabled(state)
-                self:SaveSettings()
+                self:SetHaptics(state)
             end,
         })
     end
