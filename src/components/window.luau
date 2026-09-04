@@ -981,7 +981,7 @@ function Window.new(properties)
             -- off the bottom edge and paints over anything under it at zIndex.bottomFade), which
             -- was washing the chip out at the very bottom. The ZIndex below keeps it crisp even
             -- where the two still overlap.
-            Position = UDim2.new(0, 0, 1, -14),
+            Position = UDim2.new(0, 0, 1, -6),
             Size = UDim2.fromOffset(self.sidebarWidth, self.profileFooterHeight),
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
