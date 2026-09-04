@@ -937,11 +937,14 @@ function Window.new(properties)
     })
 
     self:Create("UIPadding", {
-        -- Sidebar: 15px each side (upstream's own rowInset) plus 17px top/bottom (railPadding) -
+        -- Sidebar: no horizontal padding here at all - each row already insets itself by
+        -- rowInset*2 in tabSelector.luau's own buildRow (matching upstream Rayfield Gen2 1.2
+        -- exactly), so padding here too was a double inset, live-reported as a huge dead gap
+        -- down both edges of the rail. Only top/bottom (railPadding) belongs on the list itself -
         -- clears the selected row's own glow, which reaches a bit past its top edge. Top's pills
         -- keep their own tighter, unrelated inset.
-        PaddingLeft = UDim.new(0, if isSidebar then 15 else 5),
-        PaddingRight = UDim.new(0, if isSidebar then 15 else 5),
+        PaddingLeft = UDim.new(0, if isSidebar then 0 else 5),
+        PaddingRight = UDim.new(0, if isSidebar then 0 else 5),
         PaddingTop = UDim.new(0, if isSidebar then 17 else 0),
         PaddingBottom = UDim.new(0, if isSidebar then 17 else 0),
 
@@ -960,7 +963,10 @@ function Window.new(properties)
             AnchorPoint = Vector2.new(0.5, 1),
             Position = UDim2.fromScale(0.5, 1),
             Size = UDim2.new(1, 0, 0, self.profileFooterHeight),
-            BackgroundTransparency = 1,
+            -- A real backing, not transparent - live-reported that without one, a tab scrolled
+            -- toward the bottom of a long list could show through behind the profile chip.
+            BackgroundColor3 = Color3.fromRGB(24, 24, 24),
+            BorderSizePixel = 0,
 
             -- self.settings doesn't exist yet this early in construction (assigned further
             -- down) - defaults shown, same as the resize grip's own construction-time Visible;
