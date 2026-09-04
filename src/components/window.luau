@@ -1089,8 +1089,9 @@ function Window.new(properties)
     -- on a row this much wider than tall reads as a stadium/capsule shape instead of the
     -- reference's own gently-rounded rectangle. Top mode's pill is unchanged.
     self:Create("UICorner", {
+        CornerRadius = if isSidebar then UDim.new(0, 14) else self.theme.PillCornerRadius,
         Parent = self.tabIndicator,
-    }, { CornerRadius = if isSidebar then UDim.new(0, 14) else "PillCornerRadius" })
+    })
 
     -- The rim upstream's own selected row gets from TabStroke - our shared sliding pill never
     -- had one at all, which was most of the "highlight colour looks wrong" gap next to the
