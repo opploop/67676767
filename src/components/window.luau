@@ -537,6 +537,12 @@ function Window.new(properties)
     -- (just invisible and zero-size) instance instead of nil.
     local isSidebarMode = self.tabsMode == "Sidebar"
 
+    -- Live-reported as a cheap-looking "elements dissolve at the top edge" effect once v1.2's
+    -- own bordered elements card gave the content area a real edge of its own to scroll against -
+    -- this seam-hiding fade isn't needed against a border the way it was against open space.
+    -- Sized to nothing rather than removed outright, same reasoning Sidebar mode already used:
+    -- every other reference to self.topFade/topFadeGradient below still resolves to a real (just
+    -- invisible and zero-size) instance instead of nil.
     self.topFade = self:Create("Frame", {
         -- Flat colour, same literal RGB as tabDock (24,24,24) - not a themed WindowColor, and
         -- not a gradient into one either (that was tried and looked worse: a colour ramp toward
@@ -548,7 +554,7 @@ function Window.new(properties)
         BorderSizePixel = 0,
         AnchorPoint = Vector2.new(0, 0),
         Position = UDim2.new(0, 0, 0, 103),
-        Size = if isSidebarMode then UDim2.new() else UDim2.new(1, 0, 0, 34),
+        Size = UDim2.new(),
         ZIndex = constants.zIndex.bottomFade,
 
         -- Animation
