@@ -977,10 +977,15 @@ function Window.new(properties)
         self.profile = self:Create("Frame", {
             Name = "Profile",
             AnchorPoint = Vector2.new(0, 1),
-            Position = UDim2.fromScale(0, 1),
+            -- Lifted clear of the window's own bottom fade (see self.bottomFade - it hangs ~47px
+            -- off the bottom edge and paints over anything under it at zIndex.bottomFade), which
+            -- was washing the chip out at the very bottom. The ZIndex below keeps it crisp even
+            -- where the two still overlap.
+            Position = UDim2.new(0, 0, 1, -14),
             Size = UDim2.fromOffset(self.sidebarWidth, self.profileFooterHeight),
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
+            ZIndex = constants.zIndex.bottomFade + 1,
 
             -- self.settings doesn't exist yet this early in construction (assigned further
             -- down) - defaults shown, same as the resize grip's own construction-time Visible;
@@ -991,11 +996,16 @@ function Window.new(properties)
             Parent = self.main,
         })
 
+        -- Global ZIndexBehavior: a child doesn't inherit its parent's ZIndex, so every part of
+        -- the chip has to carry the same one to stay above the bottom fade.
+        local profileZIndex = constants.zIndex.bottomFade + 1
+
         self.profileContainer = self:Create("Frame", {
             AnchorPoint = Vector2.new(0, 0.5),
             Position = UDim2.new(0, rowInset, 0.5, 0),
             Size = UDim2.new(1, -rowInset, 1, 0),
             BackgroundTransparency = 1,
+            ZIndex = profileZIndex,
 
             Parent = self.profile,
         })
@@ -1021,6 +1031,7 @@ function Window.new(properties)
             end),
             Size = UDim2.fromOffset(avatarSize, avatarSize),
             BorderSizePixel = 0,
+            ZIndex = profileZIndex,
 
             Parent = self.profileContainer,
         }, { BackgroundColor3 = "StatBackground" })
@@ -1035,6 +1046,7 @@ function Window.new(properties)
             AutomaticSize = Enum.AutomaticSize.X,
             BackgroundTransparency = 1,
             LayoutOrder = 1,
+            ZIndex = profileZIndex,
 
             Parent = self.profileContainer,
         })
@@ -1056,6 +1068,7 @@ function Window.new(properties)
             BackgroundTransparency = 1,
             TextSize = 18,
             TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = profileZIndex,
 
             Parent = self.profileLabels,
         }, { TextColor3 = "TitlingColor", FontFace = "Font" })
@@ -1073,6 +1086,7 @@ function Window.new(properties)
             LayoutOrder = 1,
             Visible = self.profileText ~= nil and self.profileText ~= "",
             TextTransparency = 0.3,
+            ZIndex = profileZIndex,
 
             Parent = self.profileLabels,
         }, { TextColor3 = "TitlingColor", FontFace = "Font" })

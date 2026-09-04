@@ -1112,6 +1112,11 @@ function Window:Hide()
         self.elements.Visible = false
         self.tabList.Visible = false
         self.tabDock.Visible = false
+        -- the profile chip hangs off main, not tabDock (see its own construction comment), so
+        -- hiding the dock doesn't take it with it
+        if self.profile then
+            self.profile.Visible = false
+        end
         self:_setTabSectionsVisible(false)
         chrome.setCollapsedShown(self, true, faceInfo)
         self:_setTopToastPosition(faceInfo)
@@ -1225,6 +1230,11 @@ function Window:ToggleMinimise()
             self.elements.Visible = false
             self.tabList.Visible = false
             self.tabDock.Visible = false
+            -- same story as Hide's own: the profile chip is parented to main, so it needs
+            -- hiding by hand alongside the dock
+            if self.profile then
+                self.profile.Visible = false
+            end
             self:_setTabSectionsVisible(false)
             -- a collapsed bar isn't something you'd resize, and the grip would otherwise sit
             -- oversized on its now much shorter (66px) height
