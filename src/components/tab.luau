@@ -564,6 +564,12 @@ function Tab:CreateProgressBar(properties)
     return self:_register(require(script.Parent.progressbar).new(self, properties))
 end
 
+-- A monospaced, self-scrolling block for code or log output. See console.luau's own header
+-- comment. Ported from upstream Rayfield Gen2 1.2.
+function Tab:CreateConsole(properties)
+    return self:_register(require(script.Parent.console).new(self, properties))
+end
+
 -- Scroll hint: centred text + bouncing arrow, points further down a page
 function Tab:CreateScrollHint(properties)
     return self:_register(require(script.Parent.scrollhint).new(self, properties))

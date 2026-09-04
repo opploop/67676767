@@ -275,6 +275,15 @@ export type ScrollHintProps = {
     text: string?,
 }
 
+export type ConsoleProps = {
+    name: string?,
+    description: string?,
+    text: string?,
+    height: number?, -- default 120
+    follow: boolean?, -- pin to the newest line as output arrives, like a real log
+    maxLines: number?, -- default 200; oldest lines roll off past this
+}
+
 export type SegmentedPickerOption = string | {
     text: string?,
     Text: string?,
@@ -577,6 +586,15 @@ export type ProgressBar = Moveable & {
     Set: (self: ProgressBar, value: number, skipAnimation: boolean?) -> (),
 }
 
+export type Console = Moveable & {
+    Get: (self: Console) -> string,
+    Set: (self: Console, text: string) -> (),
+    Append: (self: Console, line: string) -> (),
+    Clear: (self: Console) -> (),
+    Copy: (self: Console) -> boolean,
+    SetHeight: (self: Console, height: number) -> (),
+}
+
 export type ScrollHint = Moveable & {
     Set: (self: ScrollHint, text: string) -> (),
 }
@@ -785,6 +803,7 @@ export type Tab = {
     CreateParagraph: (self: Tab, props: ParagraphProps?) -> Paragraph,
     CreateDivider: (self: Tab, props: DividerProps?) -> Divider,
     CreateProgressBar: (self: Tab, props: ProgressBarProps) -> ProgressBar,
+    CreateConsole: (self: Tab, props: ConsoleProps) -> Console,
     CreateScrollHint: (self: Tab, props: ScrollHintProps?) -> ScrollHint,
     CreateSegmentedPicker: (self: Tab, props: SegmentedPickerProps?) -> SegmentedPicker,
     CreateShimmerLabel: (self: Tab, props: ShimmerLabelProps?) -> ShimmerLabel,
@@ -806,6 +825,9 @@ export type GreetingProps = {
 export type Window = {
     unloaded: boolean, -- true once Unload has run; the handle is spent
     CreateTab: (self: Window, props: TabProps) -> Tab,
+    -- Sidebar tabsMode only - a heading in the tab rail grouping the rows created after it. See
+    -- tabSection.luau's own header comment for why it's inert on the top strip.
+    CreateSection: (self: Window, props: SectionProps) -> Section,
     CreateTag: (self: Window, props: TagProps) -> Tag,
     Notify: (self: Window, props: NotifyProps) -> (),
     Toast: (self: Window, props: ToastProps) -> (),

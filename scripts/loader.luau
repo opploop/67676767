@@ -65,10 +65,10 @@ makeModule("types", RayfieldModule, fetch("src/types.luau"))
 local components = makeFolder("components", RayfieldModule)
 local componentFiles = {
     "action", "button", "changelog", "checkbox", "chrome", "collapsible", "colorpicker",
-    "copybutton", "descriptor", "divider", "drag", "dropdown", "flipbutton", "gradientpicker",
+    "console", "copybutton", "descriptor", "divider", "drag", "dropdown", "flipbutton", "gradientpicker",
     "group", "holdbutton", "hud", "input", "keybind", "label", "notification", "paragraph",
     "popup", "progressbar", "resize", "ripplebutton", "scrollhint", "search", "section",
-    "segmentedpicker", "shimmerlabel", "slider", "spacer", "stat", "statuscard", "tab", "tag", "tabbox",
+    "segmentedpicker", "shimmerlabel", "slider", "spacer", "stat", "statuscard", "tab", "tabSection", "tag", "tabbox",
     "toast", "toggle", "tour", "window", "windowCore", "windowExtra", "windowMethods",
 }
 for _, name in componentFiles do

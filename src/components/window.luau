@@ -151,6 +151,10 @@ function Window.new(properties)
         themeProperties = {},
         localeProperties = {},
         tabs = {},
+        -- Headings in the sidebar rail (Window:CreateSection, sidebar layout only - see
+        -- tabSection.luau) grouping the tab rows created after them, ported from upstream
+        -- Rayfield Gen2 1.2's own Tab Sections.
+        tabSections = {},
         tags = {},
         selectedTab = nil,
         theme = resolveTheme(properties.theme or properties.Theme),

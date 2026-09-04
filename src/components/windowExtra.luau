@@ -237,6 +237,8 @@ function Window:_quickRestore()
                 tab:_applyVisual(if self.selectedTab == tab then "selected" else "unselected", fadeInfo)
             end
         end
+        self:_setTabSectionsVisible(true)
+        self:_setTabSectionsShown(true, fadeInfo)
         task.wait() -- let UIListLayout resolve the tabs that just went Visible = true
         self:_updateTabIndicator(self.selectedTab, false)
 
@@ -671,6 +673,8 @@ function Window:_firstShow()
                 task.wait(0.15)
             end
         end
+        self:_setTabSectionsVisible(true)
+        self:_setTabSectionsShown(true, TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
     end)
 
     self:_revealElements(0.03, 2)

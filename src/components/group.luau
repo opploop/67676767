@@ -274,6 +274,9 @@ end
 function Group:CreateProgressBar(properties)
     return self:_add("progressbar", properties)
 end
+function Group:CreateConsole(properties)
+    return self:_add("console", properties)
+end
 function Group:CreateScrollHint(properties)
     return self:_add("scrollhint", properties)
 end

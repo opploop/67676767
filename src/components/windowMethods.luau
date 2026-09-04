@@ -302,6 +302,39 @@ function Window:CreateTab(properties)
     return newTab
 end
 
+-- A heading in the sidebar rail (Sidebar tabsMode only - see tabSection.luau's own header
+-- comment for why it does nothing on the top strip). Same props as a Tab's own CreateSection,
+-- and it groups the tab rows created after it the way that one groups elements. Ported from
+-- upstream Rayfield Gen2 1.2's own Tab Sections.
+function Window:CreateSection(properties)
+    assert(not self.unloaded, "Cannot create a section on an unloaded window.")
+    local section = require(script.Parent.tabSection).new(self, properties)
+    table.insert(self.tabSections, section)
+
+    -- built after the window is already open: reveal it now, the same way a late tab reveals
+    -- its row rather than waiting for the next open
+    if not section.inert and not self.hidden and not self.minimised then
+        section:_setVisible(true)
+        section:_setShown(true, TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
+    end
+
+    return section
+end
+
+-- Sections ride with the rows they label, so every path that fades or hides the rail's rows
+-- says the same thing to them.
+function Window:_setTabSectionsShown(shown, tweenInfo)
+    for _, section in self.tabSections do
+        section:_setShown(shown, tweenInfo)
+    end
+end
+
+function Window:_setTabSectionsVisible(visible)
+    for _, section in self.tabSections do
+        section:_setVisible(visible)
+    end
+end
+
 -- Alias for CreateTab({ neglectSelector = true }) - a tab left out of the normal tab dock,
 -- reachable only by calling :Select() on it yourself (typically from a button/stat elsewhere -
 -- "See full details" -> detailsTab:Select()). Good for a drill-down screen (full diagnostics, an
@@ -1168,6 +1201,7 @@ function Window:Hide()
             tab:_applyVisual("hidden", fadeInfo)
         end
     end
+    self:_setTabSectionsShown(false, fadeInfo)
     self:_setTabIndicatorVisible(false, fadeInfo)
 
     self:_fadeSelectedElementsOut()
@@ -1194,6 +1228,7 @@ function Window:Hide()
         self.elements.Visible = false
         self.tabList.Visible = false
         self.tabDock.Visible = false
+        self:_setTabSectionsVisible(false)
         chrome.setCollapsedShown(self, true, faceInfo)
     end)
 
@@ -1270,6 +1305,8 @@ function Window:ToggleMinimise()
                     tab:_applyVisual(if self.selectedTab == tab then "selected" else "unselected", fadeInfo)
                 end
             end
+            self:_setTabSectionsVisible(true)
+            self:_setTabSectionsShown(true, fadeInfo)
             self:_setTabIndicatorVisible(true, fadeInfo)
 
             -- one extra step so UIListLayout actually resolves Position/AbsoluteSize for tabs
@@ -1295,6 +1332,7 @@ function Window:ToggleMinimise()
                 tab:_applyVisual("hidden", fadeInfo)
             end
         end
+        self:_setTabSectionsShown(false, fadeInfo)
         self:_setTabIndicatorVisible(false, fadeInfo)
 
         task.delay(0.3, function()
@@ -1304,6 +1342,7 @@ function Window:ToggleMinimise()
             self.elements.Visible = false
             self.tabList.Visible = false
             self.tabDock.Visible = false
+            self:_setTabSectionsVisible(false)
             -- a collapsed bar isn't something you'd resize, and the grip would otherwise sit
             -- oversized on its now much shorter (66px) height
             self.resize.grip.Visible = false
