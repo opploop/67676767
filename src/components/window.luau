@@ -721,10 +721,21 @@ function Window.new(properties)
     -- construction (self.elements is built first, before that local exists yet) - cheap to
     -- recompute rather than hoist the whole tabDock block above this one just to share it.
     local elementsSidebar = self.tabsMode == "Sidebar"
-    -- Fixed width, matching upstream Rayfield Gen2 1.2's own railWidth exactly - no longer
-    -- player-draggable (see the removed sidebar resize grip) or collapsible to an icon-only
-    -- strip, so there's nothing left to tune per window; every tab title/icon always shows.
-    self.sidebarWidth = 219
+    -- Rail geometry, all upstream Rayfield Gen2 1.2's own numbers. Not player-draggable (see the
+    -- removed resize grip) - the only thing that changes it is the window's own width: under
+    -- sidebarCollapseBelow the rail drops its labels and becomes an icon rail, which is the
+    -- difference between a usable content card and an unusable one on a narrow window.
+    self.sidebarFullWidth = 219
+    self.sidebarCollapsedWidth = 64
+    self.sidebarCollapseBelow = 589
+    -- nil = follow the window's own width; true/false pins it either way (also settable live
+    -- via Window:SetSidebarCollapsed).
+    self._sidebarCollapsedOverride = if properties.sidebarCollapsed ~= nil then properties.sidebarCollapsed == true
+        elseif properties.SidebarCollapsed ~= nil then properties.SidebarCollapsed == true
+        else nil
+    self.sidebarWidth = if self._sidebarCollapsedOverride == true
+        then self.sidebarCollapsedWidth
+        else self.sidebarFullWidth
 
     -- Reserves 118px at the top for the header + tabDock (which itself ends at 65+38=103) - was
     -- 106, only a ~3px gap below the dock. Live-caught: harmless while the dock's own background

@@ -30,6 +30,7 @@ local acrylic = core.acrylic
 local clipboard = core.clipboard
 local chrome = core.chrome
 local search = core.search
+local tabSelector = require(script.Parent.tabSelector)
 local filesystem = core.filesystem
 local path = core.path
 local variables = core.variables
@@ -460,12 +461,39 @@ end
 -- self.sidebarWidth itself regardless of what's asked for. Kept (rather than removed outright)
 -- so SetSidebarWidth/OnSidebarWidthChanged/CreateTab's own re-application still have a real,
 -- harmless method to call instead of erroring.
-function Window:_applySidebarWidth(width: number)
-    width = self.sidebarWidth
+function Window:_applySidebarWidth(_width: number?)
+    -- The window's own width is the only input: narrow enough and the rail collapses to icons
+    -- (upstream's railCollapseBelow/railCollapsedWidth), otherwise it's the full rail.
+    local windowWidth = self.size and self.size.X.Offset or self.main.AbsoluteSize.X
+    -- A dev (or SetSidebarCollapsed) can pin it either way; nil means follow the window's width.
+    local collapsed = if self._sidebarCollapsedOverride ~= nil
+        then self._sidebarCollapsedOverride
+        else windowWidth < self.sidebarCollapseBelow
+    local width = if collapsed then self.sidebarCollapsedWidth else self.sidebarFullWidth
+    self.sidebarWidth = width
+
     self.tabDock.Size = UDim2.new(0, width, 1, -85)
     -- self.elements is anchored (1,1) now (flush against the window's own right/bottom edges -
     -- see window.luau's own construction comment), so only its Size needs re-deriving here.
     self.elements.Size = UDim2.new(1, -width, 1, -70)
+
+    for _, tab in self.tabs do
+        if not tab.neglectSelector then
+            tabSelector.setRowCollapsed(tab, collapsed)
+        end
+    end
+
+    -- Profile chip follows the same collapse: avatar alone, centred, once there's no room for
+    -- the name/subtitle column beside it.
+    if self.profile then
+        self.profile.Size = UDim2.fromOffset(width, self.profileFooterHeight)
+        self.profileContainer.Position = UDim2.new(0, if collapsed then 0 else 12, 0.5, 0)
+        self.profileContainer.Size = UDim2.new(1, if collapsed then 0 else -12, 1, 0)
+        self.profileLayout.HorizontalAlignment = if collapsed
+            then Enum.HorizontalAlignment.Center
+            else Enum.HorizontalAlignment.Left
+        self.profileLabels.Visible = not collapsed
+    end
 end
 
 -- Hear about every real sidebar-width change (drag, SetSidebarWidth, or CreateTab's own
@@ -479,6 +507,13 @@ end
 -- from their own saved data) without reaching into the underscore-prefixed method above.
 function Window:SetSidebarWidth(width: number)
     self:_applySidebarWidth(width)
+end
+
+-- Pin the rail to its compact (icon-only + avatar-only) shape, or back to the full one. Pass nil
+-- to hand it back to the window's own width (collapses under sidebarCollapseBelow on its own).
+function Window:SetSidebarCollapsed(collapsed: boolean?)
+    self._sidebarCollapsedOverride = if collapsed == nil then nil else collapsed == true
+    self:_applySidebarWidth()
 end
 
 -- Set the line under the player's name in the sidebar profile chip ("Premium", a rank, a tier).

@@ -297,6 +297,12 @@ function Resize.new(window)
         self.window.customSize = lastTargetSize
         self.window.settings.customWindowSize = { X = lastTargetSize.X, Y = lastTargetSize.Y }
 
+        -- the rail collapses to icons on a narrow enough window (see Window:_applySidebarWidth),
+        -- so a resize has to re-derive it
+        if self.window.tabsMode == "Sidebar" then
+            self.window:_applySidebarWidth()
+        end
+
         -- Settle the live ease onto the exact final target with a visible glide, same easing as
         -- drag.luau's own releaseDrag settle tween - persistence above already banked the target
         -- directly rather than reading main's own (still mid-ease) Size/Position, so there's

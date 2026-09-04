@@ -311,6 +311,32 @@ function tabSelector.build(tab, isSidebar: boolean)
     end
 end
 
+-- Drop the row's label so the rail reads as icons only, or put it back. Snaps rather than
+-- tweens: this follows a window resize, which snaps too, so animating it would only ever trail
+-- the edge it is meant to sit inside. Ported from upstream Rayfield Gen2 1.2.
+function tabSelector.setRowCollapsed(tab, collapsed: boolean)
+    if not tab.topbarItem or not tab.topbarItemContainer then
+        return -- a pill (top strip) or a tab with no selector row at all
+    end
+
+    local layout = tabSelector.layout
+
+    if tab.topbarItemTitle then
+        tab.topbarItemTitle.Visible = not collapsed
+    end
+    -- a tab with no icon shows its initial in the icon's place, so the row is never blank
+    if tab.topbarItemInitial then
+        tab.topbarItemInitial.Visible = collapsed
+    end
+
+    local inset = if collapsed then 0 else layout.rowPadding
+    tab.topbarItemContainer.Size = UDim2.new(1, -inset, 0, 24)
+    tab.topbarItemContainer.Position = UDim2.new(0, inset, 0.5, 0)
+    tab.topbarItemLayout.HorizontalAlignment = if collapsed
+        then Enum.HorizontalAlignment.Center
+        else Enum.HorizontalAlignment.Left
+end
+
 -- Apply one state's transparencies to whatever parts this selector actually has.
 function tabSelector.applyVisual(tab, state, tweenInfo)
     local targets = {
