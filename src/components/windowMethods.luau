@@ -40,6 +40,11 @@ local revealInfo = core.revealInfo
 local collapsedSize = core.collapsedSize
 local collapsedTop = core.collapsedTop
 local maxToastWidth = core.maxToastWidth
+-- Ported from upstream Rayfield Gen2 1.2's own fix: a top-centre toast used to land at the same
+-- spot the collapsed "Tap to show" pill rests at, live-overlapping it. Closed, the stack drops
+-- to just below the pill instead; open, it sits back at its normal spot under the topbar.
+local topToastOpenPosition = UDim2.new(0.5, 0, 0, 12)
+local topToastClosedPosition = UDim2.new(0.5, 0, 0, collapsedTop.Y.Offset + collapsedSize.Y.Offset + 12)
 local compactRowHeight = core.compactRowHeight
 local viewportReconcileInterval = core.viewportReconcileInterval
 local fitWindowSize = core.fitWindowSize
@@ -984,6 +989,22 @@ function Window:NotifyError(properties)
     return typedNotify(self, properties, "lucide:circle-x", self.theme.ErrorColor)
 end
 
+-- Slides the top-centre toast stack clear of the collapsed pill (or back to its normal spot) -
+-- call this wherever chrome.setCollapsedShown is, so the two always agree. No-op if no top
+-- toast has ever fired (container built lazily by Toast itself).
+function Window:_setTopToastPosition(animate)
+    local container = self._toastsTop
+    if not container then
+        return
+    end
+    local target = if self.hidden then topToastClosedPosition else topToastOpenPosition
+    if animate then
+        variables.tweenService:Create(container, animate, { Position = target }):Play()
+    else
+        container.Position = target
+    end
+end
+
 -- Top-centre / bottom-centre toast stack. Like Notify but for brief, centred messages that drop
 -- in from the top (or rise from the bottom) of the screen (newest on top). Each toast takes
 -- { title, subtitle?, icon?, duration?, position? }.
@@ -1001,7 +1022,9 @@ function Window:Toast(properties)
         container = self:Create("Frame", {
             Name = "Toasts",
             Size = UDim2.new(0, maxToastWidth, 1, -24),
-            Position = if isTop then UDim2.new(0.5, 0, 0, 12) else UDim2.new(0.5, 0, 1, -12),
+            Position = if isTop
+                then (if self.hidden then topToastClosedPosition else topToastOpenPosition)
+                else UDim2.new(0.5, 0, 1, -12),
             AnchorPoint = if isTop then Vector2.new(0.5, 0) else Vector2.new(0.5, 1),
             BackgroundTransparency = 1,
             ZIndex = constants.zIndex.toast,
@@ -1328,6 +1351,7 @@ function Window:Hide()
         self.tabDock.Visible = false
         self:_setTabSectionsVisible(false)
         chrome.setCollapsedShown(self, true, faceInfo)
+        self:_setTopToastPosition(faceInfo)
     end)
 
     -- once the move's settled the pill is done morphing: hand clicks to it

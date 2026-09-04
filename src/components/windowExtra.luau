@@ -182,6 +182,7 @@ function Window:_quickRestore()
     -- fades off, main grows + un-rounds. No chrome, no content - so you never see the topbar,
     -- tabs or bottom fade floating over a frame that isn't a window yet.
     chrome.setCollapsedShown(self, false, TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
+    self:_setTopToastPosition(TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
     variables.tweenService:Create(self.main, growInfo, { Size = self.size, Position = target }):Play()
     -- squircle mode has no windowCorner to un-round back from the pill's fully-round corner -
     -- the squircle shape just stays at its own normal radius throughout the restore (a known,
