@@ -531,8 +531,14 @@ function Window:_paintTabIndicator(animate)
         elseif self.tabStyle == "neutral" then self.theme.TabBackground
         else self.tabAccentColor
     local pillSequence = functions.toColorSequence(pillColor)
-    local flatColor = functions.flattenColor(pillColor) -- for the glow (Color3-only) + contrast text
-    local glowOn = self.tabStyle == "accent" and self.tabAccentGlow
+    local flatColor = functions.flattenColor(pillColor) -- for contrast text below
+    -- Neutral's own lift comes from a soft *white* glow underneath, matching upstream Rayfield
+    -- Gen2 1.2's own white topbarItemShadow on the selected row - a glow tinted the pill's own
+    -- dark grey (flatColor) would be nearly invisible instead of lifting it, which is what a
+    -- flat-looking selected tab (missing the reference's own "meio branquinho" highlight) turned
+    -- out to be.
+    local glowColor = if self.tabStyle == "accent" then flatColor else Color3.fromRGB(255, 255, 255)
+    local glowOn = (self.tabStyle == "accent" and self.tabAccentGlow) or self.tabStyle == "neutral"
     local info = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
     local function set(instance, props)
@@ -550,7 +556,7 @@ function Window:_paintTabIndicator(animate)
     -- whatever peeks past the gradient's own edges) and the glow actually ease.
     self.tabIndicatorGradient.Color = pillSequence
     set(self.tabIndicator, { BackgroundColor3 = flatColor })
-    set(self.tabIndicatorGlow, { Color = flatColor, Transparency = if glowOn then 0.5 else 1 })
+    set(self.tabIndicatorGlow, { Color = glowColor, Transparency = if glowOn then 0.5 else 1 })
 
     -- re-run the selected tab's own "selected" paint so its text/icon re-derive contrast
     -- against whatever the pill colour just became - _applyVisual computes that itself
@@ -570,7 +576,7 @@ function Window:_setTabIndicatorVisible(shown, info)
     end
     if shown then
         pill.Visible = true
-        local glowOn = self.tabStyle == "accent" and self.tabAccentGlow
+        local glowOn = (self.tabStyle == "accent" and self.tabAccentGlow) or self.tabStyle == "neutral"
         variables.tweenService:Create(pill, info, { BackgroundTransparency = 0 }):Play()
         if self.tabIndicatorGlow then
             variables.tweenService
@@ -614,8 +620,9 @@ end
 function Window:_applySidebarWidth(width: number)
     width = self.sidebarWidth
     self.tabDock.Size = UDim2.new(0, width, 1, -85)
-    self.elements.Position = UDim2.new(0, width + 30, 0, 70)
-    self.elements.Size = UDim2.new(1, -(width + 40), 1, -80)
+    -- self.elements is anchored (1,1) now (flush against the window's own right/bottom edges -
+    -- see window.luau's own construction comment), so only its Size needs re-deriving here.
+    self.elements.Size = UDim2.new(1, -(width + 20), 1, -70)
 end
 
 -- Hear about every real sidebar-width change (drag, SetSidebarWidth, or CreateTab's own

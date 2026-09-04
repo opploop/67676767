@@ -738,11 +738,15 @@ function Window.new(properties)
     -- Top mode uses, since there's no separate horizontal tab strip height to reserve above it,
     -- just the header.
     self.elements = self:Create("Frame", {
+        -- Sidebar: flush against the window's own right and bottom edges - matches upstream
+        -- Rayfield Gen2 1.2's own card exactly (AnchorPoint (1,1), Size (1,0,1,-chromeHeight),
+        -- zero margin on those two sides) rather than floating with a gap all around it, so the
+        -- card visually runs into the window's own edge instead of stopping short of it.
         Size = if elementsSidebar
-            then UDim2.new(1, -(self.sidebarWidth + 40), 1, -80)
+            then UDim2.new(1, -(self.sidebarWidth + 20), 1, -70)
             else UDim2.new(1, 0, 1, -118),
-        Position = if elementsSidebar then UDim2.new(0, self.sidebarWidth + 30, 0, 70) else UDim2.fromScale(0.5, 1),
-        AnchorPoint = if elementsSidebar then Vector2.new(0, 0) else Vector2.new(0.5, 1),
+        Position = if elementsSidebar then UDim2.fromScale(1, 1) else UDim2.fromScale(0.5, 1),
+        AnchorPoint = if elementsSidebar then Vector2.new(1, 1) else Vector2.new(0.5, 1),
         -- Sidebar mode: a card around the content, matching upstream Rayfield Gen2 1.2's own
         -- exact recipe - a near-invisible white fill (98% transparent, just a hint of lift off
         -- the window's own base gradient) with a subtle gradient-transparency stroke doing the
