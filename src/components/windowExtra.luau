@@ -198,6 +198,8 @@ function Window:_quickRestore()
         self.resize.grip.Visible = self.settings.resizeGripEnabled
         if self.profile then
             self.profile.Visible = self.settings.showProfile
+            self.tabList.Size =
+                UDim2.new(1, 0, 1, if self.settings.showProfile then -self.profileFooterHeight else 0)
         end
         self.topbar.Visible = true
         self.tabList.Visible = true

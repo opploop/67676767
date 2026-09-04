@@ -818,10 +818,9 @@ function Window.new(properties)
         -- 20px total inset, same margin every other card-shaped element on the window uses -
         -- flush edge-to-edge (the original tabList's own sizing) read as glued to the window's
         -- corner once it had a visible fill behind it. Sidebar: a vertical strip down the left
-        -- edge instead, from just under the header to just above the bottom fade - still this
-        -- full height in Sidebar mode even though the *visible* card no longer is (see
-        -- tabDockCard below): the resize grip is parented here and stays grabbable anywhere down
-        -- the whole strip, not just alongside however many tabs happen to exist.
+        -- edge instead, from just under the header to just above the bottom fade, full height -
+        -- tabList and the profile chip below both live inside it, and the resize grip is
+        -- parented here too, grabbable anywhere down the whole strip.
         Size = if isSidebar then UDim2.new(0, self.sidebarWidth, 1, -85) else UDim2.new(1, -40, 0, 38),
         Position = if isSidebar then UDim2.new(0, 20, 0, 65) else UDim2.new(0.5, 0, 0, 65),
         AnchorPoint = if isSidebar then Vector2.new(0, 0) else Vector2.new(0.5, 0),
@@ -835,65 +834,45 @@ function Window.new(properties)
         -- same reasoning as self.main's own Active = true - stays clickable at any transparency
         Active = true,
 
-        -- In Top mode this frame IS the visible card (background set directly below). In Sidebar
-        -- mode it's a plain invisible structural container instead - see tabDockCard, a child
-        -- sized to just the tab list's own content, for why: painting this fill directly on a
-        -- frame that spans almost the full window height, live-reported as "puta espaço" once
-        -- there were only 1-2 tabs, is exactly the dead-card look that was trying to fix.
+        -- In Top mode this frame IS the visible card (background set directly below). Sidebar
+        -- mode has no visible fill at all - tabs and the profile chip float directly on the
+        -- window, matching the reference sidebar's own look (live-reported: a dark panel
+        -- wrapping the whole rail read as an unwanted background nobody asked for).
         BackgroundTransparency = if isSidebar then 1 else 0.2,
         BackgroundColor3 = Color3.fromRGB(24, 24, 24),
 
         Parent = self.main,
     })
 
-    if isSidebar then
-        -- A structural wrapper only now, not a visible card - live-reported as an unwanted dark
-        -- panel sitting behind the tab rail once the reference sidebar's own look (tabs floating
-        -- directly on the window, no wrapping background) was the target. Still hugs tabList's
-        -- (and the profile chip's, if built below) own content height via AutomaticSize.Y rather
-        -- than the full height self.tabDock (its parent) reserves for the resize grip - that
-        -- part of the shape is unrelated to whether it paints anything.
-        self.tabDockCard = self:Create("Frame", {
-            Name = "TabDockCard",
-            Size = UDim2.new(1, 0, 0, 0),
-            AutomaticSize = Enum.AutomaticSize.Y,
-            BorderSizePixel = 0,
-            BackgroundTransparency = 1,
-
-            Parent = self.tabDock,
-        })
-
-        -- Stacks tabList then (if built below) the profile chip underneath it - tabDockCard's
-        -- own AutomaticSize.Y above grows to include both, so a hidden/absent profile costs it
-        -- nothing.
-        self:Create("UIListLayout", {
-            FillDirection = Enum.FillDirection.Vertical,
-            HorizontalAlignment = Enum.HorizontalAlignment.Left,
-            VerticalAlignment = Enum.VerticalAlignment.Top,
-            SortOrder = Enum.SortOrder.LayoutOrder,
-
-            Parent = self.tabDockCard,
-        })
-    end
-
     -- PillCornerRadius is UDim.new(1, 0) - scale-based, so it rounds to a full pill relative to
     -- whichever side is shorter. Top mode's dock is a short horizontal bar, so that's the right
-    -- look. Sidebar mode's card is a narrow column instead - the same scale-1 radius rounds off
-    -- of its (short) width, ballooning it into a giant capsule blob rather than a slim rounded
-    -- panel. Use the window's ordinary fixed-offset corner there instead.
+    -- look. Sidebar mode has no visible fill of its own to round at all (self.tabDock's own
+    -- BackgroundTransparency above is 1 there - tabs and the profile chip below float directly
+    -- on the window, matching the reference sidebar's look) - this still runs for it, just
+    -- against an invisible frame, rather than special-casing corners on/off per mode.
     self:Create("UICorner", {
-        Parent = self.tabDockCard or self.tabDock,
+        Parent = self.tabDock,
     }, { CornerRadius = if isSidebar then "CornerRoundness" else "PillCornerRadius" })
+
+    -- Whether this window gets a profile chip at all - Sidebar layout and a real player to
+    -- build one for (nil in a Studio server view or a headless run). Computed before tabList
+    -- below since its own height already needs to know whether to reserve the footer for it.
+    local localPlayer = if isSidebar then game:GetService("Players").LocalPlayer else nil
+    -- The profile chip's fixed height - see the block that builds it further down. A field, not
+    -- a local, so windowMethods.luau's "Show profile" toggle can reclaim/release the same strip
+    -- from tabList on demand.
+    self.profileFooterHeight = 60
 
     self.tabList = self:Create("ScrollingFrame", {
         Name = "Tabs",
         Active = true,
-        -- Sidebar: hugs its own UIListLayout content (see tabListLayout below) instead of filling
-        -- a parent - tabDockCard above then hugs *this*, which is what actually shrinks the
-        -- visible card to just however many tabs exist rather than the dock's full reserved
-        -- height.
-        Size = if isSidebar then UDim2.new(1, 0, 0, 0) else UDim2.fromScale(1, 1),
-        AutomaticSize = if isSidebar then Enum.AutomaticSize.Y else Enum.AutomaticSize.None,
+        -- Sidebar: a real fixed-height scrolling rail, the reference sidebar's own shape - tabs
+        -- scroll inside it once there are too many to fit, rather than the dock growing/shrinking
+        -- to match however many exist. Only as tall as the window minus the profile chip's own
+        -- reserved footer strip when one was actually built. Top mode is unchanged.
+        Size = if isSidebar
+            then UDim2.new(1, 0, 1, if localPlayer then -self.profileFooterHeight else 0)
+            else UDim2.fromScale(1, 1),
         Position = if isSidebar then UDim2.new(0, 0, 0, 0) else UDim2.fromScale(0.5, 0.5),
         AnchorPoint = if isSidebar then Vector2.new(0, 0) else Vector2.new(0.5, 0.5),
 
@@ -901,13 +880,14 @@ function Window.new(properties)
         CanvasSize = UDim2.new(0, 0, 0, 0),
         ScrollBarThickness = 0,
         ScrollBarImageTransparency = 1,
-        -- Scrolling (and the AutomaticCanvasSize that made it track content) doesn't apply once
-        -- Sidebar mode hugs full content height instead of a fixed viewport - Top mode is
-        -- unchanged, still a fixed-height strip that can genuinely overflow and need to scroll.
-        AutomaticCanvasSize = if isSidebar then Enum.AutomaticSize.None else Enum.AutomaticSize.X,
+        ClipsDescendants = true,
+        -- Sidebar: canvas tracks content along the scrolling (Y) axis now that the frame's own
+        -- Size.Y is fixed rather than auto-hugging it. Top mode is unchanged (X, its own scroll
+        -- axis).
+        AutomaticCanvasSize = if isSidebar then Enum.AutomaticSize.Y else Enum.AutomaticSize.X,
         ScrollingDirection = if isSidebar then Enum.ScrollingDirection.Y else Enum.ScrollingDirection.X,
 
-        Parent = self.tabDockCard or self.tabDock,
+        Parent = self.tabDock,
     })
 
     self.tabListLayout = self:Create("UIListLayout", {
@@ -933,21 +913,18 @@ function Window.new(properties)
         Parent = self.tabList,
     })
 
-    -- Sidebar profile chip: the signed-in player at the base of the rail, ported from upstream
-    -- Rayfield Gen2 1.2's own sidebar profile. Stacks under tabList inside tabDockCard (see the
-    -- UIListLayout added above) rather than a separately-reserved footer strip - tabDockCard's
-    -- own AutomaticSize.Y already hugs whatever's inside it, tabs included, so the card just
-    -- grows a little taller to fit this too instead of the rail needing a fixed full-window
-    -- height with dead space reserved below a short tab list.
-    local localPlayer = if isSidebar then game:GetService("Players").LocalPlayer else nil
+    -- Sidebar profile chip: the signed-in player pinned to the base of the rail, ported from
+    -- upstream Rayfield Gen2 1.2's own sidebar profile (localPlayer/profileFooterHeight computed
+    -- above tabList, since its own height already reserves this strip).
     if localPlayer then
         local avatarSize, rowInset = 32, 14
 
         self.profile = self:Create("Frame", {
             Name = "Profile",
-            Size = UDim2.new(1, 0, 0, avatarSize + rowInset * 2),
+            AnchorPoint = Vector2.new(0.5, 1),
+            Position = UDim2.fromScale(0.5, 1),
+            Size = UDim2.new(1, 0, 0, self.profileFooterHeight),
             BackgroundTransparency = 1,
-            LayoutOrder = 1,
 
             -- self.settings doesn't exist yet this early in construction (assigned further
             -- down) - defaults shown, same as the resize grip's own construction-time Visible;
@@ -955,7 +932,7 @@ function Window.new(properties)
             -- and windowMethods.luau's own resizeGripEnabled sync points).
             Visible = true,
 
-            Parent = self.tabDockCard,
+            Parent = self.tabDock,
         })
 
         self.profileContainer = self:Create("Frame", {

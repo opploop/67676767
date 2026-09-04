@@ -1449,6 +1449,8 @@ function Window:ToggleMinimise()
             self.resize.grip.Visible = self.settings.resizeGripEnabled
             if self.profile then
                 self.profile.Visible = self.settings.showProfile
+                self.tabList.Size =
+                    UDim2.new(1, 0, 1, if self.settings.showProfile then -self.profileFooterHeight else 0)
             end
             for _, tab in pairs(self.tabs) do
                 if not tab.neglectSelector and tab.topbarItem then
@@ -2164,6 +2166,9 @@ function Window:_buildSettingsUI()
             callback = function(state)
                 self.settings.showProfile = state
                 self.profile.Visible = state
+                -- Give the rows back the height the profile isn't using (and vice versa), so a
+                -- hidden profile leaves no dead strip at the base of the rail.
+                self.tabList.Size = UDim2.new(1, 0, 1, if state then -self.profileFooterHeight else 0)
                 self:SaveSettings()
             end,
         })
