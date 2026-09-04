@@ -30824,8 +30824,45 @@ local function node(path)
                 end
             end
 
-            -- child by name: a module first, then a folder
             local base = if path == "init" then "" else path .. "/"
+
+            -- the Instance methods src/ actually calls on a module/folder (themes:FindFirstChild
+            -- for a named theme, and the obvious neighbours), so a virtual node stands in for a
+            -- real one everywhere it's used
+            if key == "FindFirstChild" then
+                return function(_, childName)
+                    local childPath = base .. tostring(childName)
+                    if sources[childPath] or isFolder(childPath) then
+                        return node(childPath)
+                    end
+                    return nil
+                end
+            elseif key == "WaitForChild" then
+                return function(selfNode, childName)
+                    return selfNode:FindFirstChild(childName)
+                end
+            elseif key == "GetChildren" then
+                return function()
+                    local seen, out = {}, {}
+                    for candidate in sources do
+                        if string.sub(candidate, 1, #base) == base then
+                            local rest = string.sub(candidate, #base + 1)
+                            local head = string.match(rest, "^[^/]+")
+                            if head and not seen[head] then
+                                seen[head] = true
+                                table.insert(out, node(base .. head))
+                            end
+                        end
+                    end
+                    return out
+                end
+            elseif key == "IsA" then
+                return function(_, className)
+                    return className == "ModuleScript" or className == "Instance"
+                end
+            end
+
+            -- child by name: a module first, then a folder
             local childPath = base .. tostring(key)
             if sources[childPath] or isFolder(childPath) then
                 return node(childPath)
