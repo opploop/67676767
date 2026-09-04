@@ -273,7 +273,15 @@ end
 -- collapsed card shorter than its own header content (see outerPad's own comment above).
 function StatusCard:_setHeight(targetContentHeight, animate)
     local contentSize = UDim2.new(1, 0, 0, targetContentHeight)
-    local mainSize = UDim2.fromOffset(self.width, outerPad * 2 + headerRowHeight + targetContentHeight)
+    local height = outerPad * 2 + headerRowHeight + targetContentHeight
+    -- Inside a row Group, the row's own HorizontalFlex owns this card's width (Group:_wrapChild
+    -- sets _widthManaged for exactly this) - rewriting it back to self.width on every expand/
+    -- collapse is what left the card frozen at its own 260px next to a toggle that had stretched
+    -- to fill the row, live-reported as "it stays a square and doesn't take the space it should".
+    -- Keep whatever width it currently has in that case and only drive the height.
+    local mainSize = if self._widthManaged
+        then UDim2.new(self.main.Size.X.Scale, self.main.Size.X.Offset, 0, height)
+        else UDim2.fromOffset(self.width, height)
     if animate then
         variables.tweenService:Create(self.contentWrapper, heightInfo, { Size = contentSize }):Play()
         variables.tweenService:Create(self.main, heightInfo, { Size = mainSize }):Play()
@@ -479,8 +487,12 @@ function StatusCard:Toggle()
     self:SetExpanded(not self.expanded)
 end
 
+-- What the card needs to still read properly, not the width it likes to be on its own. Returning
+-- self.width (260) here made it demand more of a shared row than it actually needs - a toggle
+-- beside it got squeezed or wrapped onto its own line. Row flex grows it back out from this
+-- floor; standalone (not in a row) it still builds at self.width.
 function StatusCard:_minWidth()
-    return self.width
+    return math.min(self.width, 180)
 end
 
 function StatusCard:_setShown(shown, animate)
