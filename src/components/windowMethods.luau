@@ -595,91 +595,21 @@ end
 -- just silently stop following it). tab.topbarItem's own AbsolutePosition already reflects
 -- wherever tabList is currently scrolled to, so this stays correct without depending on
 -- CanvasPosition at all.
--- Sidebar mode only (see sidebarResize's own drag handle in window.luau, and self.sidebarWidth/
--- sidebarMinWidth/sidebarMaxWidth/sidebarCollapseWidth set at construction). Re-derives tabDock
--- and the content pane's own Size/Position from the same two formulas window.luau's constructor
--- used them for in the first place - width just comes from a live field now instead of a
--- construction-time-only local. Deliberately plain Size/Position writes only, nothing here reads
--- any AbsolutePosition/AbsoluteSize back mid-resize - every child inside tabDock is already sized
--- in Scale (see tab.luau's topbarItem), so they follow tabDock's new width for free the instant
--- it changes, with no per-tab-row math needed here at all. The one exception (the shared tab
--- indicator pill) reads Absolute* geometry - it's deliberately hidden for the whole drag instead
--- (see the grip's own InputBegan/released handlers) and only resynced once, after release, the
--- same settled-by-then timing every other _updateTabIndicator call in this codebase already
--- relies on.
+-- Sidebar mode only. self.sidebarWidth is a fixed constant now (no more player drag handle -
+-- see window.luau's own comment) - this just re-derives tabDock and the content pane's Size/
+-- Position from it, the same formula window.luau's constructor used in the first place. Kept as
+-- its own method (rather than inlined at each call site) since CreateTab's own re-application
+-- and the public SetSidebarWidth wrapper below both still need to call it.
+-- The sidebar is a fixed width now (self.sidebarWidth, matching upstream Rayfield Gen2 1.2's own
+-- railWidth) - no more player drag handle or icon-only collapse state, so this just applies
+-- self.sidebarWidth itself regardless of what's asked for. Kept (rather than removed outright)
+-- so SetSidebarWidth/OnSidebarWidthChanged/CreateTab's own re-application still have a real,
+-- harmless method to call instead of erroring.
 function Window:_applySidebarWidth(width: number)
-    width = math.clamp(width, self.sidebarMinWidth, self.sidebarMaxWidth)
-    -- Only fire OnSidebarWidthChanged when the width actually moved. Without this, a listener
-    -- that reacts by calling back into SetSidebarWidth (RegisterFlag's restore path does exactly
-    -- that) would recurse forever - each call re-fires the same "changed" event even though
-    -- nothing did. The recursion still bottoms out safely with this guard: the second call sees
-    -- its own already-applied width and takes the no-op branch below.
-    local previousWidth = self.sidebarWidth
-    self.sidebarWidth = width
+    width = self.sidebarWidth
     self.tabDock.Size = UDim2.new(0, width, 1, -85)
     self.elements.Position = UDim2.new(0, width + 30, 0, 70)
     self.elements.Size = UDim2.new(1, -(width + 40), 1, -80)
-
-    -- Below sidebarCollapseWidth: hide the title, centre the icon in the now-narrow row instead
-    -- of leaving it pinned to the row's left padding with dead space where the text used to be
-    -- (live-reported: "ainda ta aparecendo um espaço quando compacta"), and size the icon up -
-    -- 14px (sized to sit comfortably next to a title) read as "muito pequeno" once it was the
-    -- only thing left in the row with real room to breathe.
-    --
-    -- Above that threshold, the title's own size now scales continuously with width too (live-
-    -- reported: "conforme vai aumentando o espaço faz ir aumentando o tamanho dos titulos") -
-    -- linear from minTitleSize right at the collapse point up to maxTitleSize at the sidebar's own
-    -- widest, rather than one fixed size the whole range. sidebarMaxWidth doubles as "how much
-    -- room the title has to grow into" here - both knobs already exist for the drag's own clamp.
-    --
-    -- maxTitleSize bumped 18 -> 24 (and the icon now scales alongside it, not just at the
-    -- collapse/expand jump): 18px still left a big gap between a short word like "Dashboard" and
-    -- the resize grip at the sidebar's widest, since the pill itself hugs the title's own text
-    -- width (see _updateTabIndicator) - live-reported as "ainda tem espaço" even after the pill
-    -- stopped stretching the full row. Bigger text closes most of that gap on its own rather than
-    -- the pill needing to fake-fill the width some other way.
-    local collapsedIconSize = 20
-    local minIconSize, maxIconSize = 14, 20
-    local minTitleSize, maxTitleSize = 12, 24
-    local showTitles = width >= self.sidebarCollapseWidth
-    local titleSizeFraction =
-        math.clamp((width - self.sidebarCollapseWidth) / (self.sidebarMaxWidth - self.sidebarCollapseWidth), 0, 1)
-    local titleSize = minTitleSize + (maxTitleSize - minTitleSize) * titleSizeFraction
-    local expandedIconSize = minIconSize + (maxIconSize - minIconSize) * titleSizeFraction
-    for _, tab in self.tabs do
-        if tab.topbarItemTitle then
-            tab.topbarItemTitle.Visible = showTitles
-            if showTitles then
-                tab.topbarItemTitle.TextSize = titleSize
-            end
-        end
-        if tab.topbarItemIcon then
-            local size = if showTitles then expandedIconSize else collapsedIconSize
-            tab.topbarItemIcon.Size = UDim2.fromOffset(size, size)
-        end
-        if tab.topbarItemContainer then
-            tab.topbarItemContainer.AnchorPoint = if showTitles then Vector2.new(0, 0) else Vector2.new(0.5, 0)
-            tab.topbarItemContainer.Position = if showTitles then UDim2.new(0, 0, 0, 0) else UDim2.new(0.5, 0, 0, 0)
-        end
-    end
-
-    -- Profile chip collapses the same way a tab row's own title does: avatar centred alone once
-    -- there's no room left for the name/subtitle column beside it.
-    if self.profileContainer then
-        local profileRowInset = 14
-        self.profileContainer.Position = UDim2.new(0, if showTitles then profileRowInset else 0, 0.5, 0)
-        self.profileContainer.Size = UDim2.new(1, if showTitles then -profileRowInset else 0, 1, 0)
-        self.profileLayout.HorizontalAlignment = if showTitles
-            then Enum.HorizontalAlignment.Left
-            else Enum.HorizontalAlignment.Center
-        self.profileLabels.Visible = showTitles
-    end
-
-    if width ~= previousWidth then
-        for _, callback in self._sidebarWidthChangedCallbacks do
-            task.spawn(callback, width)
-        end
-    end
 end
 
 -- Hear about every real sidebar-width change (drag, SetSidebarWidth, or CreateTab's own

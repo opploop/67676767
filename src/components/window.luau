@@ -721,27 +721,10 @@ function Window.new(properties)
     -- construction (self.elements is built first, before that local exists yet) - cheap to
     -- recompute rather than hoist the whole tabDock block above this one just to share it.
     local elementsSidebar = self.tabsMode == "Sidebar"
-    -- Live-reported as too chunky at 160 alongside the corner-radius fix above (see tabDock's own
-    -- UICorner comment) - trimmed for a slimmer rail, then found too tight on its own for a longer
-    -- tab name ("Priority System" clipped) even after shrinking the sidebar row's own text/icon/
-    -- padding (see tab.luau) - settled at 150. A live field now, not a local - the drag handle
-    -- (see sidebarResize.luau) changes this at runtime, and both this block and tabDock's own
-    -- construction further down read the one shared value instead of two literals that used to
-    -- have to be kept in sync by hand.
-    self.sidebarMinWidth = 60 -- icon-only rail: just wide enough for one centred icon + padding
-    self.sidebarMaxWidth = 260
-    -- Below this, a tab's own title label hides - matches sidebarMinWidth's own icon-only look
-    -- kicking in before the text has any room left to sit next to the icon at all.
-    self.sidebarCollapseWidth = 96
-    -- Dev-settable starting width - properties.sidebarCollapsed opts straight into the icon-only
-    -- rail from the first frame (a hub that wants that as its own default look, rather than a
-    -- player having to drag down to it manually every session) without needing to know the exact
-    -- pixel width that lands below sidebarCollapseWidth.
-    self.sidebarWidth = if properties.sidebarWidth ~= nil then properties.sidebarWidth
-        elseif properties.SidebarWidth ~= nil then properties.SidebarWidth
-        elseif properties.sidebarCollapsed or properties.SidebarCollapsed then self.sidebarMinWidth
-        else 150
-    self.sidebarWidth = math.clamp(self.sidebarWidth, self.sidebarMinWidth, self.sidebarMaxWidth)
+    -- Fixed width, matching upstream Rayfield Gen2 1.2's own railWidth exactly - no longer
+    -- player-draggable (see the removed sidebar resize grip) or collapsible to an icon-only
+    -- strip, so there's nothing left to tune per window; every tab title/icon always shows.
+    self.sidebarWidth = 219
 
     -- Reserves 118px at the top for the header + tabDock (which itself ends at 65+38=103) - was
     -- 106, only a ~3px gap below the dock. Live-caught: harmless while the dock's own background
@@ -760,11 +743,29 @@ function Window.new(properties)
             else UDim2.new(1, 0, 1, -118),
         Position = if elementsSidebar then UDim2.new(0, self.sidebarWidth + 30, 0, 70) else UDim2.fromScale(0.5, 1),
         AnchorPoint = if elementsSidebar then Vector2.new(0, 0) else Vector2.new(0.5, 1),
-        BackgroundTransparency = 1,
+        -- Sidebar mode: a real bordered card around the content, matching the reference
+        -- sidebar's own look - Top mode already reads as one cohesive surface with the tabDock
+        -- above it and stays exactly as it was (fully transparent, no card of its own here).
+        BackgroundTransparency = if elementsSidebar then 0.2 else 1,
+        BackgroundColor3 = Color3.fromRGB(24, 24, 24),
+        BorderSizePixel = 0,
         ClipsDescendants = true,
 
         Parent = self.main,
     })
+
+    if elementsSidebar then
+        self:Create("UICorner", {
+            Parent = self.elements,
+        }, { CornerRadius = "CornerRoundness" })
+
+        self:Create("UIStroke", {
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+            Transparency = 0.85,
+
+            Parent = self.elements,
+        }, { Color = "SurfaceStroke" })
+    end
 
     -- UI Scale setting: parented to self.elements specifically, not self.main - main itself
     -- (and everything measured directly off it: resize.luau's corner math, drag.luau's own
@@ -1071,151 +1072,10 @@ function Window.new(properties)
         self:_updateTabIndicator(self.selectedTab, false)
     end)
 
-    -- Sidebar-only drag handle on the dock's right edge - live-resizes the whole rail (see
-    -- self:_applySidebarWidth) down to an icon-only strip or back up to full width, the same
-    -- "drag the border" interaction resize.luau's own corner grip and drag.luau's own title bar
-    -- already use elsewhere in this file. Sits fully inside tabDock's own ClipsDescendants bounds
-    -- (not straddling the edge the way resize.luau's corner grip does) - nothing behind the dock
-    -- needs half of a handle to poke out into it here, so there's no reason to fight the clip.
-    if isSidebar then
-        -- Live-reported as "mt grosso, feio" at 6px square-cornered - thinned to a proper hairline
-        -- and rounded into a small pill (centred vertically within its own row height doesn't
-        -- apply here since it already spans tabDock's full height; the rounding alone is what
-        -- reads as a deliberate handle rather than a stray rectangle glued to the edge).
-        local sidebarGrip = self:Create("Frame", {
-            Name = "SidebarResizeGrip",
-            AnchorPoint = Vector2.new(1, 0.5),
-            Position = UDim2.new(1, -2, 0.5, 0),
-            Size = UDim2.new(0, 3, 1, -16),
-            BorderSizePixel = 0,
-            ZIndex = 3, -- above tab rows (ZIndex 2) so it's still grabbable right at the edge
-            BackgroundTransparency = 1, -- In = 0.6 on hover/drag, see setGripVisual below
-
-            Parent = self.tabDock,
-        }, { BackgroundColor3 = "SurfaceStroke" })
-        self:Create("UICorner", {
-            CornerRadius = UDim.new(1, 0),
-            Parent = sidebarGrip,
-        })
-
-        -- Scaled up on a touch-primary device (window.mobileHitScale, same knob resize.luau's own
-        -- corner grip uses) - 12px is fine for a mouse pointer's precision but tight for a
-        -- fingertip trying to grab a 3px-visible hairline.
-        local sidebarGripHitWidth = if self:IsMobile() then 12 * self.mobileHitScale else 12
-        local sidebarGripInteract = self:Create("TextButton", {
-            -- A little wider than the visible 6px line (easier to grab) but still fully inside
-            -- tabDock's own ClipsDescendants bounds, not straddling past its edge - unlike
-            -- resize.luau's corner grip, there's no need to poke outside the dock here, and
-            -- keeping the hit area fully inside sidesteps ever having to check whether
-            -- ClipsDescendants affects input hit-testing the same way it affects rendering.
-            Size = UDim2.new(0, sidebarGripHitWidth, 1, 0),
-            AnchorPoint = Vector2.new(1, 0),
-            Position = UDim2.new(1, 0, 0, 0),
-            BackgroundTransparency = 1,
-            Text = "",
-            TextTransparency = 1,
-            -- Every tab row's own click-catcher (topbarItemInteract) spans the row's full width,
-            -- which overlaps this exact strip at the row's own right edge - above that at ZIndex
-            -- 2, this would never actually be reachable; a click there would always hit the tab
-            -- underneath instead of grabbing the resize handle.
-            ZIndex = 4,
-
-            Parent = self.tabDock,
-        })
-
-        local gripHoverInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-        local resizingSidebar = false
-        -- Three states rather than just a transparency fade - rest is a short, barely-there sliver
-        -- (SurfaceStroke, near-invisible); hover grows it taller and tints it toward the theme's
-        -- own AccentColor instead of a neutral grey, so it reads as "this is interactive" rather
-        -- than just "slightly less transparent"; drag goes further still (full height, solid
-        -- accent, a hair thicker) - the same rest/hover/drag escalation resize.luau's own corner
-        -- grip uses, just as a colour+length shift instead of an icon scale.
-        local function setGripVisual(state: "rest" | "hover" | "drag")
-            local color = if state == "rest" then self.theme.SurfaceStroke else self.theme.AccentColor
-            local transparency = if state == "rest" then 1 elseif state == "hover" then 0.45 else 0.1
-            local height = if state == "rest" then UDim2.new(0, 3, 1, -16)
-                elseif state == "hover" then UDim2.new(0, 3, 1, -8)
-                else UDim2.new(0, 4, 1, 0)
-            variables.tweenService:Create(sidebarGrip, gripHoverInfo, {
-                BackgroundTransparency = transparency,
-                BackgroundColor3 = color,
-                Size = height,
-            }):Play()
-        end
-        self:Connect(sidebarGripInteract.MouseEnter, function()
-            if not resizingSidebar then
-                setGripVisual("hover")
-            end
-        end)
-        self:Connect(sidebarGripInteract.MouseLeave, function()
-            if not resizingSidebar then
-                setGripVisual("rest")
-            end
-        end)
-
-        local dragStartMouseX = 0
-        local dragStartWidth = 0
-        local quickFade = TweenInfo.new(0.15, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-
-        local function releaseSidebarResize()
-            if not resizingSidebar then
-                return
-            end
-            resizingSidebar = false
-            setGripVisual("rest")
-            self:_setTabIndicatorVisible(true, quickFade)
-            task.wait() -- let tabDock/tab rows settle at the final width before reading geometry
-            self:_updateTabIndicator(self.selectedTab, false)
-            -- Not persisted by the library itself - self.sidebarWidth would reset to its
-            -- construction-time default next session on its own. Window:OnSidebarWidthChanged
-            -- (windowMethods.luau) fires right below, from the one real funnel (_applySidebarWidth)
-            -- every width change already passes through - a consumer script mirrors that into its
-            -- own Window:RegisterFlag'd value to survive a restart (see the hub template's own use
-            -- of both).
-        end
-
-        self:Connect(sidebarGripInteract.InputBegan, function(input, processed)
-            if processed or not self:_interactive() then
-                return
-            end
-            local inputType = input.UserInputType.Name
-            if inputType ~= "MouseButton1" and inputType ~= "Touch" then
-                return
-            end
-            resizingSidebar = true
-            setGripVisual("drag")
-            dragStartMouseX = variables.userInputService:GetMouseLocation().X
-            dragStartWidth = self.sidebarWidth
-            -- Hidden for the whole drag rather than live-tracked: the pill's own positioning
-            -- depends on AbsoluteSize/AbsolutePosition (see _updateTabIndicator's own comment on
-            -- why), which only reflects reality once the layout settles - not something to trust
-            -- on every single frame of a fast, continuous drag. One clean resync on release
-            -- (below) instead of fighting that every frame.
-            self:_setTabIndicatorVisible(false, quickFade)
-        end)
-
-        self:Connect(variables.runService.RenderStepped, function()
-            if not resizingSidebar then
-                return
-            end
-            if not self:_interactive() then
-                releaseSidebarResize()
-                return
-            end
-            local mouseX = variables.userInputService:GetMouseLocation().X
-            self:_applySidebarWidth(dragStartWidth + (mouseX - dragStartMouseX))
-        end)
-
-        self:Connect(variables.userInputService.InputEnded, function(input)
-            local inputType = input.UserInputType.Name
-            if inputType == "MouseButton1" or inputType == "Touch" then
-                releaseSidebarResize()
-            end
-        end)
-        -- alt-tabbing mid-drag never delivers InputEnded, same story as resize.luau's own grip
-        self:Connect(variables.userInputService.WindowFocusReleased, releaseSidebarResize)
-    end
+    -- No player-facing sidebar resize handle anymore - live-reported as getting in the way more
+    -- than it helped. The rail is a fixed width now (see self.sidebarWidth's own construction-
+    -- time comment, matching upstream Rayfield Gen2 1.2's own railWidth), not something a player
+    -- drags live.
 
     -- Actions
     self.actionContainer = self:Create("Frame", {
