@@ -663,6 +663,18 @@ function Window:_applySidebarWidth(width: number)
         end
     end
 
+    -- Profile chip collapses the same way a tab row's own title does: avatar centred alone once
+    -- there's no room left for the name/subtitle column beside it.
+    if self.profileContainer then
+        local profileRowInset = 14
+        self.profileContainer.Position = UDim2.new(0, if showTitles then profileRowInset else 0, 0.5, 0)
+        self.profileContainer.Size = UDim2.new(1, if showTitles then -profileRowInset else 0, 1, 0)
+        self.profileLayout.HorizontalAlignment = if showTitles
+            then Enum.HorizontalAlignment.Left
+            else Enum.HorizontalAlignment.Center
+        self.profileLabels.Visible = showTitles
+    end
+
     if width ~= previousWidth then
         for _, callback in self._sidebarWidthChangedCallbacks do
             task.spawn(callback, width)
@@ -681,6 +693,20 @@ end
 -- from their own saved data) without reaching into the underscore-prefixed method above.
 function Window:SetSidebarWidth(width: number)
     self:_applySidebarWidth(width)
+end
+
+-- Set the line under the player's name in the sidebar profile chip ("Premium", a rank, a tier).
+-- Empty (or nil) drops the line entirely. Sidebar tabsMode only - no-op if this window has no
+-- profile chip to put it in (Top mode, or no LocalPlayer to build one for). Ported from
+-- upstream Rayfield Gen2 1.2.
+function Window:SetProfile(text: string?)
+    self.profileText = text
+    if not self.profileSubtitle then
+        return
+    end
+    local resolved = if type(text) == "string" and text ~= "" then locale.resolve(text) else nil
+    self.profileSubtitle.Text = resolved or ""
+    self.profileSubtitle.Visible = resolved ~= nil
 end
 
 function Window:_updateTabIndicator(tab, animate)
@@ -2122,6 +2148,23 @@ function Window:_buildSettingsUI()
                 :Play()
         end,
     })
+
+    -- Only the sidebar layout has somewhere to put a profile chip, and only once it actually
+    -- built one (a real LocalPlayer to build it for - see window.luau's own profile block).
+    -- Ported from upstream Rayfield Gen2 1.2.
+    if self.profile then
+        self.rfSettings:CreateToggle({
+            name = "Show profile",
+            icon = "lucide:user",
+            description = "Shows your avatar and name at the base of the sidebar.",
+            value = self.settings.showProfile,
+            callback = function(state)
+                self.settings.showProfile = state
+                self.profile.Visible = state
+                self:SaveSettings()
+            end,
+        })
+    end
 
     -- Configurations: save the current setup under a name and switch between saved ones.
     -- Only shown once the developer opts into config saving.

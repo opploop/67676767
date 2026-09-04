@@ -276,6 +276,10 @@ function Window.new(properties)
     -- CreateWindow (Fluent's own TabsMode) - not a runtime/player Settings toggle, since
     -- switching layout live would mean re-deriving every position below from scratch anyway.
     self.tabsMode = properties.tabsMode or properties.TabsMode or "Top"
+    -- The line under the player's name in the sidebar's profile chip ("Premium", a rank, a
+    -- tier) - Sidebar tabsMode only, see the profile block built below. Ported from upstream
+    -- Rayfield Gen2 1.2's own sidebar profile subtitle; nil means the name stands on its own.
+    self.profileText = properties.profile or properties.Profile
     -- mobileHitScale: multiplies a handful of touch-target sizes (the window's own resize grip -
     -- see resize.luau's own gripSize - and the sidebar's resize grip below) when Window:IsMobile()
     -- reads true. Scoped to hit areas specifically rather than a full mobile/desktop pass over
@@ -856,6 +860,18 @@ function Window.new(properties)
 
             Parent = self.tabDock,
         })
+
+        -- Stacks tabList then (if built below) the profile chip underneath it - tabDockCard's
+        -- own AutomaticSize.Y above grows to include both, so a hidden/absent profile costs it
+        -- nothing.
+        self:Create("UIListLayout", {
+            FillDirection = Enum.FillDirection.Vertical,
+            HorizontalAlignment = Enum.HorizontalAlignment.Left,
+            VerticalAlignment = Enum.VerticalAlignment.Top,
+            SortOrder = Enum.SortOrder.LayoutOrder,
+
+            Parent = self.tabDockCard,
+        })
     end
 
     -- PillCornerRadius is UDim.new(1, 0) - scale-based, so it rounds to a full pill relative to
@@ -914,6 +930,114 @@ function Window.new(properties)
 
         Parent = self.tabList,
     })
+
+    -- Sidebar profile chip: the signed-in player at the base of the rail, ported from upstream
+    -- Rayfield Gen2 1.2's own sidebar profile. Stacks under tabList inside tabDockCard (see the
+    -- UIListLayout added above) rather than a separately-reserved footer strip - tabDockCard's
+    -- own AutomaticSize.Y already hugs whatever's inside it, tabs included, so the card just
+    -- grows a little taller to fit this too instead of the rail needing a fixed full-window
+    -- height with dead space reserved below a short tab list.
+    local localPlayer = if isSidebar then game:GetService("Players").LocalPlayer else nil
+    if localPlayer then
+        local avatarSize, rowInset = 32, 14
+
+        self.profile = self:Create("Frame", {
+            Name = "Profile",
+            Size = UDim2.new(1, 0, 0, avatarSize + rowInset * 2),
+            BackgroundTransparency = 1,
+            LayoutOrder = 1,
+
+            Visible = self.settings.showProfile,
+
+            Parent = self.tabDockCard,
+        })
+
+        self.profileContainer = self:Create("Frame", {
+            AnchorPoint = Vector2.new(0, 0.5),
+            Position = UDim2.new(0, rowInset, 0.5, 0),
+            Size = UDim2.new(1, -rowInset, 1, 0),
+            BackgroundTransparency = 1,
+
+            Parent = self.profile,
+        })
+
+        self.profileLayout = self:Create("UIListLayout", {
+            Padding = UDim.new(0, 10),
+            FillDirection = Enum.FillDirection.Horizontal,
+            VerticalAlignment = Enum.VerticalAlignment.Center,
+            HorizontalAlignment = Enum.HorizontalAlignment.Left,
+            SortOrder = Enum.SortOrder.LayoutOrder,
+
+            Parent = self.profileContainer,
+        })
+
+        -- headshots resolve async (a local getcustomasset file in secure mode) - onReady fills
+        -- it in whenever it actually lands, same pattern as CreateHUD's own avatar.
+        self.profileAvatar = self:Create("ImageLabel", {
+            Name = "Avatar",
+            Image = image.avatar(localPlayer.UserId, function(uri)
+                if self.profileAvatar and not self.unloaded then
+                    image.assign(self.profileAvatar, "Image", uri)
+                end
+            end),
+            Size = UDim2.fromOffset(avatarSize, avatarSize),
+            BorderSizePixel = 0,
+
+            Parent = self.profileContainer,
+        }, { BackgroundColor3 = "StatBackground" })
+
+        self:Create("UICorner", {
+            CornerRadius = UDim.new(1, 0),
+            Parent = self.profileAvatar,
+        })
+
+        self.profileLabels = self:Create("Frame", {
+            Size = UDim2.fromOffset(50, avatarSize),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            LayoutOrder = 1,
+
+            Parent = self.profileContainer,
+        })
+
+        self:Create("UIListLayout", {
+            Padding = UDim.new(0, 2),
+            FillDirection = Enum.FillDirection.Vertical,
+            VerticalAlignment = Enum.VerticalAlignment.Center,
+            HorizontalAlignment = Enum.HorizontalAlignment.Left,
+            SortOrder = Enum.SortOrder.LayoutOrder,
+
+            Parent = self.profileLabels,
+        })
+
+        self.profileName = self:Create("TextLabel", {
+            Text = localPlayer.DisplayName,
+            Size = UDim2.fromOffset(50, 16),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            TextSize = 16,
+            TextXAlignment = Enum.TextXAlignment.Left,
+
+            Parent = self.profileLabels,
+        }, { TextColor3 = "TitlingColor", FontFace = "Font" })
+
+        -- The dev's line under the name (properties.profile/Profile - see self.profileText
+        -- above). Nothing set means the name stands on its own rather than inventing a second
+        -- line to fill the space.
+        self.profileSubtitle = self:Create("TextLabel", {
+            Text = if self.profileText and self.profileText ~= "" then locale.resolve(self.profileText) else "",
+            Size = UDim2.fromOffset(50, 14),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            TextSize = 14,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            LayoutOrder = 1,
+            Visible = self.profileText ~= nil and self.profileText ~= "",
+            TextTransparency = 0.3,
+
+            Parent = self.profileLabels,
+        }, { TextColor3 = "TitlingColor", FontFace = "Font" })
+    end
 
     -- the sliding pill: a free Frame with no layout of its own (same idea as segmentedpicker's
     -- indicator / toggle's knob), created before any tab so creation order alone keeps it
@@ -1194,6 +1318,8 @@ function Window.new(properties)
         soundEffects = false, -- off by default, same reasoning as haptics above - opt in from
         -- settings rather than a sound just starting the moment a window opens
         resizeGripEnabled = true, -- Devlog 8: shows the corner drag-to-resize handle
+        showProfile = true, -- the player chip at the base of the sidebar rail (Sidebar tabsMode
+        -- only - see the profile block built below); ported from upstream Rayfield Gen2 1.2
         debugLogging = false, -- off by default; gates Window:DebugLog - a player flips this (or
         -- presses F9) only when asked to reproduce a bug, so a dev's DebugLog calls stay silent
         -- for everyone else the rest of the time
