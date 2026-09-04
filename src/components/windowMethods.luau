@@ -335,6 +335,104 @@ function Window:_setTabSectionsVisible(visible)
     end
 end
 
+-- Element Locking, ported from upstream Rayfield Gen2 1.2. Lock or unlock one element - it
+-- dims and an opaque scrim (see _buildLockScrim) physically covers it, so a real click never
+-- reaches the control underneath and its own callback simply never runs. `reason` replaces the
+-- element's description while it's locked, so the UI can say why without covering the element
+-- up to do it. Reached through the lockable.luau mixin's own Lock/Unlock/IsLocked - see that
+-- file's header comment for which components use this directly vs. their own bespoke
+-- SetLocked.
+local lockScrimTransparency = 0.55
+local lockedDescriptionTransparency = 0.55
+
+function Window:_setElementLocked(element, locked, reason)
+    locked = locked == true
+    -- locked starts out nil, so compare against a real boolean: `nil == false` is false, and
+    -- Unlock on an element that was never locked would otherwise build a scrim just to fade it
+    -- straight back out. A fresh reason on an already-locked element is still worth applying.
+    local wasLocked = element.locked == true
+    if wasLocked == locked and not (locked and reason) then
+        return
+    end
+    element.locked = locked
+
+    if not element.lockScrim then
+        self:_buildLockScrim(element)
+    end
+
+    local info = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+    if locked then
+        element.lockScrim.Visible = true
+    end
+    variables.tweenService
+        :Create(element.lockScrim, info, {
+            BackgroundTransparency = if locked then lockScrimTransparency else 1,
+        })
+        :Play()
+    if not locked then
+        task.delay(info.Time, function()
+            if not element.locked and element.lockScrim then
+                element.lockScrim.Visible = false -- out of hit-testing once it has faded
+            end
+        end)
+    end
+
+    -- say why in the description, and put the element's own back when it unlocks
+    local descriptor = element.descriptor
+    if not descriptor then
+        return
+    end
+
+    if locked then
+        -- `or`, not plain assignment: re-locking with a new reason must not remember the old
+        -- reason as though it were the element's own description
+        element._descriptionBefore = element._descriptionBefore or descriptor.titleLabel.Text
+        descriptor.titleLabel.Text = locale.resolve(reason or "This element is locked.")
+    elseif element._descriptionBefore then
+        descriptor.titleLabel.Text = element._descriptionBefore
+        element._descriptionBefore = nil
+    end
+
+    variables.tweenService
+        :Create(descriptor.titleLabel, info, {
+            TextTransparency = if locked then lockedDescriptionTransparency else 0.7,
+        })
+        :Play()
+end
+
+-- The scrim: a sheet of the window's own colour over the element, dimming it. It carries
+-- nothing itself - it's the dimming and the description that say what's happened. It is an
+-- Active button, so it swallows anything aimed at the element underneath rather than leaving
+-- each element to check a flag on every input path.
+local function firstColor(value)
+    return if typeof(value) == "ColorSequence" then value.Keypoints[1].Value else value
+end
+
+function Window:_buildLockScrim(element)
+    element.lockScrim = self:Create("TextButton", {
+        Name = "ElementLock",
+        Active = true,
+        AutoButtonColor = false,
+        Size = UDim2.fromScale(1, 1),
+        BorderSizePixel = 0,
+        Text = "",
+        TextTransparency = 1,
+        ZIndex = 60, -- over the element's own content, so a locked element cant be reached through it
+        Visible = false,
+
+        -- no literal BackgroundColor3 here: Create applies the theme first and plain properties
+        -- second, so setting it both ways would paint straight over the themed colour
+        BackgroundTransparency = 1, -- In = lockScrimTransparency
+
+        Parent = element.main,
+    }, { BackgroundColor3 = { "WindowColor", firstColor } })
+
+    self:Create("UICorner", {
+        Parent = element.lockScrim,
+    }, { CornerRadius = "ElementCornerRadius" })
+end
+
 -- Alias for CreateTab({ neglectSelector = true }) - a tab left out of the normal tab dock,
 -- reachable only by calling :Select() on it yourself (typically from a button/stat elsewhere -
 -- "See full details" -> detailsTab:Select()). Good for a drill-down screen (full diagnostics, an

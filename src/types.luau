@@ -577,6 +577,10 @@ export type Moveable = {
 export type Button = Moveable & {
     locked: boolean,
     SetLocked: (self: Button, locked: boolean) -> (),
+    -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.
+    Lock: (self: Button) -> (),
+    Unlock: (self: Button) -> (),
+    IsLocked: (self: Button) -> boolean,
 }
 
 export type RippleButton = Moveable & {}
@@ -627,6 +631,11 @@ export type Toggle = Moveable & {
     locked: boolean,
     Set: (self: Toggle, value: boolean, skipCallback: boolean?) -> (),
     SetLocked: (self: Toggle, locked: boolean) -> (),
+    -- Element Locking (ported from upstream Rayfield Gen2 1.2): shared Lock/Unlock/IsLocked
+    -- naming, aliased into this component's own SetLocked - see lockable.luau's own comment.
+    Lock: (self: Toggle) -> (),
+    Unlock: (self: Toggle) -> (),
+    IsLocked: (self: Toggle) -> boolean,
     SetStatus: (self: Toggle, text: string) -> (),
     -- Runs fn(toggle) on a repeating timer for as long as this toggle is on; fn can return a
     -- number to override the wait before the next call instead of `interval` (default 0.5s).
@@ -642,7 +651,13 @@ export type Checkbox = Moveable & {
 
 export type Slider = Moveable & {
     value: number,
+    locked: boolean,
     Set: (self: Slider, value: number, skipCallback: boolean?) -> (),
+    -- Element Locking (ported from upstream Rayfield Gen2 1.2): dims the element and covers it
+    -- with an input-blocking scrim. `reason` replaces its description while locked.
+    Lock: (self: Slider, reason: string?) -> (),
+    Unlock: (self: Slider) -> (),
+    IsLocked: (self: Slider) -> boolean,
 }
 
 export type Dropdown = Moveable & {
@@ -651,24 +666,46 @@ export type Dropdown = Moveable & {
     Set: (self: Dropdown, value: string | { string }, skipCallback: boolean?) -> (),
     Reset: (self: Dropdown, skipCallback: boolean?) -> (), -- clears back to the placeholder
     SetLocked: (self: Dropdown, locked: boolean) -> (),
+    -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.
+    Lock: (self: Dropdown) -> (),
+    Unlock: (self: Dropdown) -> (),
+    IsLocked: (self: Dropdown) -> boolean,
 }
 
 export type Input = Moveable & {
     value: string,
+    locked: boolean,
     Set: (self: Input, value: string, skipCallback: boolean?) -> (),
+    -- Element Locking (ported from upstream Rayfield Gen2 1.2): dims the element and covers it
+    -- with an input-blocking scrim. `reason` replaces its description while locked.
+    Lock: (self: Input, reason: string?) -> (),
+    Unlock: (self: Input) -> (),
+    IsLocked: (self: Input) -> boolean,
 }
 
 export type Keybind = Moveable & {
     value: EnumItem,
+    locked: boolean,
     Set: (self: Keybind, value: EnumItem | string, skipChanged: boolean?) -> (),
+    -- Element Locking (ported from upstream Rayfield Gen2 1.2): dims the element and covers it
+    -- with an input-blocking scrim. `reason` replaces its description while locked.
+    Lock: (self: Keybind, reason: string?) -> (),
+    Unlock: (self: Keybind) -> (),
+    IsLocked: (self: Keybind) -> boolean,
 }
 
 export type ColorPicker = Moveable & {
     value: Color3,
     alpha: number,
+    locked: boolean,
     Set: (self: ColorPicker, value: Color3 | string, skipCallback: boolean?) -> (),
     SetAlpha: (self: ColorPicker, alpha: number, skipCallback: boolean?) -> (),
     SetGlow: (self: ColorPicker, shown: boolean) -> (),
+    -- Element Locking (ported from upstream Rayfield Gen2 1.2): dims the element and covers it
+    -- with an input-blocking scrim. `reason` replaces its description while locked.
+    Lock: (self: ColorPicker, reason: string?) -> (),
+    Unlock: (self: ColorPicker) -> (),
+    IsLocked: (self: ColorPicker) -> boolean,
 }
 
 export type GradientPicker = Moveable & {
@@ -712,6 +749,10 @@ export type Divider = Moveable & {
 export type HoldButton = Moveable & {
     locked: boolean,
     SetLocked: (self: HoldButton, locked: boolean) -> (),
+    -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.
+    Lock: (self: HoldButton) -> (),
+    Unlock: (self: HoldButton) -> (),
+    IsLocked: (self: HoldButton) -> boolean,
 }
 
 export type Changelog = Moveable & {}

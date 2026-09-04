@@ -489,6 +489,22 @@ function Toggle:SetLocked(locked)
     self:_applyLocked(true)
 end
 
+-- Lock/Unlock/IsLocked: the shared naming lockable.luau gives every other locking-capable
+-- element (see that file's own header comment for why this one aliases straight into its own
+-- SetLocked instead of using the mixin - Toggle already had its own padlock-icon dimming before
+-- Element Locking was ported, and this keeps that look rather than adding a second scrim on
+-- top of it). `reason` isn't supported here - only the elements using the mixin's own scrim
+-- swap a description to show one.
+function Toggle:Lock()
+    self:SetLocked(true)
+end
+function Toggle:Unlock()
+    self:SetLocked(false)
+end
+function Toggle:IsLocked(): boolean
+    return self.locked == true
+end
+
 function Toggle:_animateIndicator()
     local info = TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
     if self.indicatorGlow then

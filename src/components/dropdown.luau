@@ -1489,6 +1489,20 @@ function Dropdown:SetLocked(locked)
     self:_applyLocked(true)
 end
 
+-- Lock/Unlock/IsLocked: the shared naming lockable.luau gives every other locking-capable
+-- element - aliased into this component's own pre-existing SetLocked/padlock-icon dimming
+-- rather than the mixin's scrim (see lockable.luau's own header comment). `reason` isn't
+-- supported here.
+function Dropdown:Lock()
+    self:SetLocked(true)
+end
+function Dropdown:Unlock()
+    self:SetLocked(false)
+end
+function Dropdown:IsLocked(): boolean
+    return self.locked == true
+end
+
 function Dropdown:_setShown(shown, animate)
     -- Custom reveal: main is a transparent wrapper, so reveal the header card (self.top)
     -- rather than main. The options card fades in on open, not here.

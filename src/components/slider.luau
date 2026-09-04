@@ -17,6 +17,7 @@ local variables = require(utility.variables)
 local functions = require(utility.functions)
 local odometer = require(utility.odometer)
 local moveable = require(utility.moveable)
+local lockable = require(utility.lockable)
 local locale = require(utility.locale)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
@@ -635,5 +636,6 @@ function Slider:_minWidth()
 end
 
 moveable(Slider)
+lockable(Slider)
 
 return Slider

@@ -337,6 +337,20 @@ function Button:SetLocked(locked)
     self:_applyLocked(true)
 end
 
+-- Lock/Unlock/IsLocked: the shared naming lockable.luau gives every other locking-capable
+-- element - aliased into this component's own pre-existing SetLocked/padlock-icon dimming
+-- rather than the mixin's scrim (see lockable.luau's own header comment). `reason` isn't
+-- supported here.
+function Button:Lock()
+    self:SetLocked(true)
+end
+function Button:Unlock()
+    self:SetLocked(false)
+end
+function Button:IsLocked(): boolean
+    return self.locked == true
+end
+
 function Button:_setShown(shown, animate)
     if shown then
         -- _revealCommon is locked-aware (see window.luau) - it already dims title/icon
