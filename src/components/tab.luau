@@ -14,12 +14,12 @@ local utility = script.Parent.Parent.utility
 
 -- Variables
 local variables = require(utility.variables)
-local functions = require(utility.functions)
 local locale = require(utility.locale)
 local assignOrder = require(utility.ordering)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
 local search = require(script.Parent.search)
+local tabSelector = require(script.Parent.tabSelector)
 
 -- Walk a tab or group's children (groups nest) and tear each element down: drop its flag from
 -- the window registry and disconnect every connection it owns, so nothing outlives the
@@ -52,15 +52,6 @@ local function teardownElements(window, elements)
     end
 end
 
--- Icon/text transparency per state. No more per-tab background/stroke to animate - Devlog 5's
--- shared self.window.tabIndicator pill supplies the "selected" background now, sliding to
--- whichever tab is active instead of each one fading its own pill in.
-local tabStates = {
-    selected = { content = 0 },
-    hover = { content = 0.3 },
-    unselected = { content = 0.5 },
-    hidden = { content = 1 },
-}
 
 local selectTweenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local hoverTweenInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -86,113 +77,27 @@ function Tab.new(window, properties)
     assert(self.name or self.icon, "A tab needs a name or an icon.")
 
     if not self.neglectSelector then -- Allow for tabs to be hidden from the tab selector, for Rayfield Settings.
-        -- Topbar Item - purely a sizing/click surface now. It never paints its own background;
-        -- the window's single shared tabIndicator pill (see window.luau) slides behind whichever
-        -- one of these is selected, reading this frame's own resolved Position/AbsoluteSize.
-        -- Top mode hugs its own text width (grows with content, packed left-to-right); Sidebar
-        -- fills the dock's own width instead and stacks top-to-bottom, so every pill reads as
-        -- one full-width row rather than pills of differing width down a narrow column.
+        -- Builds topbarItem/topbarItemInteract/topbarItemStroke/topbarItemShadow/
+        -- topbarItemContainer/topbarItemIcon/topbarItemTitle - a row in Sidebar mode, a pill in
+        -- Top mode. Ported from upstream Rayfield Gen2 1.2's own tabSelector.luau: each one owns
+        -- and fades its own background/stroke/shadow on selection now (see _applyVisual below),
+        -- not a single shared pill sliding between them.
         local sidebarTabs = self.window.tabsMode == "Sidebar"
-        -- A sidebar tab with no name at all - just an icon, e.g. a compact utility shortcut - has
-        -- no text to fill the rest of a full-width row with. Left at the normal full-width sizing,
-        -- that row was a big dead strip with one small icon pinned to its left edge. Square instead
-        -- (icon size + the same padding a full row uses), matching the icon's own footprint.
-        local iconOnlySidebarTab = sidebarTabs and (not self.name or self.name == "")
-        self.topbarItem = self.window:Create("Frame", {
-            Name = self.name,
-            -- 38px row height matches upstream Rayfield Gen2 1.2's own rowHeight exactly.
-            Size = if iconOnlySidebarTab
-                then UDim2.fromOffset(38, 38)
-                elseif sidebarTabs then UDim2.new(1, 0, 0, 38)
-                else UDim2.fromOffset(0, 34),
-            AutomaticSize = if sidebarTabs then Enum.AutomaticSize.None else Enum.AutomaticSize.X,
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
+        require(script.Parent.tabSelector).build(self, sidebarTabs)
 
-            Visible = false, -- In = true
-
-            LayoutOrder = self.customOrder or 0,
-
-            Parent = self.window.tabList,
-        })
-
-        self.topbarItemInteract = self.window:Create("TextButton", {
-            Active = false,
-            BackgroundTransparency = 1,
-            Size = UDim2.fromScale(1, 1),
-            BorderSizePixel = 0,
-            Text = "",
-            TextTransparency = 1,
-            -- explicit, above the shared indicator's ZIndex 1 (window.luau): ZIndex isn't
-            -- inherited from a parent under Global behavior, and the indicator now lives in a
-            -- different branch of the tree (tabDock, not tabList) since it moved out of the
-            -- ScrollingFrame, so this can't lean on creation order to stay clickable above it
-            ZIndex = 2,
-
-            Parent = self.topbarItem,
-        })
-
-        self.topbarItemContainer = self.window:Create("Frame", {
-            Size = UDim2.fromOffset(0, if sidebarTabs then 38 else 34),
-            AutomaticSize = Enum.AutomaticSize.X,
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
-
-            Parent = self.topbarItem,
-        })
-
-        -- Sidebar rows use upstream Rayfield Gen2 1.2's own exact rowPadding (10px each side);
-        -- Top's pills keep their own tighter, hug-to-content padding.
-        self.window:Create("UIPadding", {
-            PaddingLeft = UDim.new(0, if sidebarTabs then 10 else 11),
-            PaddingRight = UDim.new(0, if sidebarTabs then 10 else 11),
-
-            Parent = self.topbarItemContainer,
-        })
-
-        self.topbarItemLayout = self.window:Create("UIListLayout", {
-            -- 6px icon-to-title gap in Sidebar mode matches upstream's own rowContentSpacing.
-            Padding = UDim.new(0, if sidebarTabs then 6 else 5),
-            FillDirection = Enum.FillDirection.Horizontal,
-            VerticalAlignment = Enum.VerticalAlignment.Center,
-            HorizontalAlignment = Enum.HorizontalAlignment.Center,
-            SortOrder = Enum.SortOrder.LayoutOrder,
-
-            Parent = self.topbarItemContainer,
-        })
-
-        if self.icon then
-            self.topbarItemIcon = self.window:Create("ImageLabel", {
-                -- Configurables
-                -- raw value: Create routes Image through image.resolve, which already handles
-                -- numbers and rbxassetid strings (concat here would double the prefix)
-                Image = self.icon,
-
-                -- 20px in Sidebar mode matches upstream Rayfield Gen2 1.2's own rowIconSize.
-                Size = UDim2.fromOffset(if sidebarTabs then 20 else 16, if sidebarTabs then 20 else 16),
-                BorderSizePixel = 0,
-                BackgroundTransparency = 1,
-                ZIndex = 2, -- see topbarItemInteract for why this needs to be explicit now
-
-                -- Animation
-                ImageTransparency = 1, -- In = 0 / 0.5
-
-                Parent = self.topbarItemContainer,
-            }, { ImageColor3 = "TabColor" })
-
-            -- "New"/"updated" indicator - a small dot pinned to the icon's own top-right corner
-            -- rather than a layout sibling, so it tracks the icon's size (14-20px, continuous
-            -- while the sidebar's being dragged - see Window:_applySidebarWidth) for free instead
-            -- of needing its own re-position pass every frame. Built hidden and always present
-            -- when there's an icon to pin it to, so SetBadge can turn it on any time after the
-            -- tab exists (e.g. a hub flagging "Priority System" as updated this patch) without a
-            -- dev needing to predict that at CreateTab time.
+        -- "New"/"updated" indicator - a small dot pinned to the icon's own top-right corner
+        -- rather than a layout sibling, so it tracks the icon's own size for free instead of
+        -- needing its own re-position pass every frame. Built hidden and always present when
+        -- there's an icon to pin it to, so SetBadge can turn it on any time after the tab exists
+        -- (e.g. a hub flagging "Priority System" as updated this patch) without a dev needing to
+        -- predict that at CreateTab time.
+        if self.topbarItemIcon then
             self.badgeDot = self.window:Create("Frame", {
                 AnchorPoint = Vector2.new(1, 0),
                 Position = UDim2.new(1, 3, 0, -3),
                 Size = UDim2.fromOffset(7, 7),
                 BorderSizePixel = 0,
-                ZIndex = 3, -- above the icon (2) and the shared indicator pill behind it (1)
+                ZIndex = 3, -- above the icon (2)
                 Visible = properties.badge or properties.Badge or false,
 
                 Parent = self.topbarItemIcon,
@@ -201,31 +106,6 @@ function Tab.new(window, properties)
                 CornerRadius = UDim.new(1, 0),
                 Parent = self.badgeDot,
             })
-        end
-
-        if self.name then
-            -- Same 16px in both modes now, matching upstream Rayfield Gen2 1.2's own row title
-            -- size exactly (the fixed 219px rail has room for it) - TextWrapped stays on as a
-            -- fallback for a longer name a dev adds later, wrapping rather than clipping.
-            self.topbarItemTitle = self.window:Create("TextLabel", {
-                -- Configurables
-                Text = locale.t(self.name), -- tab name
-
-                Size = UDim2.fromOffset(0, 16),
-                BorderSizePixel = 0,
-                BackgroundTransparency = 1,
-                TextSize = 16,
-                AutomaticSize = Enum.AutomaticSize.XY,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                TextWrapped = true,
-                LayoutOrder = 1,
-                ZIndex = 2, -- see topbarItemInteract for why this needs to be explicit now
-
-                -- Animation
-                TextTransparency = 1, -- In = 0 / 0.5
-
-                Parent = self.topbarItemContainer,
-            }, { TextColor3 = "TabColor", FontFace = "Font" })
         end
 
         -- flows after icon/title via topbarItemContainer's own UIListLayout - the position/
@@ -313,61 +193,30 @@ function Tab.new(window, properties)
     return self
 end
 
--- selected: contrast-computed against whatever colour the shared pill currently is (white, or
--- the live accent colour) so the label always reads on top of it. Every other state uses the
--- theme's plain TabColor - only the transparency actually varies between hover/unselected/hidden.
+-- Each row/pill owns and fades its own background/stroke/shadow now - ported from upstream
+-- Rayfield Gen2 1.2's own tabSelector.applyVisual, ambient states table included. TabColor stays
+-- the text/icon colour throughout (no contrast computation against a shared pill colour needed,
+-- since there's no shared pill anymore).
 function Tab:_applyVisual(stateName, tweenInfo)
     if self.neglectSelector or not self.topbarItem then
         return
     end
 
-    local state = tabStates[stateName]
+    local mode = if self.window.tabsMode == "Sidebar" then "sidebar" else "top"
+    local states = tabSelector.states[mode]
+    local state = states[stateName]
     if not state then
         return
     end
 
     -- locked reads as (at least) unselected-dim no matter which state was actually asked for -
-    -- computed here rather than in a separate pass afterward, so there's only ever one tween
-    -- per property instead of two racing each other (the tab indicator/lock system both
-    -- learned this the hard way earlier)
-    local content = if self.locked then math.max(state.content, tabStates.unselected.content) else state.content
-
-    local color
-    if stateName == "selected" and not self.locked then
-        -- defensive fallback: contrastText would error on a nil color, and a custom theme
-        -- (or a window mid-construction) might not have an AccentColor to fall back on either
-        local pillColor = if self.window.tabStyle == "white" then Color3.fromRGB(255, 255, 255)
-            elseif self.window.tabStyle == "neutral" then self.window.theme.TabBackground
-            else self.window.tabAccentColor
-        pillColor = pillColor or self.window.theme.AccentColor or Color3.fromRGB(255, 255, 255)
-        -- pillColor may be a full ColorSequence (SetTabAccentColor accepts either) - flatten to
-        -- one representative colour before contrastText, which only understands a Color3
-        color = functions.contrastText(functions.flattenColor(pillColor))
-    else
-        color = self.window.theme.TabColor
+    -- computed here rather than in a separate pass afterward, so there's only ever one tween per
+    -- property instead of two racing each other.
+    if self.locked and state.content < states.unselected.content then
+        state = states.unselected
     end
 
-    if tweenInfo then
-        if self.topbarItemIcon then
-            variables.tweenService
-                :Create(self.topbarItemIcon, tweenInfo, { ImageTransparency = content, ImageColor3 = color })
-                :Play()
-        end
-        if self.topbarItemTitle then
-            variables.tweenService
-                :Create(self.topbarItemTitle, tweenInfo, { TextTransparency = content, TextColor3 = color })
-                :Play()
-        end
-    else
-        if self.topbarItemIcon then
-            self.topbarItemIcon.ImageTransparency = content
-            self.topbarItemIcon.ImageColor3 = color
-        end
-        if self.topbarItemTitle then
-            self.topbarItemTitle.TextTransparency = content
-            self.topbarItemTitle.TextColor3 = color
-        end
-    end
+    tabSelector.applyVisual(self, state, tweenInfo)
 end
 
 -- Show/hide the padlock and re-paint with whatever visual is already active, so the dim baked
@@ -409,44 +258,8 @@ function Tab:Select(noAnimation)
     -- icon it targets would just pop straight to its end state the moment the window appears
     local skipAnimation = noAnimation or not self.window:_interactive()
 
-    if not self.neglectSelector then
-        if not skipAnimation then
-            self:_applyVisual("selected", selectTweenInfo)
-        end
-        -- Only sync the shared pill here when the window's already interactive (a real tab
-        -- switch on an open window). Before the very first Show()/_firstShow() - the case this
-        -- branch's own skipAnimation already detects via `not self.window:_interactive()` - main
-        -- is still hidden or mid-intro-tween, so nothing here (topbarItem's Visible, the row's
-        -- own layout, main's own Size) has settled into its real resting state yet. Doing it here
-        -- anyway used to fade the pill in immediately (this 0.4s tween) at whatever bogus position
-        -- that unsettled read produced - visible well before _firstShow()'s own later, correctly-
-        -- timed sync ever got a chance to fix it, live-reported as the highlight sitting "in
-        -- between" the tabs on first open. _firstShow()/_quickRestore() already schedule their own
-        -- _setTabIndicatorVisible + _updateTabIndicator once things have actually settled - this
-        -- just stops racing them.
-        if self.window:_interactive() then
-            self.window:_setTabIndicatorVisible(true, selectTweenInfo)
-            -- Live-reported: the pill sometimes lands narrower than the row and shifted off to
-            -- one side, most visible on Sidebar tabs. _updateTabIndicator reads AbsolutePosition/
-            -- AbsoluteSize (see its own comment on why Position can't be trusted) - those only
-            -- reflect reality once UIListLayout has actually resolved this frame, and Select can
-            -- run before it has (e.g. right after a tab's Visible flips true elsewhere).
-            -- windowExtra.luau's own reveal paths already task.wait() for exactly this before
-            -- their own _updateTabIndicator call; mirroring it here covers the same race on every
-            -- other path that selects a tab on an already-open window.
-            task.wait()
-            self.window:_updateTabIndicator(self, not skipAnimation)
-        end
-    else
-        -- a neglectSelector page (the Settings tab) isn't a real tab to point the shared accent
-        -- pill at, and _updateTabIndicator already no-ops for a neglectSelector selectedTab (see
-        -- its own guard) - so without this, the pill just sits frozen wherever it last was. That
-        -- reads as fine until the strip gets scrolled while parked on Settings: the scroll
-        -- listener re-runs _updateTabIndicator(selectedTab, ...), still a no-op, so the pill
-        -- stays frozen in screen space while the tabs scroll underneath it - looks exactly like
-        -- it's "following the scroll" instead of staying on the tab it was last actually on.
-        -- Hiding it here instead avoids the drift entirely.
-        self.window:_setTabIndicatorVisible(false, selectTweenInfo)
+    if not self.neglectSelector and not skipAnimation then
+        self:_applyVisual("selected", selectTweenInfo)
     end
 
     for _, tab in self.window.tabs do

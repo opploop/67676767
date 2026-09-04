@@ -164,15 +164,6 @@ function Window:ChangeTheme(theme)
         self:_refreshElementThemes()
     end
 
-    -- tabAccentColor isn't itself a themeProperty (it's live-settable independent of the theme
-    -- via SetTabAccentColor), but it starts out just a snapshot of the old theme's AccentColor -
-    -- follow the new one on a swap unless a dev has explicitly pinned it to something else.
-    if not self._tabAccentOverridden then
-        self.tabAccentColor = self.theme.AccentColor
-    end
-    -- the pill's own colour + the selected tab's contrast text are outside themeProperties too
-    self:_paintTabIndicator(not self.hidden)
-
     self:_syncLiveAnimation()
 
     -- see OnThemeChanged's own comment - a dev's own hand-built RichText (baked-in <font
@@ -459,169 +450,6 @@ function Window:CreateHiddenTab(properties)
     return self:CreateTab(properties)
 end
 
--- Squish & stretch, same technique segmentedpicker.luau's slideIndicator uses: a quick stretch
--- into a shape spanning both the old and new bounds, then a springy settle onto the exact
--- target (Back overshoots slightly before easing back). Offset-based rather than scale-based,
--- since tab pills are sized to their own content, not equal fractions of a shared bar.
-local tabStretchInfo = TweenInfo.new(0.12, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-local tabSettleInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-
--- A Window method (not a free function) so it can track the in-flight tween/connection on
--- self: a plain closure-local couldn't survive between calls, which is exactly what let two
--- calls in quick succession (selecting a tab, then scrolling before its slide finished) race
--- each other - the scroll's snap would land the pill correctly, but the *first* call's still-
--- pending "stretch finished, now settle" callback fired moments later and dragged it right
--- back to the pre-scroll target. Every call now cancels whatever the previous one left running
--- (tween and callback both - disconnecting the callback alone leaves the old tween free to keep
--- animating toward its own stale goal) before doing anything else.
-function Window:_slideTabIndicator(targetPos, targetSize, skipAnimation)
-    local pill = self.tabIndicator
-
-    if self._tabIndicatorSettleConn then
-        self._tabIndicatorSettleConn:Disconnect()
-        self._tabIndicatorSettleConn = nil
-    end
-    if self._tabIndicatorTween then
-        self._tabIndicatorTween:Cancel()
-        self._tabIndicatorTween = nil
-    end
-
-    if skipAnimation then
-        pill.Position, pill.Size = targetPos, targetSize
-        return
-    end
-
-    local fromLeft = pill.Position.X.Offset
-    local fromRight = fromLeft + pill.Size.X.Offset
-    local toLeft = targetPos.X.Offset
-    local toRight = toLeft + targetSize.X.Offset
-
-    local stretchLeft = math.min(fromLeft, toLeft)
-    local stretchRight = math.max(fromRight, toRight)
-
-    local stretchPos = UDim2.fromOffset(stretchLeft, targetPos.Y.Offset)
-    local stretchSize = UDim2.fromOffset(stretchRight - stretchLeft, targetSize.Y.Offset)
-
-    local stretchTween = variables.tweenService:Create(pill, tabStretchInfo, { Position = stretchPos, Size = stretchSize })
-    self._tabIndicatorTween = stretchTween
-    stretchTween:Play()
-
-    -- :Once() isn't guaranteed on every client this session has run into - :Connect() + manual
-    -- disconnect is the one form of "run this once" every client here has actually supported
-    self._tabIndicatorSettleConn = stretchTween.Completed:Connect(function()
-        self._tabIndicatorSettleConn = nil
-        local settleTween = variables.tweenService:Create(pill, tabSettleInfo, { Position = targetPos, Size = targetSize })
-        self._tabIndicatorTween = settleTween
-        settleTween:Play()
-    end)
-end
-
--- Repaint the indicator's colour (+ its glow) from the current tabStyle/tabAccentColor/
--- tabAccentGlow, and recolour the selected tab's own text/icon to match (auto-contrast). Pure
--- colour - never touches Position/Size, so it's safe to call from a style/accent setter without
--- disturbing wherever the pill currently sits.
-function Window:_paintTabIndicator(animate)
-    -- pillColor can be a flat Color3 or a full ColorSequence (SetTabAccentColor accepts either,
-    -- e.g. wired straight to a GradientPicker's own value) - White mode is always flat. Neutral
-    -- (the default, matching upstream Rayfield Gen2 1.2's own tab look) uses the theme's own
-    -- TabBackground instead of the accent colour - live-reported the accent-tinted pill read as
-    -- unwanted "colour on the selected tab" once the reference sidebar's own plain grey row was
-    -- the target.
-    local pillColor = if self.tabStyle == "white" then Color3.fromRGB(255, 255, 255)
-        elseif self.tabStyle == "neutral" then self.theme.TabBackground
-        else self.tabAccentColor
-    local pillSequence = functions.toColorSequence(pillColor)
-    local flatColor = functions.flattenColor(pillColor) -- for contrast text below
-    -- Neutral's own lift comes from a soft *white* glow underneath, matching upstream Rayfield
-    -- Gen2 1.2's own white topbarItemShadow on the selected row - a glow tinted the pill's own
-    -- dark grey (flatColor) would be nearly invisible instead of lifting it, which is what a
-    -- flat-looking selected tab (missing the reference's own "meio branquinho" highlight) turned
-    -- out to be.
-    local glowColor = if self.tabStyle == "accent" then flatColor else Color3.fromRGB(255, 255, 255)
-    local glowOn = (self.tabStyle == "accent" and self.tabAccentGlow) or self.tabStyle == "neutral"
-    local info = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-
-    local function set(instance, props)
-        if animate then
-            variables.tweenService:Create(instance, info, props):Play()
-        else
-            for prop, value in props do
-                instance[prop] = value
-            end
-        end
-    end
-
-    -- ColorSequence isn't a tweenable type - the gradient itself always snaps, only the flat
-    -- BackgroundColor3 underneath it (visible for an instant on the very first paint, and as
-    -- whatever peeks past the gradient's own edges) and the glow actually ease.
-    self.tabIndicatorGradient.Color = pillSequence
-    set(self.tabIndicator, { BackgroundColor3 = flatColor })
-    set(self.tabIndicatorGlow, { Color = glowColor, Transparency = if glowOn then 0.5 else 1 })
-
-    -- Neutral only: the lighter rim upstream's own TabStroke gives the selected row (accent/
-    -- white keep their previous plain-fill look, unchanged).
-    if self.tabIndicatorStroke then
-        self.tabIndicatorStrokeGradient.Color = functions.toColorSequence(self.theme.TabStroke)
-        set(self.tabIndicatorStroke, { Transparency = if self.tabStyle == "neutral" then 0.5 else 1 })
-    end
-
-    -- re-run the selected tab's own "selected" paint so its text/icon re-derive contrast
-    -- against whatever the pill colour just became - _applyVisual computes that itself
-    if self.selectedTab and not self.selectedTab.neglectSelector then
-        self.selectedTab:_applyVisual("selected", if animate then info else nil)
-    end
-end
-
--- Fade the shared accent pill in/out alongside the tab strip itself. It lives outside tabList
--- (see its creation above, and _paintTabIndicator never touches its transparency) so hiding
--- tabList/tabDock alone left it sitting fully opaque through a search-open swap or a minimise/
--- hide's mid-shrink, ghosting over whatever ended up on top of it.
-function Window:_setTabIndicatorVisible(shown, info)
-    local pill = self.tabIndicator
-    if not pill then
-        return
-    end
-    if shown then
-        pill.Visible = true
-        local glowOn = (self.tabStyle == "accent" and self.tabAccentGlow) or self.tabStyle == "neutral"
-        variables.tweenService:Create(pill, info, { BackgroundTransparency = 0 }):Play()
-        if self.tabIndicatorStroke then
-            variables.tweenService
-                :Create(self.tabIndicatorStroke, info, { Transparency = if self.tabStyle == "neutral" then 0.5 else 1 })
-                :Play()
-        end
-        if self.tabIndicatorGlow then
-            variables.tweenService
-                :Create(self.tabIndicatorGlow, info, { Transparency = if glowOn then 0.5 else 1 })
-                :Play()
-        end
-    else
-        variables.tweenService:Create(pill, info, { BackgroundTransparency = 1 }):Play()
-        if self.tabIndicatorStroke then
-            variables.tweenService:Create(self.tabIndicatorStroke, info, { Transparency = 1 }):Play()
-        end
-        if self.tabIndicatorGlow then
-            variables.tweenService:Create(self.tabIndicatorGlow, info, { Transparency = 1 }):Play()
-        end
-        task.delay(info.Time, function()
-            if pill then
-                pill.Visible = false
-            end
-        end)
-    end
-end
-
--- Slide the pill to `tab`'s own resolved geometry. Reads AbsolutePosition/AbsoluteSize rather
--- than the tab's own Position/Size - confirmed live that this executor's UIListLayout updates
--- the Absolute* read-outs correctly but never actually writes the settable Position property
--- back (it stays frozen at its unlaid-out (0,0) forever), so trusting Position left the pill
--- stuck in the corner no matter what. Measured against tabDock (the indicator's own parent,
--- see its creation above), not tabList - a second live-probe found that once a plain Position
--- write lands on a child nested inside tabList's ScrollingFrame, this executor never actually
--- re-renders it (the property itself reads back correctly; AbsolutePosition and the real pixel
--- just silently stop following it). tab.topbarItem's own AbsolutePosition already reflects
--- wherever tabList is currently scrolled to, so this stays correct without depending on
--- CanvasPosition at all.
 -- Sidebar mode only. self.sidebarWidth is a fixed constant now (no more player drag handle -
 -- see window.luau's own comment) - this just re-derives tabDock and the content pane's Size/
 -- Position from it, the same formula window.luau's constructor used in the first place. Kept as
@@ -665,55 +493,6 @@ function Window:SetProfile(text: string?)
     local resolved = if type(text) == "string" and text ~= "" then locale.resolve(text) else nil
     self.profileSubtitle.Text = resolved or ""
     self.profileSubtitle.Visible = resolved ~= nil
-end
-
-function Window:_updateTabIndicator(tab, animate)
-    if not tab or tab.neglectSelector or not tab.topbarItem then
-        return
-    end
-    -- Sidebar mode: hug the icon+label content (topbarItemContainer) instead of stretching across
-    -- the full row (topbarItem) - live-reported as a big empty stretch of highlighted background
-    -- once the sidebar got wide from a drag, since the row itself always spans the dock's current
-    -- width but the actual icon+text never grows to fill it. Top mode's topbarItem already auto-
-    -- sizes to exactly match its own topbarItemContainer (both AutomaticSize.X, nothing else
-    -- between them, and topbarItemContainer's own UIPadding is already baked into that measured
-    -- size) - so this is a no-op there, identical numbers either way, just read from the inner
-    -- frame consistently instead of branching per mode.
-    local item = tab.topbarItemContainer or tab.topbarItem
-    local dockOrigin = self.tabDock.AbsolutePosition
-    local itemPos = item.AbsolutePosition
-    local targetPos = UDim2.fromOffset(itemPos.X - dockOrigin.X, itemPos.Y - dockOrigin.Y)
-    local targetSize = UDim2.fromOffset(item.AbsoluteSize.X, item.AbsoluteSize.Y)
-    self:_slideTabIndicator(targetPos, targetSize, not animate)
-    self:_paintTabIndicator(animate)
-end
-
--- Live switch between a plain white pill, one tinted to the accent colour with a soft glow, or
--- the theme's own neutral TabBackground (default, matching upstream Rayfield Gen2 1.2).
-function Window:SetTabStyle(style)
-    self.tabStyle = if style == "white" then "white" elseif style == "neutral" then "neutral" else "accent"
-    self:_paintTabIndicator(true)
-end
-
--- Live-recolour the accent pill (and its glow), e.g. wiring it to a ColorPicker/GradientPicker.
--- Accepts a flat Color3 or a full ColorSequence - wire a GradientPicker's own :value straight
--- in and the pill actually renders that gradient instead of flattening it to one colour.
-function Window:SetTabAccentColor(color)
-    if typeof(color) ~= "Color3" and typeof(color) ~= "ColorSequence" then
-        return
-    end
-    self.tabAccentColor = color
-    self._tabAccentOverridden = true
-    if self.tabStyle == "accent" then
-        self:_paintTabIndicator(true)
-    end
-end
-
--- Toggle the soft glow under the accent pill at runtime. No-op look while in White mode (no
--- glow there either way) - still stored, so switching back to Accent respects it immediately.
-function Window:SetTabAccentGlow(shown)
-    self.tabAccentGlow = shown and true or false
-    self:_paintTabIndicator(true)
 end
 
 function Window:CreateTag(properties)
@@ -1308,7 +1087,6 @@ function Window:Hide()
         end
     end
     self:_setTabSectionsShown(false, fadeInfo)
-    self:_setTabIndicatorVisible(false, fadeInfo)
 
     self:_fadeSelectedElementsOut()
 
@@ -1419,12 +1197,6 @@ function Window:ToggleMinimise()
             end
             self:_setTabSectionsVisible(true)
             self:_setTabSectionsShown(true, fadeInfo)
-            self:_setTabIndicatorVisible(true, fadeInfo)
-
-            -- one extra step so UIListLayout actually resolves Position/AbsoluteSize for tabs
-            -- that just went Visible = true, before the indicator reads them
-            task.wait()
-            self:_updateTabIndicator(self.selectedTab, false)
 
             self:_revealElements(0.035, 0.4)
         end)
@@ -1445,7 +1217,6 @@ function Window:ToggleMinimise()
             end
         end
         self:_setTabSectionsShown(false, fadeInfo)
-        self:_setTabIndicatorVisible(false, fadeInfo)
 
         task.delay(0.3, function()
             if not self.minimised then

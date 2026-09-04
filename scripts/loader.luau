@@ -68,7 +68,7 @@ local componentFiles = {
     "console", "copybutton", "descriptor", "divider", "drag", "dropdown", "flipbutton", "gradientpicker",
     "group", "holdbutton", "hud", "input", "keybind", "label", "notification", "paragraph",
     "popup", "progressbar", "resize", "ripplebutton", "scrollhint", "search", "section",
-    "segmentedpicker", "shimmerlabel", "slider", "spacer", "stat", "statuscard", "tab", "tabSection", "tag", "tabbox",
+    "segmentedpicker", "shimmerlabel", "slider", "spacer", "stat", "statuscard", "tab", "tabSection", "tabSelector", "tag", "tabbox",
     "toast", "toggle", "tour", "window", "windowCore", "windowExtra", "windowMethods",
 }
 for _, name in componentFiles do

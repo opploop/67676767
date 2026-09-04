@@ -107,6 +107,7 @@ local componentFiles = {
     "statuscard",
     "tab",
     "tabSection",
+    "tabSelector",
     "tag",
     "tabbox",
     "toast",

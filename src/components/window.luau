@@ -834,17 +834,11 @@ function Window.new(properties)
         Parent = self.elements,
     })
 
-    -- Tabs Preparation
-    -- Devlog 5: every tab now lives inside one dock surface, with a single pill
-    -- (self.tabIndicator) sliding behind whichever one is selected instead of each tab pill
-    -- fading its own background in/out. tabList itself is unchanged (still the horizontally
-    -- scrolling UIListLayout row); the dock is just a background wrapper around it, and the
-    -- indicator is a free sibling inside tabList that reads the selected tab's own resolved
-    -- Position/AbsoluteSize rather than participating in the layout - the same "free-floating
-    -- overlay" shape segmentedpicker.luau's sliding indicator already uses successfully.
-    -- Sidebar mode: everything below branches on this rather than a separate code path per
-    -- mode, so "Top" (the default every line here already served before this existed) reaches
-    -- the exact same construction it always did whenever isSidebar is false.
+    -- Tabs Preparation - each tab builds its own row/pill (see tabSelector.luau) and owns its own
+    -- selected/hover/unselected background, ported from upstream Rayfield Gen2 1.2. Sidebar mode:
+    -- everything below branches on this rather than a separate code path per mode, so "Top" (the
+    -- default every line here already served before this existed) reaches the exact same
+    -- construction it always did whenever isSidebar is false.
     local isSidebar = self.tabsMode == "Sidebar"
 
     self.tabDock = self:Create("Frame", {
@@ -1064,78 +1058,9 @@ function Window.new(properties)
         }, { TextColor3 = "TitlingColor", FontFace = "Font" })
     end
 
-    -- the sliding pill: a free Frame with no layout of its own (same idea as segmentedpicker's
-    -- indicator / toggle's knob), created before any tab so creation order alone keeps it
-    -- behind every tab's own icon/text/click surface with no explicit ZIndex needed anywhere.
-    -- Parented to tabDock, NOT tabList: confirmed live that this executor never actually
-    -- re-renders a plain (non-layout) child's AbsolutePosition after a later Position write
-    -- once it's nested inside a ScrollingFrame - the property itself updates, AbsolutePosition
-    -- (and the real on-screen render) just silently never follows it again after the first
-    -- placement. tabDock is a plain Frame with no such quirk. Position is computed relative to
-    -- tabDock's own AbsolutePosition instead of tabList's; since the indicator is no longer a
-    -- scrolling-frame child itself, it also needs the CanvasPosition listener below to keep
-    -- riding along when the strip is scrolled without a new tab being selected.
-    self.tabIndicator = self:Create("Frame", {
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-        BorderSizePixel = 0,
-        Size = UDim2.fromOffset(0, 0),
-        ZIndex = 1, -- explicit: each tab's own icon/text/click-catcher sits at ZIndex 2 to
-        -- guarantee it stays above this now that they're in different branches of the tree
-
-        Parent = self.tabDock,
-    })
-    -- Sidebar rows use a modest fixed radius (upstream Rayfield Gen2 1.2's own rowCornerRadius),
-    -- not a full pill - PillCornerRadius's scale-1 radius rounds off the shorter dimension, which
-    -- on a row this much wider than tall reads as a stadium/capsule shape instead of the
-    -- reference's own gently-rounded rectangle. Top mode's pill is unchanged.
-    self:Create("UICorner", {
-        CornerRadius = if isSidebar then UDim.new(0, 14) else self.theme.PillCornerRadius,
-        Parent = self.tabIndicator,
-    })
-
-    -- The rim upstream's own selected row gets from TabStroke - our shared sliding pill never
-    -- had one at all, which was most of the "highlight colour looks wrong" gap next to the
-    -- reference: a plain flat fill with no lighter edge around it reads flatter and less lifted
-    -- than the real thing.
-    self.tabIndicatorStroke = self:Create("UIStroke", {
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-        Transparency = 1,
-
-        Parent = self.tabIndicator,
-    })
-    self.tabIndicatorStrokeGradient = self:Create("UIGradient", {
-        Rotation = 90,
-
-        Parent = self.tabIndicatorStroke,
-    })
-    -- Always present: BackgroundColor3 alone can't render a multi-stop gradient, so
-    -- tabAccentColor (Color3 or ColorSequence) always goes through this - a flat colour just
-    -- becomes a uniform "gradient", indistinguishable from a plain fill.
-    self.tabIndicatorGradient = self:Create("UIGradient", { Parent = self.tabIndicator })
-    -- Smaller blur than most glows in this file on purpose: tabDock clips its children (see
-    -- above) and the dock only has ~2px of margin above/below the pill, so a wide blur has
-    -- nowhere to fade out before hitting that clip and would just redraw the same hard-edge
-    -- line problem clipping was reintroduced to fix.
-    self.tabIndicatorGlow = self:CreateGlow(self.tabIndicator, Color3.fromRGB(255, 255, 255), 6, 1)
-
-    -- "neutral" (default, matching upstream Rayfield Gen2 1.2's own look): the shared pill uses
-    -- the theme's own TabBackground, not an accent colour - "accent"/"white" are still there for
-    -- a dev who wants either on purpose.
-    self.tabStyle = properties.tabStyle or properties.TabStyle or "neutral"
-    self.tabAccentColor = self.theme.AccentColor
-    self.tabAccentGlow = if properties.tabAccentGlow ~= nil
-        then properties.tabAccentGlow
-        elseif properties.TabAccentGlow ~= nil then properties.TabAccentGlow
-        else true
-
-    -- The indicator only tracks the selected tab's AbsolutePosition at the moment it's told to
-    -- (_updateTabIndicator) - now that it lives outside tabList (see above), it no longer rides
-    -- along automatically as a real scrolling-frame child would when the strip is dragged to
-    -- reveal tabs that don't fit. Re-snap (no animation - this is just following the scroll,
-    -- not a new selection) whenever the visible window shifts.
-    self:Connect(self.tabList:GetPropertyChangedSignal("CanvasPosition"), function()
-        self:_updateTabIndicator(self.selectedTab, false)
-    end)
+    -- No shared sliding indicator anymore - ported from upstream Rayfield Gen2 1.2, each tab row/
+    -- pill owns and fades its own background/stroke/shadow (see tabSelector.luau and Tab's own
+    -- _applyVisual) instead of one pill sliding between them.
 
     -- No player-facing sidebar resize handle anymore - live-reported as getting in the way more
     -- than it helped. The rail is a fixed width now (see self.sidebarWidth's own construction-

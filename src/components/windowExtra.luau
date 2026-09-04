@@ -205,7 +205,6 @@ function Window:_quickRestore()
         self.tabList.Visible = true
         self.tabDock.Visible = true
         self.elements.Visible = true
-        self:_setTabIndicatorVisible(true, fadeInfo)
 
         variables.tweenService:Create(self.windowShadow, fadeInfo, { Transparency = self._shadowTransparency or 0.6 }):Play()
         variables.tweenService:Create(self.bottomFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
@@ -245,8 +244,6 @@ function Window:_quickRestore()
         end
         self:_setTabSectionsVisible(true)
         self:_setTabSectionsShown(true, fadeInfo)
-        task.wait() -- let UIListLayout resolve the tabs that just went Visible = true
-        self:_updateTabIndicator(self.selectedTab, false)
 
         self:_revealElements(0.035, 0.4)
     end)
@@ -671,10 +668,6 @@ function Window:_firstShow()
                     if self.selectedTab == tab then "selected" else "unselected",
                     TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
                 )
-                if self.selectedTab == tab then
-                    task.wait() -- let UIListLayout resolve this tab now that it's Visible = true
-                    self:_updateTabIndicator(tab, false)
-                end
 
                 task.wait(0.15)
             end

@@ -97,8 +97,6 @@ export type WindowProps = {
     showHapticsToggle: boolean?,
     showSoundEffectsToggle: boolean?,
     showLoadingAnimationToggle: boolean?,
-    tabStyle: ("white" | "accent" | "neutral")?, -- the shared tab pill's look (default "neutral")
-    tabAccentGlow: boolean?, -- soft glow under the pill in accent mode (default true)
     -- initial window size (Vector2, a UDim2's offset component, or a {width,height}/{X,Y} table)
     -- - still screen-fit the same way the built-in default is, see windowSizing.luau
     size: (Vector2 | UDim2 | { [string]: number } | { number })?,
@@ -884,9 +882,6 @@ export type Window = {
     ToggleMinimise: (self: Window) -> (),
     Navigate: (self: Window, tab: string | Tab) -> (),
     ChangeTheme: (self: Window, theme: Theme) -> (),
-    SetTabStyle: (self: Window, style: "white" | "accent") -> (), -- switch the shared tab pill live
-    SetTabAccentColor: (self: Window, color: Color3) -> (), -- recolour the accent pill + its glow
-    SetTabAccentGlow: (self: Window, shown: boolean) -> (), -- toggle the soft glow under the accent pill
     -- live font swap: "Auto" (brand font) or any built-in Roblox font name
     SetFont: (self: Window, name: string) -> (),
     -- Devlog 7 "glass window": 0 (opaque, default) to 100 (fully invisible)
