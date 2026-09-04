@@ -930,7 +930,11 @@ function Window.new(properties)
         -- reported as tabs "starting from the middle" instead of stacking down from the top the
         -- way every reference sidebar (Discord, VS Code, the reference framework's own) does.
         VerticalAlignment = if isSidebar then Enum.VerticalAlignment.Top else Enum.VerticalAlignment.Center,
-        HorizontalAlignment = Enum.HorizontalAlignment.Left,
+        -- Sidebar: each row is already narrower than tabList by rowInset*2 (tabSelector.luau's
+        -- own buildRow) - Center is what actually splits that gap evenly on both sides. Left
+        -- alignment (still right for Top's own hug-to-content pills) put the entire gap on the
+        -- row's right edge only, live-reported as a lopsided, oversized margin on one side.
+        HorizontalAlignment = if isSidebar then Enum.HorizontalAlignment.Center else Enum.HorizontalAlignment.Left,
         SortOrder = Enum.SortOrder.LayoutOrder,
 
         Parent = self.tabList,
