@@ -149,6 +149,7 @@ local utilityFiles = {
     "image",
     "imageCache",
     "locale",
+    "lockable",
     "log",
     "moveable",
     "network",

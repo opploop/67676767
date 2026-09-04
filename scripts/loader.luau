@@ -89,7 +89,7 @@ local utilityFiles = {
     "acrylic", "assetResolver", "autoTranslate", "builtinLocales", "clipboard", "colors",
     "constants", "enums", "filesystem", "filesystemManager", "flagNames", "fontManager",
     "functions", "HapticEngine", "hsvEditor", "icons", "image", "imageCache", "locale",
-    "log", "moveable", "network", "odometer", "ordering", "path", "persistence",
+    "lockable", "log", "moveable", "network", "odometer", "ordering", "path", "persistence",
     "persistenceConfig", "persistencePaths", "persistenceSettings", "persistenceWrite",
     "runtime", "services", "sound", "squircle", "textMetrics", "variables", "windowSizing",
 }
