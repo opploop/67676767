@@ -762,9 +762,20 @@ function Window.new(properties)
     })
 
     if elementsSidebar then
+        -- Only the two corners that don't butt against something else round at all - top-right
+        -- sits under the topbar, bottom-left sits against the sidebar rail, so both stay square;
+        -- top-left (facing into open space) and bottom-right (the window's own actual corner)
+        -- round to match it. Matches upstream Rayfield Gen2 1.2's own cardCorners exactly -
+        -- rounding all four the way a plain CornerRadius does was the "curved at the tip" gap
+        -- from a flush, run-into-the-wall corner the reference's own card has there.
         self:Create("UICorner", {
+            TopLeftRadius = self.theme.CornerRoundness,
+            TopRightRadius = UDim.new(),
+            BottomLeftRadius = UDim.new(),
+            BottomRightRadius = self.theme.CornerRoundness,
+
             Parent = self.elements,
-        }, { CornerRadius = "CornerRoundness" })
+        })
 
         self.elementsStroke = self:Create("UIStroke", {
             ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
@@ -1073,9 +1084,29 @@ function Window.new(properties)
 
         Parent = self.tabDock,
     })
+    -- Sidebar rows use a modest fixed radius (upstream Rayfield Gen2 1.2's own rowCornerRadius),
+    -- not a full pill - PillCornerRadius's scale-1 radius rounds off the shorter dimension, which
+    -- on a row this much wider than tall reads as a stadium/capsule shape instead of the
+    -- reference's own gently-rounded rectangle. Top mode's pill is unchanged.
     self:Create("UICorner", {
         Parent = self.tabIndicator,
-    }, { CornerRadius = "PillCornerRadius" })
+    }, { CornerRadius = if isSidebar then UDim.new(0, 14) else "PillCornerRadius" })
+
+    -- The rim upstream's own selected row gets from TabStroke - our shared sliding pill never
+    -- had one at all, which was most of the "highlight colour looks wrong" gap next to the
+    -- reference: a plain flat fill with no lighter edge around it reads flatter and less lifted
+    -- than the real thing.
+    self.tabIndicatorStroke = self:Create("UIStroke", {
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Transparency = 1,
+
+        Parent = self.tabIndicator,
+    })
+    self.tabIndicatorStrokeGradient = self:Create("UIGradient", {
+        Rotation = 90,
+
+        Parent = self.tabIndicatorStroke,
+    })
     -- Always present: BackgroundColor3 alone can't render a multi-stop gradient, so
     -- tabAccentColor (Color3 or ColorSequence) always goes through this - a flat colour just
     -- becomes a uniform "gradient", indistinguishable from a plain fill.

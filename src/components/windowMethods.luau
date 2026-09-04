@@ -558,6 +558,13 @@ function Window:_paintTabIndicator(animate)
     set(self.tabIndicator, { BackgroundColor3 = flatColor })
     set(self.tabIndicatorGlow, { Color = glowColor, Transparency = if glowOn then 0.5 else 1 })
 
+    -- Neutral only: the lighter rim upstream's own TabStroke gives the selected row (accent/
+    -- white keep their previous plain-fill look, unchanged).
+    if self.tabIndicatorStroke then
+        self.tabIndicatorStrokeGradient.Color = functions.toColorSequence(self.theme.TabStroke)
+        set(self.tabIndicatorStroke, { Transparency = if self.tabStyle == "neutral" then 0.5 else 1 })
+    end
+
     -- re-run the selected tab's own "selected" paint so its text/icon re-derive contrast
     -- against whatever the pill colour just became - _applyVisual computes that itself
     if self.selectedTab and not self.selectedTab.neglectSelector then
@@ -578,6 +585,11 @@ function Window:_setTabIndicatorVisible(shown, info)
         pill.Visible = true
         local glowOn = (self.tabStyle == "accent" and self.tabAccentGlow) or self.tabStyle == "neutral"
         variables.tweenService:Create(pill, info, { BackgroundTransparency = 0 }):Play()
+        if self.tabIndicatorStroke then
+            variables.tweenService
+                :Create(self.tabIndicatorStroke, info, { Transparency = if self.tabStyle == "neutral" then 0.5 else 1 })
+                :Play()
+        end
         if self.tabIndicatorGlow then
             variables.tweenService
                 :Create(self.tabIndicatorGlow, info, { Transparency = if glowOn then 0.5 else 1 })
@@ -585,6 +597,9 @@ function Window:_setTabIndicatorVisible(shown, info)
         end
     else
         variables.tweenService:Create(pill, info, { BackgroundTransparency = 1 }):Play()
+        if self.tabIndicatorStroke then
+            variables.tweenService:Create(self.tabIndicatorStroke, info, { Transparency = 1 }):Play()
+        end
         if self.tabIndicatorGlow then
             variables.tweenService:Create(self.tabIndicatorGlow, info, { Transparency = 1 }):Play()
         end
