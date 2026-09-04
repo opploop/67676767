@@ -97,7 +97,7 @@ export type WindowProps = {
     showHapticsToggle: boolean?,
     showSoundEffectsToggle: boolean?,
     showLoadingAnimationToggle: boolean?,
-    tabStyle: ("white" | "accent")?, -- the shared tab pill's look (default "accent")
+    tabStyle: ("white" | "accent" | "neutral")?, -- the shared tab pill's look (default "neutral")
     tabAccentGlow: boolean?, -- soft glow under the pill in accent mode (default true)
     -- initial window size (Vector2, a UDim2's offset component, or a {width,height}/{X,Y} table)
     -- - still screen-fit the same way the built-in default is, see windowSizing.luau

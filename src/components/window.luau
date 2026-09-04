@@ -1056,7 +1056,10 @@ function Window.new(properties)
     -- line problem clipping was reintroduced to fix.
     self.tabIndicatorGlow = self:CreateGlow(self.tabIndicator, Color3.fromRGB(255, 255, 255), 6, 1)
 
-    self.tabStyle = properties.tabStyle or properties.TabStyle or "accent"
+    -- "neutral" (default, matching upstream Rayfield Gen2 1.2's own look): the shared pill uses
+    -- the theme's own TabBackground, not an accent colour - "accent"/"white" are still there for
+    -- a dev who wants either on purpose.
+    self.tabStyle = properties.tabStyle or properties.TabStyle or "neutral"
     self.tabAccentColor = self.theme.AccentColor
     self.tabAccentGlow = if properties.tabAccentGlow ~= nil
         then properties.tabAccentGlow

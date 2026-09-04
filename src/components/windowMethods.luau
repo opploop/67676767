@@ -522,8 +522,14 @@ end
 -- disturbing wherever the pill currently sits.
 function Window:_paintTabIndicator(animate)
     -- pillColor can be a flat Color3 or a full ColorSequence (SetTabAccentColor accepts either,
-    -- e.g. wired straight to a GradientPicker's own value) - White mode is always flat.
-    local pillColor = if self.tabStyle == "white" then Color3.fromRGB(255, 255, 255) else self.tabAccentColor
+    -- e.g. wired straight to a GradientPicker's own value) - White mode is always flat. Neutral
+    -- (the default, matching upstream Rayfield Gen2 1.2's own tab look) uses the theme's own
+    -- TabBackground instead of the accent colour - live-reported the accent-tinted pill read as
+    -- unwanted "colour on the selected tab" once the reference sidebar's own plain grey row was
+    -- the target.
+    local pillColor = if self.tabStyle == "white" then Color3.fromRGB(255, 255, 255)
+        elseif self.tabStyle == "neutral" then self.theme.TabBackground
+        else self.tabAccentColor
     local pillSequence = functions.toColorSequence(pillColor)
     local flatColor = functions.flattenColor(pillColor) -- for the glow (Color3-only) + contrast text
     local glowOn = self.tabStyle == "accent" and self.tabAccentGlow
@@ -660,9 +666,10 @@ function Window:_updateTabIndicator(tab, animate)
     self:_paintTabIndicator(animate)
 end
 
--- Live switch between a plain white pill and one tinted to the accent colour with a soft glow.
+-- Live switch between a plain white pill, one tinted to the accent colour with a soft glow, or
+-- the theme's own neutral TabBackground (default, matching upstream Rayfield Gen2 1.2).
 function Window:SetTabStyle(style)
-    self.tabStyle = if style == "white" then "white" else "accent"
+    self.tabStyle = if style == "white" then "white" elseif style == "neutral" then "neutral" else "accent"
     self:_paintTabIndicator(true)
 end
 

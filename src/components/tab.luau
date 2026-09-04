@@ -336,7 +336,9 @@ function Tab:_applyVisual(stateName, tweenInfo)
     if stateName == "selected" and not self.locked then
         -- defensive fallback: contrastText would error on a nil color, and a custom theme
         -- (or a window mid-construction) might not have an AccentColor to fall back on either
-        local pillColor = if self.window.tabStyle == "white" then Color3.fromRGB(255, 255, 255) else self.window.tabAccentColor
+        local pillColor = if self.window.tabStyle == "white" then Color3.fromRGB(255, 255, 255)
+            elseif self.window.tabStyle == "neutral" then self.window.theme.TabBackground
+            else self.window.tabAccentColor
         pillColor = pillColor or self.window.theme.AccentColor or Color3.fromRGB(255, 255, 255)
         -- pillColor may be a full ColorSequence (SetTabAccentColor accepts either) - flatten to
         -- one representative colour before contrastText, which only understands a Color3
