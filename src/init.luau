@@ -203,13 +203,14 @@ function rayfield:CreateWindow(properties: types.WindowProps): types.Window
     end
 
     task.spawn(function()
-        task.wait(0.5)
-
+        -- No banner to sit through when the dev opted out of it (showBanner = false) - waiting
+        -- out its lifetime anyway was half a second of nothing before the window could appear.
         if banner then
+            task.wait(0.5)
             banner:Destroy()
         end
 
-        task.wait(0.5)
+        task.wait(0.25)
         -- the window can be unloaded inside this delay; showing it then would fire
         -- saved-config callbacks and build toasts on destroyed instances
         if not built.unloaded then

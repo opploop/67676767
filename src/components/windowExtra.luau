@@ -576,7 +576,10 @@ function Window:_firstShow()
         local growInfo = TweenInfo.new(1, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
         variables.tweenService:Create(self.main, growInfo, { Size = self.size }):Play()
         variables.tweenService:Create(target, growInfo, { [prop] = 1 - self.windowOpacity }):Play()
-        task.wait(0.85) -- let the frame actually read as a window before anything shows on top of it
+        -- let the frame actually read as a window before anything shows on top of it. Trimmed
+        -- from 0.85 - the grow tween itself still runs its full second underneath, this is only
+        -- how long the chrome waits before starting to fade in over it.
+        task.wait(0.45)
     end
 
     -- Live-caught: drag.luau computes the bar's very first rest position once, at construction,
@@ -610,7 +613,7 @@ function Window:_firstShow()
             { BackgroundTransparency = 0 }
         )
         :Play()
-    task.wait(0.3)
+    task.wait(0.15)
 
     if self.icon then
         variables.tweenService
@@ -669,7 +672,10 @@ function Window:_firstShow()
                     TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
                 )
 
-                task.wait(0.15)
+                -- 0.15s each meant a 16-tab hub spent 2.4s just staggering its own tab list in -
+                -- live-reported as the window taking far too long to finish appearing. Still a
+                -- visible cascade at 0.035s, just one that scales to a real hub's tab count.
+                task.wait(0.035)
             end
         end
         self:_setTabSectionsVisible(true)
@@ -678,7 +684,9 @@ function Window:_firstShow()
 
     self:_revealElements(0.03, 2)
 
-    task.wait(1)
+    -- the drag bar is the last thing in; 1s here was pure dead time at the end of an open that
+    -- already looks finished by this point
+    task.wait(0.35)
 
     self.drag.drag.Visible = true
     variables.tweenService
