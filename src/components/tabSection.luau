@@ -23,6 +23,11 @@ local log = require(script.Parent.Parent.utility.log)
 -- this.
 local sectionInset = 20
 
+-- What the heading becomes on a collapsed (icon-only) rail: a thin rule, inset to line up with
+-- the icon rows rather than the wider heading text.
+local collapsedInset = 15
+local ruleHeight = 9 -- the rule itself is 1px, centred in this so it isn't glued to either row
+
 -- Clearance above a section that follows something. The rail's own list spacing already
 -- separates it from the row above; this is the extra that makes it read as a new group.
 local spacingAbove = 6
@@ -106,6 +111,22 @@ function TabSection.new(window, properties)
         }, { ImageColor3 = "ContentColor" })
     end
 
+    -- Stands in for the heading once the rail collapses to icons - 24px of usable width is
+    -- nowhere near enough for a readable label, but the grouping still has to read as a
+    -- grouping, so it becomes a plain rule between the icon runs instead.
+    self.rule = window:Create("Frame", {
+        Name = "Rule",
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.new(1, 0, 0, 1),
+        BorderSizePixel = 0,
+        Visible = false,
+
+        BackgroundTransparency = 1, -- In = 0.75
+
+        Parent = self.main,
+    }, { BackgroundColor3 = "SurfaceStroke" })
+
     self.title = window:Create("TextLabel", {
         Text = locale.t(self.name),
 
@@ -139,6 +160,28 @@ function TabSection:_setShown(shown, animate)
     if self.iconLabel then
         w:_reveal(self.iconLabel, { ImageTransparency = if shown then 0.65 else 1 }, animate)
     end
+    if self.rule then
+        w:_reveal(self.rule, { BackgroundTransparency = if shown then 0.75 else 1 }, animate)
+    end
+end
+
+-- Swap between the full heading and the collapsed rule. Snaps, same as every other part of the
+-- rail's own collapse (see tabSelector.setRowCollapsed).
+function TabSection:_setCollapsed(collapsed: boolean)
+    if not self.main then
+        return
+    end
+    self.title.Visible = not collapsed
+    if self.iconLabel then
+        self.iconLabel.Visible = not collapsed
+    end
+    if self.rule then
+        self.rule.Visible = collapsed
+    end
+    -- the rule wants the rail's own narrow width, the heading wants its reading inset
+    local inset = if collapsed then collapsedInset else sectionInset
+    self.main.Size = UDim2.new(1, -inset * 2, 0, if collapsed then ruleHeight else 0)
+    self.main.AutomaticSize = if collapsed then Enum.AutomaticSize.None else Enum.AutomaticSize.Y
 end
 
 function TabSection:_setVisible(visible)

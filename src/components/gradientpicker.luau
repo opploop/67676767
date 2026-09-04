@@ -21,6 +21,7 @@ local utility = script.Parent.Parent.utility
 local variables = require(utility.variables)
 local functions = require(utility.functions)
 local moveable = require(utility.moveable)
+local lockable = require(utility.lockable)
 local locale = require(utility.locale)
 local constants = require(utility.constants)
 local hapticEngine = require(utility.HapticEngine)
@@ -1046,5 +1047,6 @@ function GradientPicker:_setShown(shown, animate)
 end
 
 moveable(GradientPicker)
+lockable(GradientPicker)
 
 return GradientPicker

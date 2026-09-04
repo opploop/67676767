@@ -8,6 +8,7 @@
 local imageCache = require(script.Parent.imageCache)
 local variables = require(script.Parent.variables)
 local icons = require(script.Parent.icons)
+local log = require(script.Parent.log)
 
 type AvatarCallback = imageCache.AvatarCallback
 type PreloadCallback = imageCache.PreloadCallback
@@ -32,6 +33,19 @@ local imageProperties: { [string]: boolean } = {
     HoverImage = true,
     PressedImage = true,
 }
+
+-- An icon string that looks like a pack lookup but doesn't resolve renders as nothing at all,
+-- with no error anywhere - live-caught more than once as "the icon just isn't showing" with no
+-- way to tell a typo from a dead pack. Warned once per distinct string so a whole tab list of
+-- the same bad name doesn't flood the console.
+local warnedIcons: { [string]: boolean } = {}
+local function warnUnresolvedIcon(value: string, reason: string)
+    if warnedIcons[value] then
+        return
+    end
+    warnedIcons[value] = true
+    log.warn(("Rayfield: icon '%s' didn't resolve - %s"):format(value, reason))
+end
 
 local function idOf(value: unknown): number?
     if type(value) == "number" then
@@ -138,10 +152,23 @@ function image.resolve(value: unknown): string
         -- fetch failed, ...), which just resolves to the string as-is - a caller passing a real
         -- rbxassetid://... never round-trips through here to begin with.
         local packName, iconName = string.match(value, "^(%a+):([%w%-_]+)$")
-        if packName and icons.packNames[packName] then
-            local found = icons.find(iconName, packName)
-            if found and not found.ImageRectSize then
-                return found.Image
+        if packName then
+            if not icons.packNames[packName] then
+                warnUnresolvedIcon(value, ("unknown icon pack '%s'"):format(packName))
+            else
+                local found = icons.find(iconName, packName)
+                if found and not found.ImageRectSize then
+                    return found.Image
+                end
+                if found then
+                    -- a spritesheet pack's icon can't come back as a single string - see above
+                    warnUnresolvedIcon(
+                        value,
+                        ("'%s' is a spritesheet pack; use icons.apply() rather than an icon string"):format(packName)
+                    )
+                else
+                    warnUnresolvedIcon(value, ("no icon named '%s' in '%s'"):format(iconName, packName))
+                end
             end
         end
     end

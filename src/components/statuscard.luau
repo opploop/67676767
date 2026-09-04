@@ -25,6 +25,7 @@ local utility = script.Parent.Parent.utility
 local variables = require(utility.variables)
 local functions = require(utility.functions)
 local moveable = require(utility.moveable)
+local lockable = require(utility.lockable)
 local constants = require(utility.constants)
 local locale = require(utility.locale)
 local log = require(utility.log)
@@ -518,5 +519,6 @@ function StatusCard:_refreshTheme()
 end
 
 moveable(StatusCard)
+lockable(StatusCard)
 
 return StatusCard

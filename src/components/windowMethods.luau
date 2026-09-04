@@ -308,6 +308,12 @@ function Window:CreateSection(properties)
     local section = require(script.Parent.tabSection).new(self, properties)
     table.insert(self.tabSections, section)
 
+    -- a section built while the rail is already collapsed has to come up as a rule, not a
+    -- heading nobody can read
+    if not section.inert then
+        section:_setCollapsed(self.sidebarWidth <= self.sidebarCollapsedWidth)
+    end
+
     -- built after the window is already open: reveal it now, the same way a late tab reveals
     -- its row rather than waiting for the next open
     if not section.inert and not self.hidden and not self.minimised then
@@ -481,6 +487,12 @@ function Window:_applySidebarWidth(_width: number?)
         if not tab.neglectSelector then
             tabSelector.setRowCollapsed(tab, collapsed)
         end
+    end
+
+    -- Section headings have nowhere near enough width to read on a collapsed rail, so they
+    -- become a plain rule between the icon runs instead (see tabSection.luau).
+    for _, section in self.tabSections do
+        section:_setCollapsed(collapsed)
     end
 
     -- Profile chip follows the same collapse: avatar alone, centred, once there's no room for

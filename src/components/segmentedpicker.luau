@@ -23,6 +23,7 @@ local utility = script.Parent.Parent.utility
 local variables = require(utility.variables)
 local functions = require(utility.functions)
 local moveable = require(utility.moveable)
+local lockable = require(utility.lockable)
 local locale = require(utility.locale)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
@@ -592,5 +593,6 @@ function SegmentedPicker:_setShown(shown, animate)
 end
 
 moveable(SegmentedPicker)
+lockable(SegmentedPicker)
 
 return SegmentedPicker
