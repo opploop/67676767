@@ -196,6 +196,9 @@ function Window:_quickRestore()
     task.delay(growDuration * 0.63, function()
         -- respects the setting rather than hardcoding true, same as the minimise restore path
         self.resize.grip.Visible = self.settings.resizeGripEnabled
+        if self.profile then
+            self.profile.Visible = self.settings.showProfile
+        end
         self.topbar.Visible = true
         self.tabList.Visible = true
         self.tabDock.Visible = true

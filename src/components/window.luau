@@ -949,7 +949,11 @@ function Window.new(properties)
             BackgroundTransparency = 1,
             LayoutOrder = 1,
 
-            Visible = self.settings.showProfile,
+            -- self.settings doesn't exist yet this early in construction (assigned further
+            -- down) - defaults shown, same as the resize grip's own construction-time Visible;
+            -- both get the real saved value applied at Show() time instead (see windowExtra.luau
+            -- and windowMethods.luau's own resizeGripEnabled sync points).
+            Visible = true,
 
             Parent = self.tabDockCard,
         })

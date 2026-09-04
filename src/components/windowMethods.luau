@@ -1447,6 +1447,9 @@ function Window:ToggleMinimise()
             self.tabList.Visible = true
             self.tabDock.Visible = true
             self.resize.grip.Visible = self.settings.resizeGripEnabled
+            if self.profile then
+                self.profile.Visible = self.settings.showProfile
+            end
             for _, tab in pairs(self.tabs) do
                 if not tab.neglectSelector and tab.topbarItem then
                     tab.topbarItem.Visible = true
