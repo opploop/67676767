@@ -25,6 +25,10 @@ local swapInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirectio
 local iconRest = 0.6
 local iconLit = 0.2
 
+-- Gap between the sidebar rail and the search pill beside it (and the same again on the pill's
+-- own right edge), so the field doesn't sit flush against either.
+local searchRailGap = 12
+
 -- The searchable text for one unit: a leaf's own name, or every descendant leaf name joined
 -- so a group matches when any child inside it does. Recurses into anything that can host its
 -- own nested elements the same way window.luau's own forEachElement does (Group, and a
@@ -175,13 +179,17 @@ function search.open(window)
     applyFilter(window, "")
     window:_jumpTo(window.searchPage)
 
-    -- strip swaps for the field
-    setTabsShown(window, false, swapInfo)
-    task.delay(swapInfo.Time, function()
-        if window._searching then
-            window.tabList.Visible = false
-        end
-    end)
+    -- Top mode: the strip swaps out for the field, they share the same row. Sidebar mode: the
+    -- rail is down the left and the field sits beside it, so there's nothing to swap - the tabs
+    -- stay exactly where they are and stay clickable while searching.
+    if window.tabsMode ~= "Sidebar" then
+        setTabsShown(window, false, swapInfo)
+        task.delay(swapInfo.Time, function()
+            if window._searching then
+                window.tabList.Visible = false
+            end
+        end)
+    end
 
     window.searchPill.Visible = true
     setPillShown(window, true, swapInfo)
@@ -216,12 +224,25 @@ function search.close(window, config)
         end
     end)
 
-    if config.showTabs then
+    -- Sidebar mode never hid them in the first place (see search.open), so there's nothing to
+    -- bring back - re-running the fade there would only re-animate rows that never left.
+    if config.showTabs and window.tabsMode ~= "Sidebar" then
         window.tabList.Visible = true
         setTabsShown(window, true, swapInfo)
     end
 
     variables.tweenService:Create(window.searchAction.iconLabel, swapInfo, { ImageTransparency = iconRest }):Play()
+end
+
+-- Keep the pill lined up beside the rail when its width changes (the rail collapses to icons on
+-- a narrow window - see Window:_applySidebarWidth). No-op in Top mode, where the pill takes the
+-- full strip regardless.
+function search.railWidth(window, width: number)
+    if window.tabsMode ~= "Sidebar" or not window.searchPill then
+        return
+    end
+    window.searchPill.Position = UDim2.new(0, width + searchRailGap, 0, 66)
+    window.searchPill.Size = UDim2.new(1, -(width + searchRailGap * 2), 0, 35)
 end
 
 function search.toggle(window)
@@ -287,12 +308,20 @@ function search.build(window)
         Parent = window.main,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
-    -- Search pill: takes the tab strip's row. Ported from Window.Search.
+    -- Search pill: takes the tab strip's row in Top mode. In Sidebar mode the rail is down the
+    -- left instead, so the pill only takes the space beside it (see search.railWidth) and the
+    -- rail itself stays put rather than swapping out - live-reported as wanting the tabs to stay
+    -- visible while searching.
+    local sidebar = window.tabsMode == "Sidebar"
     window.searchPill = window:Create("Frame", {
         Name = "SearchBar",
-        AnchorPoint = Vector2.new(0.5, 0),
-        Position = UDim2.new(0.5, 0, 0, 66),
-        Size = UDim2.new(1, -35, 0, 35),
+        AnchorPoint = if sidebar then Vector2.new(0, 0) else Vector2.new(0.5, 0),
+        Position = if sidebar
+            then UDim2.new(0, (window.sidebarWidth or 219) + searchRailGap, 0, 66)
+            else UDim2.new(0.5, 0, 0, 66),
+        Size = if sidebar
+            then UDim2.new(1, -((window.sidebarWidth or 219) + searchRailGap + searchRailGap), 0, 35)
+            else UDim2.new(1, -35, 0, 35),
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
         ZIndex = 10,

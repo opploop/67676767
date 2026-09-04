@@ -495,6 +495,9 @@ function Window:_applySidebarWidth(_width: number?)
         section:_setCollapsed(collapsed)
     end
 
+    -- the search field sits beside the rail in this layout, so it moves with it
+    search.railWidth(self, width)
+
     -- Profile chip follows the same collapse: avatar alone, centred, once there's no room for
     -- the name/subtitle column beside it.
     if self.profile then
