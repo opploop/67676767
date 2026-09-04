@@ -465,7 +465,7 @@ function Window:_applySidebarWidth(width: number)
     self.tabDock.Size = UDim2.new(0, width, 1, -85)
     -- self.elements is anchored (1,1) now (flush against the window's own right/bottom edges -
     -- see window.luau's own construction comment), so only its Size needs re-deriving here.
-    self.elements.Size = UDim2.new(1, -(width + 20), 1, -70)
+    self.elements.Size = UDim2.new(1, -width, 1, -70)
 end
 
 -- Hear about every real sidebar-width change (drag, SetSidebarWidth, or CreateTab's own
@@ -1187,7 +1187,7 @@ function Window:ToggleMinimise()
             if self.profile then
                 self.profile.Visible = self.settings.showProfile
                 self.tabList.Size =
-                    UDim2.new(1, 0, 1, if self.settings.showProfile then -self.profileFooterHeight else 0)
+                    UDim2.new(1, 0, 1, if self.settings.showProfile then -self._tabListFooterReserve else 0)
             end
             for _, tab in pairs(self.tabs) do
                 if not tab.neglectSelector and tab.topbarItem then
@@ -1898,7 +1898,7 @@ function Window:_buildSettingsUI()
                 self.profile.Visible = state
                 -- Give the rows back the height the profile isn't using (and vice versa), so a
                 -- hidden profile leaves no dead strip at the base of the rail.
-                self.tabList.Size = UDim2.new(1, 0, 1, if state then -self.profileFooterHeight else 0)
+                self.tabList.Size = UDim2.new(1, 0, 1, if state then -self._tabListFooterReserve else 0)
                 self:SaveSettings()
             end,
         })

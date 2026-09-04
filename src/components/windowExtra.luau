@@ -199,7 +199,7 @@ function Window:_quickRestore()
         if self.profile then
             self.profile.Visible = self.settings.showProfile
             self.tabList.Size =
-                UDim2.new(1, 0, 1, if self.settings.showProfile then -self.profileFooterHeight else 0)
+                UDim2.new(1, 0, 1, if self.settings.showProfile then -self._tabListFooterReserve else 0)
         end
         self.topbar.Visible = true
         self.tabList.Visible = true

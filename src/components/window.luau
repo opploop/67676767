@@ -743,7 +743,7 @@ function Window.new(properties)
         -- zero margin on those two sides) rather than floating with a gap all around it, so the
         -- card visually runs into the window's own edge instead of stopping short of it.
         Size = if elementsSidebar
-            then UDim2.new(1, -(self.sidebarWidth + 20), 1, -70)
+            then UDim2.new(1, -self.sidebarWidth, 1, -70)
             else UDim2.new(1, 0, 1, -118),
         Position = if elementsSidebar then UDim2.fromScale(1, 1) else UDim2.fromScale(0.5, 1),
         AnchorPoint = if elementsSidebar then Vector2.new(1, 1) else Vector2.new(0.5, 1),
@@ -849,8 +849,11 @@ function Window.new(properties)
         -- edge instead, from just under the header to just above the bottom fade, full height -
         -- tabList and the profile chip below both live inside it, and the resize grip is
         -- parented here too, grabbable anywhere down the whole strip.
+        -- Sidebar: flush against the window's own left edge (x = 0), matching upstream Rayfield
+        -- Gen2 1.2's own rail - the 20px inset every other card in this file uses stacked on top
+        -- of each row's own 15px rowInset, live-reported as a huge dead margin down that side.
         Size = if isSidebar then UDim2.new(0, self.sidebarWidth, 1, -85) else UDim2.new(1, -40, 0, 38),
-        Position = if isSidebar then UDim2.new(0, 20, 0, 65) else UDim2.new(0.5, 0, 0, 65),
+        Position = if isSidebar then UDim2.new(0, 0, 0, 65) else UDim2.new(0.5, 0, 0, 65),
         AnchorPoint = if isSidebar then Vector2.new(0, 0) else Vector2.new(0.5, 0),
         BorderSizePixel = 0,
         -- Without this, selecting (or scrolling to) a tab near either end of the strip let the
@@ -888,8 +891,11 @@ function Window.new(properties)
     local localPlayer = if isSidebar then game:GetService("Players").LocalPlayer else nil
     -- The profile chip's fixed height - see the block that builds it further down. A field, not
     -- a local, so windowMethods.luau's "Show profile" toggle can reclaim/release the same strip
-    -- from tabList on demand.
-    self.profileFooterHeight = 60
+    -- from tabList on demand. _tabListFooterReserve is what tabList itself gives up for it: the
+    -- chip hangs off main's own bottom edge, 20px below where tabDock (and so tabList) already
+    -- stops, so the list only has to clear the part that actually overlaps it.
+    self.profileFooterHeight = 68
+    self._tabListFooterReserve = self.profileFooterHeight - 20
 
     self.tabList = self:Create("ScrollingFrame", {
         Name = "Tabs",
@@ -899,7 +905,7 @@ function Window.new(properties)
         -- to match however many exist. Only as tall as the window minus the profile chip's own
         -- reserved footer strip when one was actually built. Top mode is unchanged.
         Size = if isSidebar
-            then UDim2.new(1, 0, 1, if localPlayer then -self.profileFooterHeight else 0)
+            then UDim2.new(1, 0, 1, if localPlayer then -self._tabListFooterReserve else 0)
             else UDim2.fromScale(1, 1),
         Position = if isSidebar then UDim2.new(0, 0, 0, 0) else UDim2.fromScale(0.5, 0.5),
         AnchorPoint = if isSidebar then Vector2.new(0, 0) else Vector2.new(0.5, 0.5),
@@ -959,17 +965,21 @@ function Window.new(properties)
     -- upstream Rayfield Gen2 1.2's own sidebar profile (localPlayer/profileFooterHeight computed
     -- above tabList, since its own height already reserves this strip).
     if localPlayer then
-        -- Matches upstream Rayfield Gen2 1.2's own avatarSize/rowInset exactly.
-        local avatarSize, rowInset = 34, 15
+        -- Bigger than upstream's own 34/15 - live-reported as reading too small and too far off
+        -- the window's corner at that size next to the reference.
+        local avatarSize, rowInset = 40, 12
 
+        -- Parented to main, not tabDock: it runs right into the window's own bottom-left corner
+        -- (tabDock is inset from that edge, so anchoring inside it left a visible margin the
+        -- reference doesn't have). No fill of its own - live-reported that any backing here read
+        -- as heavy and wrong; tabList already stops short of this strip and clips its own rows
+        -- (see _tabListFooterReserve), so nothing can scroll through behind it anyway.
         self.profile = self:Create("Frame", {
             Name = "Profile",
-            AnchorPoint = Vector2.new(0.5, 1),
-            Position = UDim2.fromScale(0.5, 1),
-            Size = UDim2.new(1, 0, 0, self.profileFooterHeight),
-            -- A real backing, not transparent - live-reported that without one, a tab scrolled
-            -- toward the bottom of a long list could show through behind the profile chip.
-            BackgroundColor3 = Color3.fromRGB(24, 24, 24),
+            AnchorPoint = Vector2.new(0, 1),
+            Position = UDim2.fromScale(0, 1),
+            Size = UDim2.fromOffset(self.sidebarWidth, self.profileFooterHeight),
+            BackgroundTransparency = 1,
             BorderSizePixel = 0,
 
             -- self.settings doesn't exist yet this early in construction (assigned further
@@ -978,7 +988,7 @@ function Window.new(properties)
             -- and windowMethods.luau's own resizeGripEnabled sync points).
             Visible = true,
 
-            Parent = self.tabDock,
+            Parent = self.main,
         })
 
         self.profileContainer = self:Create("Frame", {
@@ -1041,10 +1051,10 @@ function Window.new(properties)
 
         self.profileName = self:Create("TextLabel", {
             Text = localPlayer.DisplayName,
-            Size = UDim2.fromOffset(50, 16),
+            Size = UDim2.fromOffset(50, 18),
             AutomaticSize = Enum.AutomaticSize.X,
             BackgroundTransparency = 1,
-            TextSize = 16,
+            TextSize = 18,
             TextXAlignment = Enum.TextXAlignment.Left,
 
             Parent = self.profileLabels,
@@ -1055,10 +1065,10 @@ function Window.new(properties)
         -- line to fill the space.
         self.profileSubtitle = self:Create("TextLabel", {
             Text = if self.profileText and self.profileText ~= "" then locale.resolve(self.profileText) else "",
-            Size = UDim2.fromOffset(50, 14),
+            Size = UDim2.fromOffset(50, 15),
             AutomaticSize = Enum.AutomaticSize.X,
             BackgroundTransparency = 1,
-            TextSize = 14,
+            TextSize = 15,
             TextXAlignment = Enum.TextXAlignment.Left,
             LayoutOrder = 1,
             Visible = self.profileText ~= nil and self.profileText ~= "",
