@@ -895,7 +895,13 @@ function Window.new(properties)
     -- chip hangs off main's own bottom edge, 20px below where tabDock (and so tabList) already
     -- stops, so the list only has to clear the part that actually overlaps it.
     self.profileFooterHeight = 68
-    self._tabListFooterReserve = self.profileFooterHeight - 20
+    -- How far the chip's own bottom sits above main's (clear of the window's bottom fade - see
+    -- its construction below).
+    self._profileBottomOffset = 6
+    -- tabDock already stops 20px above main's bottom, so the list only gives up the part of the
+    -- chip that actually reaches into it. Derived, not a magic number: getting this wrong by even
+    -- a few px let a scrolled row show inside the chip's own strip, which has no fill to hide it.
+    self._tabListFooterReserve = self.profileFooterHeight + self._profileBottomOffset - 20
 
     self.tabList = self:Create("ScrollingFrame", {
         Name = "Tabs",
@@ -981,7 +987,7 @@ function Window.new(properties)
             -- off the bottom edge and paints over anything under it at zIndex.bottomFade), which
             -- was washing the chip out at the very bottom. The ZIndex below keeps it crisp even
             -- where the two still overlap.
-            Position = UDim2.new(0, 0, 1, -6),
+            Position = UDim2.new(0, 0, 1, -self._profileBottomOffset),
             Size = UDim2.fromOffset(self.sidebarWidth, self.profileFooterHeight),
             BackgroundTransparency = 1,
             BorderSizePixel = 0,

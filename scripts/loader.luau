@@ -59,10 +59,6 @@ if existing then
     existing:Destroy()
 end
 
-local RayfieldModule = makeModule("Rayfield", ReplicatedStorage, fetch("src/init.luau"))
-makeModule("types", RayfieldModule, fetch("src/types.luau"))
-
-local components = makeFolder("components", RayfieldModule)
 local componentFiles = {
     "action", "button", "changelog", "checkbox", "chrome", "collapsible", "colorpicker",
     "console", "copybutton", "descriptor", "divider", "drag", "dropdown", "flipbutton", "gradientpicker",
@@ -71,20 +67,12 @@ local componentFiles = {
     "segmentedpicker", "shimmerlabel", "slider", "spacer", "stat", "statuscard", "tab", "tabSection", "tabSelector", "tag", "tabbox",
     "toast", "toggle", "tour", "window", "windowCore", "windowExtra", "windowMethods",
 }
-for _, name in componentFiles do
-    makeModule(name, components, fetch("src/components/" .. name .. ".luau"))
-end
 
-local themes = makeFolder("themes", RayfieldModule)
 local themeFiles = {
     "amethyst", "cobalt", "default", "ember", "emerald", "frost", "highcontrast",
     "midnight", "ocean", "rose",
 }
-for _, name in themeFiles do
-    makeModule(name, themes, fetch("src/themes/" .. name .. ".luau"))
-end
 
-local utility = makeFolder("utility", RayfieldModule)
 local utilityFiles = {
     "acrylic", "assetResolver", "autoTranslate", "builtinLocales", "clipboard", "colors",
     "constants", "enums", "filesystem", "filesystemManager", "flagNames", "fontManager",
@@ -93,8 +81,81 @@ local utilityFiles = {
     "persistenceConfig", "persistencePaths", "persistenceSettings", "persistenceWrite",
     "runtime", "services", "sound", "squircle", "textMetrics", "variables", "windowSizing",
 }
+
+-- Every file this needs, as one flat list, so they can all be in flight at once. Fetched
+-- sequentially this was ~95 blocking round trips back to back - the single biggest chunk of the
+-- "why does it take so long to appear" wait, and none of them depend on each other.
+local requests = {
+    { path = "src/init.luau", key = "init" },
+    { path = "src/types.luau", key = "types" },
+}
+for _, name in componentFiles do
+    table.insert(requests, { path = "src/components/" .. name .. ".luau", key = "components/" .. name })
+end
+for _, name in themeFiles do
+    table.insert(requests, { path = "src/themes/" .. name .. ".luau", key = "themes/" .. name })
+end
 for _, name in utilityFiles do
-    makeModule(name, utility, fetch("src/utility/" .. name .. ".luau"))
+    table.insert(requests, { path = "src/utility/" .. name .. ".luau", key = "utility/" .. name })
+end
+
+-- How many fetches are allowed in flight at once. High enough to collapse the wait into a
+-- handful of round trips, low enough that an executor's own HTTP layer (and GitHub's rate
+-- limiting) doesn't start refusing them.
+local concurrency = 12
+
+local sources = {}
+local nextIndex = 1
+local finished = 0
+local failure = nil
+
+local function worker()
+    while true do
+        local index = nextIndex
+        nextIndex += 1
+        local request = requests[index]
+        if not request then
+            return
+        end
+
+        local ok, body = pcall(fetch, request.path)
+        if ok then
+            sources[request.key] = body
+        elseif not failure then
+            failure = body -- first error wins; the rest are usually the same cause
+        end
+        finished += 1
+    end
+end
+
+for _ = 1, math.min(concurrency, #requests) do
+    task.spawn(worker)
+end
+
+while finished < #requests do
+    task.wait()
+end
+
+if failure then
+    error(failure, 0)
+end
+
+local RayfieldModule = makeModule("Rayfield", ReplicatedStorage, sources["init"])
+makeModule("types", RayfieldModule, sources["types"])
+
+local components = makeFolder("components", RayfieldModule)
+for _, name in componentFiles do
+    makeModule(name, components, sources["components/" .. name])
+end
+
+local themes = makeFolder("themes", RayfieldModule)
+for _, name in themeFiles do
+    makeModule(name, themes, sources["themes/" .. name])
+end
+
+local utility = makeFolder("utility", RayfieldModule)
+for _, name in utilityFiles do
+    makeModule(name, utility, sources["utility/" .. name])
 end
 
 -- Native require() on a freshly Source-injected ModuleScript only ever reports "Requested
