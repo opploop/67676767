@@ -743,11 +743,14 @@ function Window.new(properties)
             else UDim2.new(1, 0, 1, -118),
         Position = if elementsSidebar then UDim2.new(0, self.sidebarWidth + 30, 0, 70) else UDim2.fromScale(0.5, 1),
         AnchorPoint = if elementsSidebar then Vector2.new(0, 0) else Vector2.new(0.5, 1),
-        -- Sidebar mode: a real bordered card around the content, matching the reference
-        -- sidebar's own look - Top mode already reads as one cohesive surface with the tabDock
-        -- above it and stays exactly as it was (fully transparent, no card of its own here).
-        BackgroundTransparency = if elementsSidebar then 0.2 else 1,
-        BackgroundColor3 = Color3.fromRGB(24, 24, 24),
+        -- Sidebar mode: a card around the content, matching upstream Rayfield Gen2 1.2's own
+        -- exact recipe - a near-invisible white fill (98% transparent, just a hint of lift off
+        -- the window's own base gradient) with a subtle gradient-transparency stroke doing the
+        -- actual "this is a card" work, not a solid dark fill (that read as flat/plain next to
+        -- the reference's own subtler look). Top mode stays exactly as it was - one cohesive
+        -- surface with the tabDock above it, no card of its own here.
+        BackgroundTransparency = if elementsSidebar then 0.98 else 1,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
         ClipsDescendants = true,
 
@@ -759,12 +762,27 @@ function Window.new(properties)
             Parent = self.elements,
         }, { CornerRadius = "CornerRoundness" })
 
-        self:Create("UIStroke", {
+        self.elementsStroke = self:Create("UIStroke", {
             ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-            Transparency = 0.85,
+            Transparency = 0,
 
             Parent = self.elements,
         }, { Color = "SurfaceStroke" })
+
+        -- The rim is this gradient's job, not the stroke's own flat transparency above (that
+        -- stays 0/opaque) - a diagonal sweep from a hint of visible edge to fully gone, same
+        -- shape and numbers as upstream's own cardStrokeRotation/cardStrokeTransparency.
+        self:Create("UIGradient", {
+            Rotation = 55,
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 0.9),
+                NumberSequenceKeypoint.new(0.128, 0.95),
+                NumberSequenceKeypoint.new(0.414, 0.985),
+                NumberSequenceKeypoint.new(1, 1),
+            }),
+
+            Parent = self.elementsStroke,
+        })
     end
 
     -- UI Scale setting: parented to self.elements specifically, not self.main - main itself
@@ -893,7 +911,9 @@ function Window.new(properties)
 
     self.tabListLayout = self:Create("UIListLayout", {
         -- Devlog 7: tighter gap between tabs (was 4) - closer, more "Segmented Picker" feel
-        Padding = UDim.new(0, 2),
+        -- 4px between sidebar rows matches upstream Rayfield Gen2 1.2's own rowSpacing exactly;
+        -- Top's pills keep their own tighter gap.
+        Padding = UDim.new(0, if isSidebar then 4 else 2),
         FillDirection = if isSidebar then Enum.FillDirection.Vertical else Enum.FillDirection.Horizontal,
         -- Center is right for Top mode - it centers a short horizontal row within the (equally
         -- short) dock. Sidebar's dock runs almost the full window height though, so the same
@@ -908,8 +928,13 @@ function Window.new(properties)
     })
 
     self:Create("UIPadding", {
-        PaddingLeft = UDim.new(0, 5),
-        PaddingRight = UDim.new(0, 5),
+        -- Sidebar: 15px each side (upstream's own rowInset) plus 17px top/bottom (railPadding) -
+        -- clears the selected row's own glow, which reaches a bit past its top edge. Top's pills
+        -- keep their own tighter, unrelated inset.
+        PaddingLeft = UDim.new(0, if isSidebar then 15 else 5),
+        PaddingRight = UDim.new(0, if isSidebar then 15 else 5),
+        PaddingTop = UDim.new(0, if isSidebar then 17 else 0),
+        PaddingBottom = UDim.new(0, if isSidebar then 17 else 0),
 
         Parent = self.tabList,
     })
@@ -918,7 +943,8 @@ function Window.new(properties)
     -- upstream Rayfield Gen2 1.2's own sidebar profile (localPlayer/profileFooterHeight computed
     -- above tabList, since its own height already reserves this strip).
     if localPlayer then
-        local avatarSize, rowInset = 32, 14
+        -- Matches upstream Rayfield Gen2 1.2's own avatarSize/rowInset exactly.
+        local avatarSize, rowInset = 34, 15
 
         self.profile = self:Create("Frame", {
             Name = "Profile",

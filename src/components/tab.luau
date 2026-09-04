@@ -100,9 +100,10 @@ function Tab.new(window, properties)
         local iconOnlySidebarTab = sidebarTabs and (not self.name or self.name == "")
         self.topbarItem = self.window:Create("Frame", {
             Name = self.name,
+            -- 38px row height matches upstream Rayfield Gen2 1.2's own rowHeight exactly.
             Size = if iconOnlySidebarTab
-                then UDim2.fromOffset(34, 34)
-                elseif sidebarTabs then UDim2.new(1, 0, 0, 34)
+                then UDim2.fromOffset(38, 38)
+                elseif sidebarTabs then UDim2.new(1, 0, 0, 38)
                 else UDim2.fromOffset(0, 34),
             AutomaticSize = if sidebarTabs then Enum.AutomaticSize.None else Enum.AutomaticSize.X,
             BackgroundTransparency = 1,
@@ -132,7 +133,7 @@ function Tab.new(window, properties)
         })
 
         self.topbarItemContainer = self.window:Create("Frame", {
-            Size = UDim2.fromOffset(0, 34),
+            Size = UDim2.fromOffset(0, if sidebarTabs then 38 else 34),
             AutomaticSize = Enum.AutomaticSize.X,
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
@@ -140,18 +141,18 @@ function Tab.new(window, properties)
             Parent = self.topbarItem,
         })
 
-        -- Devlog 7: tighter, more "Segmented Picker"-style padding so tabs sit closer together.
-        -- Sidebar rows get a tighter pad than Top's pills - a name like "Priority System" was
-        -- live-reported as not fitting the narrower sidebar column at Top's own 11px.
+        -- Sidebar rows use upstream Rayfield Gen2 1.2's own exact rowPadding (10px each side);
+        -- Top's pills keep their own tighter, hug-to-content padding.
         self.window:Create("UIPadding", {
-            PaddingLeft = UDim.new(0, if sidebarTabs then 8 else 11),
-            PaddingRight = UDim.new(0, if sidebarTabs then 8 else 11),
+            PaddingLeft = UDim.new(0, if sidebarTabs then 10 else 11),
+            PaddingRight = UDim.new(0, if sidebarTabs then 10 else 11),
 
             Parent = self.topbarItemContainer,
         })
 
         self.topbarItemLayout = self.window:Create("UIListLayout", {
-            Padding = UDim.new(0, 5),
+            -- 6px icon-to-title gap in Sidebar mode matches upstream's own rowContentSpacing.
+            Padding = UDim.new(0, if sidebarTabs then 6 else 5),
             FillDirection = Enum.FillDirection.Horizontal,
             VerticalAlignment = Enum.VerticalAlignment.Center,
             HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -167,7 +168,8 @@ function Tab.new(window, properties)
                 -- numbers and rbxassetid strings (concat here would double the prefix)
                 Image = self.icon,
 
-                Size = UDim2.fromOffset(if sidebarTabs then 14 else 16, if sidebarTabs then 14 else 16),
+                -- 20px in Sidebar mode matches upstream Rayfield Gen2 1.2's own rowIconSize.
+                Size = UDim2.fromOffset(if sidebarTabs then 20 else 16, if sidebarTabs then 20 else 16),
                 BorderSizePixel = 0,
                 BackgroundTransparency = 1,
                 ZIndex = 2, -- see topbarItemInteract for why this needs to be explicit now
@@ -202,11 +204,9 @@ function Tab.new(window, properties)
         end
 
         if self.name then
-            -- Sidebar rows are noticeably narrower than Top's own pills (which just grow to fit),
-            -- so a longer name ("Priority System") didn't fit at Top's 16px - live-reported as
-            -- clipped/cut off. A smaller size here is enough on its own for names this length;
-            -- TextWrapped stays on as a fallback for anything longer a dev adds later, wrapping
-            -- rather than clipping.
+            -- Same 16px in both modes now, matching upstream Rayfield Gen2 1.2's own row title
+            -- size exactly (the fixed 219px rail has room for it) - TextWrapped stays on as a
+            -- fallback for a longer name a dev adds later, wrapping rather than clipping.
             self.topbarItemTitle = self.window:Create("TextLabel", {
                 -- Configurables
                 Text = locale.t(self.name), -- tab name
@@ -214,7 +214,7 @@ function Tab.new(window, properties)
                 Size = UDim2.fromOffset(0, 16),
                 BorderSizePixel = 0,
                 BackgroundTransparency = 1,
-                TextSize = if sidebarTabs then 13 else 16,
+                TextSize = 16,
                 AutomaticSize = Enum.AutomaticSize.XY,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 TextWrapped = true,
