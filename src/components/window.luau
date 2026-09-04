@@ -847,22 +847,18 @@ function Window.new(properties)
     })
 
     if isSidebar then
-        -- The actual visible card, sized to the tab list's own content instead of the full
-        -- height self.tabDock (its parent, purely structural now) still reserves for the resize
-        -- grip. AutomaticSize.Y here hugs tabList below (also AutomaticSize.Y, hugging its own
-        -- UIListLayout content) - no circularity: tabDock itself stays a fixed, non-automatic
-        -- height, so nothing here ever measures itself against its own automatic size.
+        -- A structural wrapper only now, not a visible card - live-reported as an unwanted dark
+        -- panel sitting behind the tab rail once the reference sidebar's own look (tabs floating
+        -- directly on the window, no wrapping background) was the target. Still hugs tabList's
+        -- (and the profile chip's, if built below) own content height via AutomaticSize.Y rather
+        -- than the full height self.tabDock (its parent) reserves for the resize grip - that
+        -- part of the shape is unrelated to whether it paints anything.
         self.tabDockCard = self:Create("Frame", {
             Name = "TabDockCard",
             Size = UDim2.new(1, 0, 0, 0),
             AutomaticSize = Enum.AutomaticSize.Y,
             BorderSizePixel = 0,
-            ClipsDescendants = true,
-            -- Same live-caught opacity story as Top mode's own card - see this block's own
-            -- original comment on why 0.2 (80% opaque), copied verbatim since the fix was about
-            -- *where* the fill lives, not what value reads right against the theme.
-            BackgroundColor3 = Color3.fromRGB(24, 24, 24),
-            BackgroundTransparency = 0.2,
+            BackgroundTransparency = 1,
 
             Parent = self.tabDock,
         })
