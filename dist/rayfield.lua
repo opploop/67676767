@@ -9948,7 +9948,15 @@ function playerDropdown.new(host, properties)
                 byOption[label] = player
             end
         end
-        table.sort(options)
+        -- case-insensitively: a plain table.sort is byte order, which files every capitalised
+        -- name above every lowercase one ("Nick, kevin, say, templar") and reads as unsorted
+        table.sort(options, function(left, right)
+            local a, b = string.lower(left), string.lower(right)
+            if a == b then
+                return left < right
+            end
+            return a < b
+        end)
         return options, byOption
     end
 
