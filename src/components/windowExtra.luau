@@ -1235,6 +1235,16 @@ end
 -- slider firing every frame flashes once. shared by every interactive element. elements whose
 -- `main` is a transparent wrapper (the dropdown) set `flashTarget` to the frame to tint.
 function Window:_runGuarded(element, fn, ...)
+    -- A locked element's callback never runs, whatever reached it. The lock scrim already stops
+    -- a real click, but that's only the pointer: a programmatic `:Set()` (config autoLoad is one,
+    -- and it applies values through Set without skipping callbacks) or a fired signal still
+    -- reached the callback before this guard existed, so "locked" meant un-clickable rather than
+    -- off-limits. Every interactive element funnels through here, so one check covers all of
+    -- them. Non-elements passed in (a Toast's action) simply have no `locked` field and pass.
+    if element.locked == true then
+        return
+    end
+
     local args = table.pack(...)
     task.spawn(function()
         local ok, err = pcall(function()

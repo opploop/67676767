@@ -345,6 +345,26 @@ export type DropdownProps = {
     callback: ((value: any) -> ())?,
 }
 
+-- CreatePlayerDropdown takes everything a Dropdown does except `options`/`sections`, which it
+-- fills from the server itself.
+export type PlayerDropdownProps = {
+    name: string?,
+    description: string?,
+    icon: (string | number)?,
+    tooltip: string?,
+    flag: string?,
+    value: (string | { string })?,
+    multiSelect: boolean?,
+    placeholder: string?,
+    locked: boolean?,
+    forgetState: boolean?,
+    -- how each player is labelled: "name" (default, and what code should key on), "display",
+    -- or "both" ("DisplayName (@Name)")
+    format: ("name" | "display" | "both")?,
+    includeSelf: boolean?, -- default true
+    callback: ((value: any) -> ())?,
+}
+
 export type InputProps = {
     name: string?,
     description: string?,
@@ -664,10 +684,17 @@ export type Dropdown = Moveable & {
     Set: (self: Dropdown, value: string | { string }, skipCallback: boolean?) -> (),
     Reset: (self: Dropdown, skipCallback: boolean?) -> (), -- clears back to the placeholder
     SetLocked: (self: Dropdown, locked: boolean) -> (),
+    Refresh: (self: Dropdown, options: { string }?) -> (), -- swap the option list, keeping the pick
     -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.
     Lock: (self: Dropdown) -> (),
     Unlock: (self: Dropdown) -> (),
     IsLocked: (self: Dropdown) -> boolean,
+}
+
+-- A Dropdown built by CreatePlayerDropdown: the same handle with the player wiring on top.
+export type PlayerDropdown = Dropdown & {
+    RefreshPlayers: (self: PlayerDropdown) -> { string },
+    GetSelectedPlayers: (self: PlayerDropdown) -> { Player },
 }
 
 export type Input = Moveable & {
@@ -777,6 +804,7 @@ export type Collapsible = Moveable & {
     CreateStatusCard: (self: Collapsible, props: StatusCardProps) -> StatusCard,
     CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,
     CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,
+    CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateSection: (self: Collapsible, props: SectionProps) -> Section,
     CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,
     CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,
@@ -814,6 +842,7 @@ export type Group = Moveable & {
     CreateStatusCard: (self: Group, props: StatusCardProps) -> StatusCard,
     CreateSlider: (self: Group, props: SliderProps) -> Slider,
     CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,
+    CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateSection: (self: Group, props: SectionProps) -> Section,
     CreateLabel: (self: Group, props: LabelProps?) -> Label,
     CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,
@@ -831,6 +860,7 @@ export type Tab = {
     CreateCheckbox: (self: Tab, props: CheckboxProps) -> Checkbox,
     CreateSlider: (self: Tab, props: SliderProps) -> Slider,
     CreateDropdown: (self: Tab, props: DropdownProps) -> Dropdown,
+    CreatePlayerDropdown: (self: Tab, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateInput: (self: Tab, props: InputProps) -> Input,
     CreateKeybind: (self: Tab, props: KeybindProps) -> Keybind,
     CreateColorPicker: (self: Tab, props: ColorPickerProps) -> ColorPicker,

@@ -8,12 +8,12 @@
 -- Shared Lock/Unlock for tab elements. Call lockable(Class) once on the prototype. Ported from
 -- upstream Rayfield Gen2 1.2's own Element Locking.
 --
--- A locked element does two things: it dims so you can see it's out of reach, and it stops
--- taking input via an opaque scrim laid over it (see Window:_buildLockScrim) - a real click
--- never reaches the control underneath, so its own callback simply never runs. That's enough
--- for every element wired through this file; it doesn't additionally route through a shared
--- callback funnel the way upstream's own Window:_runGuarded does; this codebase has no such
--- funnel; every callback wires with its own MouseButton1Click).
+-- A locked element does three things: it dims so you can see it's out of reach, it stops taking
+-- pointer input via an opaque scrim laid over it (see Window:_buildLockScrim), and its callback
+-- is refused at the funnel every interactive element already routes through (Window:_runGuarded
+-- checks `element.locked` before it runs anything). The scrim alone only ever stopped a real
+-- click; the funnel check is what makes a lock hold against a programmatic `:Set()` or a fired
+-- signal too, which is what a caller gating a premium feature actually needs.
 --
 -- A handful of components (Toggle, Button, Dropdown, HoldButton) already carry their own
 -- bespoke SetLocked with a purpose-built dimming look - lockable(Class) is skipped for those

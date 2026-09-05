@@ -270,8 +270,9 @@ end
 -- Group underneath.
 for _, name in {
     "CreateButton", "CreateFlipButton", "CreateCopyButton", "CreateRippleButton", "CreateToggle",
-    "CreateSwitch", "CreateCheckbox", "CreateStat", "CreateStatusCard", "CreateSlider", "CreateDropdown", "CreateSection",
-    "CreateLabel", "CreateParagraph", "CreateDivider", "CreateGroup", "CreateProgressBar",
+    "CreateSwitch", "CreateCheckbox", "CreateStat", "CreateStatusCard", "CreateSlider", "CreateDropdown",
+    "CreatePlayerDropdown", "CreateSection", "CreateLabel", "CreateParagraph", "CreateDivider",
+    "CreateGroup", "CreateProgressBar",
     "CreateScrollHint", "CreateSegmentedPicker", "CreateShimmerLabel", "CreateInput", "CreateKeybind",
     "CreateColorPicker", "CreateGradientPicker", "CreateHoldButton", "CreateChangelog", "CreateSpacer",
     "CreateTabbox", "CreateConsole",

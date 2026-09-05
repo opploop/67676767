@@ -259,6 +259,9 @@ end
 function Group:CreateDropdown(properties)
     return self:_add("dropdown", properties)
 end
+function Group:CreatePlayerDropdown(properties)
+    return self:_add("playerdropdown", properties)
+end
 function Group:CreateSection(properties)
     return self:_add("section", properties)
 end

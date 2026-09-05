@@ -1821,8 +1821,9 @@ end
 -- Group underneath.
 for _, name in {
     "CreateButton", "CreateFlipButton", "CreateCopyButton", "CreateRippleButton", "CreateToggle",
-    "CreateSwitch", "CreateCheckbox", "CreateStat", "CreateStatusCard", "CreateSlider", "CreateDropdown", "CreateSection",
-    "CreateLabel", "CreateParagraph", "CreateDivider", "CreateGroup", "CreateProgressBar",
+    "CreateSwitch", "CreateCheckbox", "CreateStat", "CreateStatusCard", "CreateSlider", "CreateDropdown",
+    "CreatePlayerDropdown", "CreateSection", "CreateLabel", "CreateParagraph", "CreateDivider",
+    "CreateGroup", "CreateProgressBar",
     "CreateScrollHint", "CreateSegmentedPicker", "CreateShimmerLabel", "CreateInput", "CreateKeybind",
     "CreateColorPicker", "CreateGradientPicker", "CreateHoldButton", "CreateChangelog", "CreateSpacer",
     "CreateTabbox", "CreateConsole",
@@ -7347,6 +7348,9 @@ end
 function Group:CreateDropdown(properties)
     return self:_add("dropdown", properties)
 end
+function Group:CreatePlayerDropdown(properties)
+    return self:_add("playerdropdown", properties)
+end
 function Group:CreateSection(properties)
     return self:_add("section", properties)
 end
@@ -9867,6 +9871,147 @@ end
 moveable(Paragraph)
 
 return Paragraph
+]=====]
+
+sources["components/playerdropdown"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- A Dropdown whose options are the players in the server, kept in step with joins and leaves.
+--
+-- This is not a new element - it builds a real Dropdown and hands it straight back, so every
+-- Dropdown method, flag, and behaviour applies unchanged. All it adds is the wiring every hub
+-- was writing by hand: fill the options from Players, refresh on PlayerAdded/PlayerRemoving,
+-- and keep a label -> Player map so a selection can be turned back into the actual instances
+-- (a display-name label has no way back to a Player on its own, and even a plain Name lookup
+-- is a FindFirstChild the caller shouldn't have to remember to guard).
+--
+-- Refreshes are deferred and coalesced: a fresh server fires PlayerAdded once per player in a
+-- burst, and rebuilding the option list once per event would rebuild it a dozen times for one
+-- visible change.
+
+local dropdown = require(script.Parent.dropdown)
+
+local playersService = game:GetService("Players")
+
+local playerDropdown = {}
+
+-- "name" (default) is what code actually needs - a display name is not unique and not a lookup
+-- key. The other two exist for the cases where a player picks from this list and wants to read
+-- the name they see in-game.
+local function labelFor(player: Player, format: string): string
+    if format == "display" then
+        return player.DisplayName
+    elseif format == "both" then
+        -- DisplayName already equals Name for accounts that never set one; showing "x (@x)"
+        -- there is just noise
+        if player.DisplayName == player.Name then
+            return player.Name
+        end
+        return `{player.DisplayName} (@{player.Name})`
+    end
+    return player.Name
+end
+
+function playerDropdown.new(host, properties)
+    properties = if typeof(properties) == "table" then table.clone(properties) else {}
+
+    local format = properties.format or properties.Format or "name"
+    local includeSelf = properties.includeSelf
+    if includeSelf == nil then
+        includeSelf = properties.IncludeSelf
+    end
+    if includeSelf == nil then
+        includeSelf = true
+    end
+
+    -- these are ours, not the Dropdown's; leaving them in the table would just be dead keys
+    properties.format, properties.Format = nil, nil
+    properties.includeSelf, properties.IncludeSelf = nil, nil
+
+    properties.name = properties.name or properties.Name or "Player"
+    properties.options = nil -- ours to fill; a caller-supplied list would be overwritten anyway
+    properties.Options = nil
+
+    local element
+
+    local function collect()
+        local options, byOption = {}, {}
+        for _, player in playersService:GetPlayers() do
+            if includeSelf or player ~= playersService.LocalPlayer then
+                local label = labelFor(player, format)
+                table.insert(options, label)
+                byOption[label] = player
+            end
+        end
+        table.sort(options)
+        return options, byOption
+    end
+
+    local initialOptions, initialByOption = collect()
+    properties.options = initialOptions
+
+    element = dropdown.new(host, properties)
+    element._playerByOption = initialByOption
+
+    -- Rebuild the option list from the current server. Dropdown:Refresh re-derives the
+    -- selection from the full intent, so someone who left and came back keeps their pick.
+    function element:RefreshPlayers()
+        local options, byOption = collect()
+        self._playerByOption = byOption
+        self:Refresh(options)
+        return options
+    end
+
+    -- The selection as actual Player instances, skipping anyone who left between the pick and
+    -- this call. Always an array, matching Dropdown.value being one even in single-select.
+    function element:GetSelectedPlayers(): { Player }
+        local players = {}
+        for _, option in self.value do
+            local player = self._playerByOption[option]
+            -- a player can leave between the refresh and this call, so re-check parentage
+            -- rather than trusting the map alone
+            if player and player.Parent then
+                table.insert(players, player)
+            end
+        end
+        return players
+    end
+
+    -- Tab:Remove/teardownElements disconnects an element's ConnectFor connections and clears
+    -- element.connections, so a nil there is the signal that this element is gone - checked in
+    -- the deferred body because the element can be torn down between the event and the defer.
+    local function isAlive()
+        return not host.window.unloaded and element.connections ~= nil
+    end
+
+    local queued = false
+    local function queueRefresh()
+        if queued then
+            return
+        end
+        queued = true
+        task.defer(function()
+            queued = false
+            if isAlive() then
+                element:RefreshPlayers()
+            end
+        end)
+    end
+
+    -- ConnectFor, not Connect: these die with the element, so a Tab:Remove or a rebuilt page
+    -- doesn't leave two listeners refreshing a dropdown that no longer exists.
+    host.window:ConnectFor(element, playersService.PlayerAdded, queueRefresh)
+    host.window:ConnectFor(element, playersService.PlayerRemoving, queueRefresh)
+
+    return element
+end
+
+return playerDropdown
 ]=====]
 
 sources["components/popup"] = [=====[
@@ -15671,6 +15816,11 @@ function Tab:CreateDropdown(properties)
     return self:_register(require(script.Parent.dropdown).new(self, properties))
 end
 
+-- Dropdown pre-filled with the server's players, kept in step with joins and leaves
+function Tab:CreatePlayerDropdown(properties)
+    return self:_register(require(script.Parent.playerdropdown).new(self, properties))
+end
+
 -- Progress bar: read-only gradient fill + readout, animates on Set
 function Tab:CreateProgressBar(properties)
     return self:_register(require(script.Parent.progressbar).new(self, properties))
@@ -21191,6 +21341,16 @@ end
 -- slider firing every frame flashes once. shared by every interactive element. elements whose
 -- `main` is a transparent wrapper (the dropdown) set `flashTarget` to the frame to tint.
 function Window:_runGuarded(element, fn, ...)
+    -- A locked element's callback never runs, whatever reached it. The lock scrim already stops
+    -- a real click, but that's only the pointer: a programmatic `:Set()` (config autoLoad is one,
+    -- and it applies values through Set without skipping callbacks) or a fired signal still
+    -- reached the callback before this guard existed, so "locked" meant un-clickable rather than
+    -- off-limits. Every interactive element funnels through here, so one check covers all of
+    -- them. Non-elements passed in (a Toast's action) simply have no `locked` field and pass.
+    if element.locked == true then
+        return
+    end
+
     local args = table.pack(...)
     task.spawn(function()
         local ok, err = pcall(function()
@@ -25378,6 +25538,26 @@ export type DropdownProps = {
     callback: ((value: any) -> ())?,
 }
 
+-- CreatePlayerDropdown takes everything a Dropdown does except `options`/`sections`, which it
+-- fills from the server itself.
+export type PlayerDropdownProps = {
+    name: string?,
+    description: string?,
+    icon: (string | number)?,
+    tooltip: string?,
+    flag: string?,
+    value: (string | { string })?,
+    multiSelect: boolean?,
+    placeholder: string?,
+    locked: boolean?,
+    forgetState: boolean?,
+    -- how each player is labelled: "name" (default, and what code should key on), "display",
+    -- or "both" ("DisplayName (@Name)")
+    format: ("name" | "display" | "both")?,
+    includeSelf: boolean?, -- default true
+    callback: ((value: any) -> ())?,
+}
+
 export type InputProps = {
     name: string?,
     description: string?,
@@ -25697,10 +25877,17 @@ export type Dropdown = Moveable & {
     Set: (self: Dropdown, value: string | { string }, skipCallback: boolean?) -> (),
     Reset: (self: Dropdown, skipCallback: boolean?) -> (), -- clears back to the placeholder
     SetLocked: (self: Dropdown, locked: boolean) -> (),
+    Refresh: (self: Dropdown, options: { string }?) -> (), -- swap the option list, keeping the pick
     -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.
     Lock: (self: Dropdown) -> (),
     Unlock: (self: Dropdown) -> (),
     IsLocked: (self: Dropdown) -> boolean,
+}
+
+-- A Dropdown built by CreatePlayerDropdown: the same handle with the player wiring on top.
+export type PlayerDropdown = Dropdown & {
+    RefreshPlayers: (self: PlayerDropdown) -> { string },
+    GetSelectedPlayers: (self: PlayerDropdown) -> { Player },
 }
 
 export type Input = Moveable & {
@@ -25810,6 +25997,7 @@ export type Collapsible = Moveable & {
     CreateStatusCard: (self: Collapsible, props: StatusCardProps) -> StatusCard,
     CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,
     CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,
+    CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateSection: (self: Collapsible, props: SectionProps) -> Section,
     CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,
     CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,
@@ -25847,6 +26035,7 @@ export type Group = Moveable & {
     CreateStatusCard: (self: Group, props: StatusCardProps) -> StatusCard,
     CreateSlider: (self: Group, props: SliderProps) -> Slider,
     CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,
+    CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateSection: (self: Group, props: SectionProps) -> Section,
     CreateLabel: (self: Group, props: LabelProps?) -> Label,
     CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,
@@ -25864,6 +26053,7 @@ export type Tab = {
     CreateCheckbox: (self: Tab, props: CheckboxProps) -> Checkbox,
     CreateSlider: (self: Tab, props: SliderProps) -> Slider,
     CreateDropdown: (self: Tab, props: DropdownProps) -> Dropdown,
+    CreatePlayerDropdown: (self: Tab, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateInput: (self: Tab, props: InputProps) -> Input,
     CreateKeybind: (self: Tab, props: KeybindProps) -> Keybind,
     CreateColorPicker: (self: Tab, props: ColorPickerProps) -> ColorPicker,
@@ -28883,12 +29073,12 @@ sources["utility/lockable"] = [=====[
 -- Shared Lock/Unlock for tab elements. Call lockable(Class) once on the prototype. Ported from
 -- upstream Rayfield Gen2 1.2's own Element Locking.
 --
--- A locked element does two things: it dims so you can see it's out of reach, and it stops
--- taking input via an opaque scrim laid over it (see Window:_buildLockScrim) - a real click
--- never reaches the control underneath, so its own callback simply never runs. That's enough
--- for every element wired through this file; it doesn't additionally route through a shared
--- callback funnel the way upstream's own Window:_runGuarded does; this codebase has no such
--- funnel; every callback wires with its own MouseButton1Click).
+-- A locked element does three things: it dims so you can see it's out of reach, it stops taking
+-- pointer input via an opaque scrim laid over it (see Window:_buildLockScrim), and its callback
+-- is refused at the funnel every interactive element already routes through (Window:_runGuarded
+-- checks `element.locked` before it runs anything). The scrim alone only ever stopped a real
+-- click; the funnel check is what makes a lock hold against a programmatic `:Set()` or a fired
+-- signal too, which is what a caller gating a premium feature actually needs.
 --
 -- A handful of components (Toggle, Button, Dropdown, HoldButton) already carry their own
 -- bespoke SetLocked with a purpose-built dimming look - lockable(Class) is skipped for those

@@ -3,6 +3,7 @@
 
 .DEFAULT_GOAL := help
 
+BASH ?= bash
 ROKIT ?= rokit
 ROJO ?= rojo
 LUNE ?= lune
@@ -37,7 +38,7 @@ LUAU_LSP_REF ?= e27c8b37024818c0a3d60f341ae0aba87e6d58d1
 GLOBAL_TYPES_URL ?= https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/$(LUAU_LSP_REF)/scripts/globalTypes.d.luau
 COVERAGE_THRESHOLD ?= 70
 
-.PHONY: help install hooks ci check test test-verbose coverage coverage-baseline testez-model test-place format format-check lint typecheck build bundle serve sourcemap-watch dev clean
+.PHONY: help install hooks ci check check-bundle check-layouts dist test test-verbose coverage coverage-baseline testez-model test-place format format-check lint typecheck build bundle serve sourcemap-watch dev clean
 
 help:
 	@echo Rayfield Gen2 Make targets:
@@ -56,7 +57,10 @@ help:
 	@echo   lint       Lint Luau source with Selene
 	@echo   typecheck  Generate sourcemap and run luau-lsp analysis
 	@echo   build      Build the Rojo place file
-	@echo   bundle     Build the release Luau bundle
+	@echo   bundle     Build the release Luau bundle (wax, minified, release asset)
+	@echo   dist       Rebuild dist/rayfield.lua, the bundle hubs load off main
+	@echo   check-bundle  Fail if dist/rayfield.lua is stale against src/
+	@echo   check-layouts Fail if a UIListLayout is missing SortOrder
 	@echo   serve      Start the Rojo development server
 	@echo   clean      Remove generated local outputs
 	@echo   dev        Start Rojo serve and watch sourcemap generation
@@ -73,10 +77,29 @@ install:
 hooks:
 	$(GIT) config --local core.hooksPath $(HOOKS_DIR)
 
-ci: check
+# check-bundle/check-layouts are in ci but not in check: both shell out to bash, which every CI
+# runner has and a Windows dev working from PowerShell may not. Nothing they catch can break a
+# local iteration loop - a stale bundle or a bad SortOrder only matters once a change is pushed.
+ci: check check-bundle check-layouts
 
 check: format-check lint typecheck test
 	@echo all checks passed
+
+# dist/rayfield.lua must match what src/ builds to - a stale bundle silently serves every hub
+# the old library. See scripts/check-bundle.sh.
+check-bundle:
+	$(BASH) scripts/check-bundle.sh
+
+# every UIListLayout must set SortOrder explicitly. See scripts/check-layouts.sh.
+check-layouts:
+	$(BASH) scripts/check-layouts.sh
+
+# regenerates dist/rayfield.lua, the single-file bundle hubs load straight off main. Distinct
+# from the `bundle` target: that one is wax/lune, minified, and published as a tagged release
+# asset (build/bundled.luau, see .github/workflows/release.yml); this one is a plain-bash build
+# committed to the repo so a hub can HttpGet the current main without waiting for a release.
+dist:
+	$(BASH) scripts/build-bundle.sh
 
 test:
 	$(LUNE) run scripts/run-tests.luau -- --coverage-threshold=$(COVERAGE_THRESHOLD)
@@ -120,6 +143,10 @@ typecheck: $(GLOBAL_TYPES)
 build:
 	$(ROJO) build $(PROJECT_FILE) -o "$(PLACE_FILE)"
 
+# the release bundle: wax, minified, uploaded as a tagged GitHub release asset with a checksum
+# (.github/workflows/release.yml). Not committed. For the always-current bundle hubs load
+# straight off main, see the `dist` target instead - the two are not redundant, they ship to
+# different places.
 bundle:
 	$(MKDIR) "$(dir $(BUNDLE_FILE))"
 	$(LUNE) run wax bundle output="$(BUNDLE_FILE)" input="$(WAX_PROJECT)" minify=true

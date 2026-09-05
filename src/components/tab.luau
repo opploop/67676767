@@ -374,6 +374,11 @@ function Tab:CreateDropdown(properties)
     return self:_register(require(script.Parent.dropdown).new(self, properties))
 end
 
+-- Dropdown pre-filled with the server's players, kept in step with joins and leaves
+function Tab:CreatePlayerDropdown(properties)
+    return self:_register(require(script.Parent.playerdropdown).new(self, properties))
+end
+
 -- Progress bar: read-only gradient fill + readout, animates on Set
 function Tab:CreateProgressBar(properties)
     return self:_register(require(script.Parent.progressbar).new(self, properties))
