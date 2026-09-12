@@ -3,8 +3,8 @@
   "measuredDate": "2026-09-12",
   "command": "make coverage-baseline",
   "threshold": 70.00,
-  "lineCoverage": 75.39,
-  "coveredLines": 7610,
+  "lineCoverage": 75.45,
+  "coveredLines": 7616,
   "coverableLines": 10094,
   "notes": [
     "Generated reports are written to coverage/coverage.txt and coverage/coverage-summary.json.",
@@ -105,8 +105,8 @@
     },
     {
       "path": "src/components/group.luau",
-      "lineCoverage": 65.71,
-      "coveredLines": 115,
+      "lineCoverage": 66.86,
+      "coveredLines": 117,
       "coverableLines": 175
     },
     {
@@ -141,8 +141,8 @@
     },
     {
       "path": "src/components/label.luau",
-      "lineCoverage": 96.00,
-      "coveredLines": 24,
+      "lineCoverage": 100.00,
+      "coveredLines": 25,
       "coverableLines": 25
     },
     {
@@ -255,8 +255,8 @@
     },
     {
       "path": "src/components/tab.luau",
-      "lineCoverage": 86.29,
-      "coveredLines": 170,
+      "lineCoverage": 86.80,
+      "coveredLines": 171,
       "coverableLines": 197
     },
     {
@@ -321,8 +321,8 @@
     },
     {
       "path": "src/components/windowMethods.luau",
-      "lineCoverage": 68.55,
-      "coveredLines": 473,
+      "lineCoverage": 68.84,
+      "coveredLines": 475,
       "coverableLines": 690
     },
     {

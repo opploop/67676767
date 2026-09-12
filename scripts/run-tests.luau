@@ -870,6 +870,23 @@ function instanceMethods:WaitForChild(name)
     return self:FindFirstChild(name)
 end
 
+function instanceMethods:FindFirstChildWhichIsA(className, recursive)
+    for _, child in self._children do
+        if type(child.IsA) == "function" and child:IsA(className) then
+            return child
+        end
+    end
+    if recursive then
+        for _, child in self._children do
+            local found = child:FindFirstChildWhichIsA(className, true)
+            if found then
+                return found
+            end
+        end
+    end
+    return nil
+end
+
 function instanceMethods:FindFirstAncestorWhichIsA(className)
     local parent = self.Parent
     while parent do

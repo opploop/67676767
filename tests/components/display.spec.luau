@@ -1,7 +1,7 @@
 local helpers = (_G :: any).__RAYFIELD_TEST_HELPERS
 
--- Divider, Paragraph, ShimmerLabel, ScrollHint, Spacer, Changelog, Tabbox: the display-side
--- elements, none of which had a spec.
+-- Divider, Paragraph, Label, ShimmerLabel, ScrollHint, Spacer, Changelog, Tabbox: the
+-- display-side elements, none of which had a spec.
 return function()
     local Window = helpers.requireComponent("window")
 
@@ -109,6 +109,72 @@ return function()
 
             expect(bare.iconLabel).to.equal(nil)
             expect(iconed.iconLabel).to.be.ok()
+        end)
+    end)
+
+    describe("component label", function()
+        afterEach(cleanup)
+
+        -- CreateLabel was reachable from Tab, Group and Collapsible and called by nothing in the
+        -- suite. label.luau still read as 96% covered, because other elements build labels
+        -- internally - the percentage was green while the entry point a dev actually writes had
+        -- never once been exercised.
+        it("builds a bare line of text", function()
+            local label = makeTab():CreateLabel({ text = "Just a line" })
+
+            expect(label.main).to.be.ok()
+            expect(label.title.Text).to.equal("Just a line")
+            expect(label.iconLabel).to.equal(nil)
+        end)
+
+        it("defaults to empty text rather than erroring", function()
+            local label = makeTab():CreateLabel({})
+
+            expect(label.title.Text).to.equal("")
+        end)
+
+        it("insets the text to clear an icon, and only then", function()
+            local tab = makeTab()
+            local bare = tab:CreateLabel({ text = "a" })
+            local iconed = tab:CreateLabel({ text = "b", icon = 100 })
+
+            expect(bare.title.Position.X.Offset).to.equal(0)
+            expect(bare.title.Size.X.Offset).to.equal(0)
+
+            -- 16px icon + an 8px gap, taken off the text's width as well as its offset, so the
+            -- copy wraps inside what is left instead of running under the icon
+            expect(iconed.iconLabel).to.be.ok()
+            expect(iconed.title.Position.X.Offset).to.equal(24)
+            expect(iconed.title.Size.X.Offset).to.equal(-24)
+        end)
+
+        it("swaps the copy, and clears it on nil", function()
+            local label = makeTab():CreateLabel({ text = "First" })
+
+            label:Set("Second")
+            expect(label.title.Text).to.equal("Second")
+
+            -- Set takes a literal, deliberately: the constructor's text goes through locale.t
+            -- because it is authored copy, while a runtime Set is usually a computed string with
+            -- no translation key. Paragraph's setters work the same way.
+            label:Set(nil)
+            expect(label.title.Text).to.equal("")
+        end)
+
+        it("registers on the tab, so search can reach it", function()
+            local tab = makeTab()
+            local label = tab:CreateLabel({ text = "Findable" })
+
+            expect(table.find(tab.elements, label)).to.be.ok()
+        end)
+
+        it("builds from a Group and from a Collapsible, not just a Tab", function()
+            local tab = makeTab()
+            local column = tab:CreateGroup({ direction = "column" })
+            local collapsible = tab:CreateCollapsible({ name = "Panel", expanded = true })
+
+            expect(column:CreateLabel({ text = "in a group" }).title.Text).to.equal("in a group")
+            expect(collapsible:CreateLabel({ text = "in a panel" }).title.Text).to.equal("in a panel")
         end)
     end)
 
