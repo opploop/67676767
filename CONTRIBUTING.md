@@ -108,9 +108,11 @@ This command is required. `make ci` is an alias for `make check`, and GitHub Act
 ```bash
 stylua --syntax Luau --check src tests scripts
 selene generate-roblox-std
-selene src tests
+selene src tests scripts
 rojo sourcemap default.project.json -o sourcemap.json
-curl -fsSL -o globalTypes.d.luau https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/main/scripts/globalTypes.d.luau
+# pinned, same as the Makefile's LUAU_LSP_REF - fetching from main can hand you different
+# type definitions than CI is using, which shows up as type errors only you see (or only CI does)
+curl -fsSL -o globalTypes.d.luau https://raw.githubusercontent.com/JohnnyMorganz/luau-lsp/e27c8b37024818c0a3d60f341ae0aba87e6d58d1/scripts/globalTypes.d.luau
 luau-lsp analyze --sourcemap=sourcemap.json --defs=globalTypes.d.luau --no-strict-dm-types src tests/components tests/integration tests/runner tests/utility
 lune run scripts/run-tests.luau -- --coverage-threshold=70
 ```
