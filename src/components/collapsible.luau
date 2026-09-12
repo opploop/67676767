@@ -271,7 +271,8 @@ end
 for _, name in {
     "CreateButton", "CreateFlipButton", "CreateCopyButton", "CreateRippleButton", "CreateToggle",
     "CreateSwitch", "CreateCheckbox", "CreateStat", "CreateStatusCard", "CreateSlider", "CreateDropdown",
-    "CreatePlayerDropdown", "CreateReorderList", "CreateItemGrid", "CreateSection", "CreateLabel",
+    "CreatePlayerDropdown", "CreateReorderList", "CreateItemGrid", "CreateListPicker",
+    "CreateSection", "CreateLabel",
     "CreateParagraph",
     "CreateDivider",
     "CreateGroup", "CreateProgressBar",

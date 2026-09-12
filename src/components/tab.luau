@@ -389,6 +389,11 @@ function Tab:CreateItemGrid(properties)
     return self:_register(require(script.Parent.itemgrid).new(self, properties))
 end
 
+-- Vertical single-select category rail, for beside the panel it drives
+function Tab:CreateListPicker(properties)
+    return self:_register(require(script.Parent.listpicker).new(self, properties))
+end
+
 -- Progress bar: read-only gradient fill + readout, animates on Set
 function Tab:CreateProgressBar(properties)
     return self:_register(require(script.Parent.progressbar).new(self, properties))

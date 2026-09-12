@@ -62,7 +62,7 @@ end
 local componentFiles = {
     "action", "button", "changelog", "checkbox", "chrome", "collapsible", "colorpicker",
     "console", "copybutton", "descriptor", "divider", "drag", "dropdown", "flipbutton", "gradientpicker",
-    "group", "holdbutton", "hud", "input", "keybind", "itemgrid", "label", "notification",
+    "group", "holdbutton", "hud", "input", "keybind", "itemgrid", "label", "listpicker", "notification",
     "paragraph", "playerdropdown",
     "popup", "progressbar", "reorderlist", "resize", "ripplebutton", "scrollhint", "search",
     "section",

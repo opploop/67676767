@@ -381,6 +381,28 @@ export type GridFilterChip = string | {
     color: Color3?,
 }
 
+export type ListOption = string | {
+    id: string?, -- defaults to `name`
+    name: string?,
+    icon: (string | number)?,
+    color: Color3?, -- overrides the accent for this row's fill when selected
+}
+
+export type ListPickerProps = {
+    name: string?, -- also the header label, rendered uppercase
+    description: string?,
+    icon: (string | number)?,
+    tooltip: string?,
+    flag: string?, -- persists the selected id
+    options: { ListOption }?,
+    value: string?, -- defaults to the first option
+    rowHeight: number?, -- default 34, floor 24
+    height: number?, -- set it and the list scrolls inside that height instead of growing
+    showHeader: boolean?, -- default true
+    emptyText: string?,
+    callback: ((id: string?) -> ())?,
+}
+
 export type ItemGridProps = {
     name: string?,
     description: string?,
@@ -755,6 +777,18 @@ export type Dropdown = Moveable & {
     IsLocked: (self: Dropdown) -> boolean,
 }
 
+export type ListPicker = Moveable & {
+    value: string?, -- the selected id
+    locked: boolean,
+    Get: (self: ListPicker) -> string?,
+    Set: (self: ListPicker, id: string?, skipCallback: boolean?) -> boolean,
+    Refresh: (self: ListPicker, options: { ListOption }, skipCallback: boolean?) -> (),
+    SetHeight: (self: ListPicker, height: number?) -> (),
+    Lock: (self: ListPicker, reason: string?) -> (),
+    Unlock: (self: ListPicker) -> (),
+    IsLocked: (self: ListPicker) -> boolean,
+}
+
 export type ItemGrid = Moveable & {
     value: { string }, -- the selected ids, in item order
     locked: boolean,
@@ -906,6 +940,7 @@ export type Collapsible = Moveable & {
     CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateReorderList: (self: Collapsible, props: ReorderListProps) -> ReorderList,
     CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,
+    CreateListPicker: (self: Collapsible, props: ListPickerProps) -> ListPicker,
     CreateSection: (self: Collapsible, props: SectionProps) -> Section,
     CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,
     CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,
@@ -946,6 +981,7 @@ export type Group = Moveable & {
     CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateReorderList: (self: Group, props: ReorderListProps) -> ReorderList,
     CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,
+    CreateListPicker: (self: Group, props: ListPickerProps) -> ListPicker,
     CreateSection: (self: Group, props: SectionProps) -> Section,
     CreateLabel: (self: Group, props: LabelProps?) -> Label,
     CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,
@@ -966,6 +1002,7 @@ export type Tab = {
     CreatePlayerDropdown: (self: Tab, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateReorderList: (self: Tab, props: ReorderListProps) -> ReorderList,
     CreateItemGrid: (self: Tab, props: ItemGridProps) -> ItemGrid,
+    CreateListPicker: (self: Tab, props: ListPickerProps) -> ListPicker,
     CreateInput: (self: Tab, props: InputProps) -> Input,
     CreateKeybind: (self: Tab, props: KeybindProps) -> Keybind,
     CreateColorPicker: (self: Tab, props: ColorPickerProps) -> ColorPicker,

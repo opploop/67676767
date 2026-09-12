@@ -91,6 +91,7 @@ local componentFiles = {
     "itemgrid",
     "keybind",
     "label",
+    "listpicker",
     "notification",
     "paragraph",
     "playerdropdown",

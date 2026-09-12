@@ -268,6 +268,9 @@ end
 function Group:CreateItemGrid(properties)
     return self:_add("itemgrid", properties)
 end
+function Group:CreateListPicker(properties)
+    return self:_add("listpicker", properties)
+end
 function Group:CreateSection(properties)
     return self:_add("section", properties)
 end
