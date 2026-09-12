@@ -368,9 +368,17 @@ export type PlayerDropdownProps = {
 export type GridItem = {
     id: string?, -- defaults to `name` when omitted
     name: string?,
-    icon: (string | number)?,
+    icon: (string | number)?, -- small glyph beside the name
+    image: (string | number)?, -- a real thumbnail; takes over from `icon` when both are given
     color: Color3?, -- the card's edge while unselected: a rarity/category tint
-    tag: string?, -- what ItemGrid:Filter({ tags = ... }) narrows on
+    tag: string?, -- what the chips and Filter({ tags = ... }) narrow on
+}
+
+-- One filter chip. A bare string is its own tag and label.
+export type GridFilterChip = string | {
+    tag: string?,
+    name: string?, -- the chip's label; defaults to the tag
+    color: Color3?,
 }
 
 export type ItemGridProps = {
@@ -386,6 +394,11 @@ export type ItemGridProps = {
     cellHeight: number?, -- default 46
     multiSelect: boolean?, -- default true
     emptyText: string?,
+    -- built into the element: `true` for the default placeholder, or pass the placeholder itself
+    search: (boolean | string)?,
+    filters: { GridFilterChip }?, -- the chip row; the dev owns the tag set
+    imageLayout: ("left" | "top")?, -- thumbnail beside the name, or above it. Default "left"
+    onFilterChanged: ((filter: { text: string, tags: { string } }) -> ())?,
     callback: ((selected: { string }) -> ())?,
 }
 
@@ -752,7 +765,9 @@ export type ItemGrid = Moveable & {
     Deselect: (self: ItemGrid, id: string, skipCallback: boolean?) -> (),
     SelectAll: (self: ItemGrid, skipCallback: boolean?) -> (), -- only what the filter shows
     Clear: (self: ItemGrid, skipCallback: boolean?) -> (),
-    Filter: (self: ItemGrid, query: GridFilter?) -> (), -- nil clears it
+    Filter: (self: ItemGrid, query: GridFilter?) -> (), -- nil clears it, chips included
+    ToggleTag: (self: ItemGrid, tag: string) -> (), -- the programmatic half of clicking a chip
+    GetFilter: (self: ItemGrid) -> { text: string, tags: { string } },
     Refresh: (self: ItemGrid, items: { string | GridItem }, skipCallback: boolean?) -> (),
     SetHeight: (self: ItemGrid, height: number) -> (),
     SetColumns: (self: ItemGrid, columns: number) -> (),

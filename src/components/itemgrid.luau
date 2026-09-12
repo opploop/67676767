@@ -6,12 +6,15 @@
 -- file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 -- A scrolling grid of selectable cards - a cosmetic picker, an item filter, a loadout screen.
--- The long-list case a Dropdown handles badly: a few hundred entries the player wants to SEE
--- and tick several of, not open a menu and hunt through one at a time.
+-- The long-list case a Dropdown handles badly: a few hundred entries the player wants to SEE and
+-- tick several of, not open a menu and hunt through one at a time.
 --
--- Each item can carry a `color` (its rarity/category) which tints the card's edge while
--- unselected, and a `tag` the filter can narrow on - so a search box and a row of rarity chips
--- drive one `grid:Filter({ text = ..., tags = { ... } })` call between them.
+-- The search box and the filter chips live INSIDE the element rather than being separate controls
+-- a hub wires up itself: the filter only ever drives this one grid, so making the caller own a
+-- CreateInput, remember to call grid:Filter from its callback, and keep a chip row in sync was
+-- three places to get wrong for something with exactly one correct behaviour. `search = true` and
+-- `filters = { ... }` turn them on; the dev supplies the tag set, since only they know whether
+-- the axis is rarity, slot, or source.
 --
 -- Selection is the value: `flag` persists the ticked ids like any other control.
 
@@ -36,11 +39,17 @@ local sidePadding = 15
 local headerTop = 15
 local headerHeight = 16
 local headerGap = 12
+local rowGap = 8
+local searchHeight = 32
+local chipHeight = 26
+local chipGap = 6
+local chipPadding = 12
 local cellGap = 8
 local boxSize = 18
 local defaultColumns = 4
 local defaultHeight = 210
 local defaultCellHeight = 46
+local stackedCellHeight = 112 -- room for a thumbnail plus its name underneath
 
 -- Below this a card can't hold a two-word name, so the grid drops a column instead of letting
 -- every label truncate. Checked against the real width, so a collapsed window reflows.
@@ -51,7 +60,7 @@ local stateInfo = TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirecti
 local cellRest = 0.94
 local cellHover = 0.88
 
--- Accepts "Banana", or { id, name, icon, color, tag }. A bare string is its own id.
+-- Accepts "Banana", or { id, name, icon, image, color, tag }. A bare string is its own id.
 local function normalise(entry)
     if type(entry) == "string" then
         return { id = entry, name = entry }
@@ -64,6 +73,7 @@ local function normalise(entry)
             id = tostring(id),
             name = tostring(entry.name or entry.Name or id),
             icon = entry.icon or entry.Icon,
+            image = entry.image or entry.Image,
             color = entry.color or entry.Color,
             tag = entry.tag or entry.Tag,
         }
@@ -71,8 +81,37 @@ local function normalise(entry)
     return nil
 end
 
+-- A filter chip: { tag = "LEGENDARY", color = ..., name = "Legendary" }, or just the tag string
+-- when the dev is happy with the tag as its own label.
+local function normaliseFilter(entry)
+    if type(entry) == "string" then
+        return { tag = entry, name = entry }
+    elseif type(entry) == "table" then
+        local tag = entry.tag or entry.Tag or entry.name or entry.Name
+        if tag == nil then
+            return nil
+        end
+        return {
+            tag = tostring(tag),
+            name = tostring(entry.name or entry.Name or tag),
+            color = entry.color or entry.Color,
+        }
+    end
+    return nil
+end
+
 function ItemGrid.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
+
+    local search = properties.search
+    if search == nil then
+        search = properties.Search
+    end
+
+    local imageLayout = string.lower(tostring(properties.imageLayout or properties.ImageLayout or "left"))
+    if imageLayout ~= "top" then
+        imageLayout = "left"
+    end
 
     local self = setmetatable({
         tab = assert(tab, "Missing argument #1 (Tab expected)"),
@@ -85,9 +124,13 @@ function ItemGrid.new(tab, properties)
 
         columns = math.clamp(tonumber(properties.columns or properties.Columns) or defaultColumns, 1, 8),
         height = math.max(tonumber(properties.height or properties.Height) or defaultHeight, 80),
-        cellHeight = math.max(tonumber(properties.cellHeight or properties.CellHeight) or defaultCellHeight, 30),
+        imageLayout = imageLayout,
         multiSelect = (properties.multiSelect or properties.MultiSelect) ~= false,
         emptyText = properties.emptyText or properties.EmptyText or "Nothing matches that filter.",
+
+        -- `search = true` for the default placeholder, or pass the placeholder string itself
+        searchEnabled = search ~= nil and search ~= false,
+        searchPlaceholder = if type(search) == "string" then search else "Search",
 
         flag = properties.flag
             or properties.Flag
@@ -98,13 +141,24 @@ function ItemGrid.new(tab, properties)
             ),
 
         callback = properties.callback or properties.Callback or function() end,
+        onFilterChanged = properties.onFilterChanged or properties.OnFilterChanged,
 
         entries = {},
         cells = {}, -- keyed by id
-        selected = {}, -- keyed by id -> true
-        value = {}, -- ordered ids; what persists
-        filter = nil,
+        chips = {}, -- keyed by tag
+        filters = {}, -- ordered chip descriptors
+        selected = {}, -- id -> true
+        activeTags = {}, -- tag -> true; empty means "every tag"
+        searchText = "",
+        customFilter = nil,
+        value = {},
     }, ItemGrid)
+
+    self.cellHeight = math.max(
+        tonumber(properties.cellHeight or properties.CellHeight)
+            or (if imageLayout == "top" then stackedCellHeight else defaultCellHeight),
+        30
+    )
 
     -- the author's column count is the ceiling; a narrow window only ever drops below it
     self.requestedColumns = self.columns
@@ -113,6 +167,13 @@ function ItemGrid.new(tab, properties)
         local normalised = normalise(entry)
         if normalised then
             table.insert(self.entries, normalised)
+        end
+    end
+
+    for _, entry in (properties.filters or properties.Filters or {}) do
+        local normalised = normaliseFilter(entry)
+        if normalised then
+            table.insert(self.filters, normalised)
         end
     end
 
@@ -132,6 +193,18 @@ function ItemGrid.new(tab, properties)
     end
 
     return self
+end
+
+-- Where the grid starts, once the header and whichever filter rows exist are accounted for.
+function ItemGrid:_gridTop(): number
+    local top = headerTop + headerHeight + headerGap
+    if self.searchEnabled then
+        top += searchHeight + rowGap
+    end
+    if #self.filters > 0 then
+        top += chipHeight + rowGap
+    end
+    return top
 end
 
 function ItemGrid:_build()
@@ -166,7 +239,7 @@ function ItemGrid:_build()
 
     self.title = window:Create("TextLabel", {
         Text = locale.t(self.name),
-        Size = UDim2.new(1, -(sidePadding * 2 + 60), 0, headerHeight),
+        Size = UDim2.new(1, -(sidePadding * 2 + 70), 0, headerHeight),
         Position = UDim2.new(0, sidePadding + (if self.icon then 21 else 0), 0, headerTop),
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
@@ -181,7 +254,7 @@ function ItemGrid:_build()
     -- "3 / 48" - the one number a picker this size is always asked for
     self.counter = window:Create("TextLabel", {
         Text = "",
-        Size = UDim2.fromOffset(60, headerHeight),
+        Size = UDim2.fromOffset(70, headerHeight),
         Position = UDim2.new(1, -sidePadding, 0, headerTop),
         AnchorPoint = Vector2.new(1, 0),
         BorderSizePixel = 0,
@@ -194,10 +267,21 @@ function ItemGrid:_build()
         Parent = self.main,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
+    local nextTop = headerTop + headerHeight + headerGap
+
+    if self.searchEnabled then
+        self:_buildSearch(nextTop)
+        nextTop += searchHeight + rowGap
+    end
+    if #self.filters > 0 then
+        self:_buildChips(nextTop)
+        nextTop += chipHeight + rowGap
+    end
+
     self.scroll = window:Create("ScrollingFrame", {
         Name = "Grid",
         Size = UDim2.new(1, -(sidePadding * 2), 0, self.height),
-        Position = UDim2.new(0, sidePadding, 0, headerTop + headerHeight + headerGap),
+        Position = UDim2.new(0, sidePadding, 0, nextTop),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
@@ -221,7 +305,7 @@ function ItemGrid:_build()
     self.emptyLabel = window:Create("TextLabel", {
         Text = locale.t(self.emptyText),
         Size = UDim2.new(1, -(sidePadding * 2), 0, 20),
-        Position = UDim2.new(0, sidePadding, 0, headerTop + headerHeight + headerGap + 8),
+        Position = UDim2.new(0, sidePadding, 0, nextTop + 8),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         TextSize = 14,
@@ -241,9 +325,188 @@ function ItemGrid:_build()
     self:_applyColumns()
 end
 
+function ItemGrid:_buildSearch(top)
+    local window = self.window
+
+    self.searchBox = window:Create("Frame", {
+        Name = "Search",
+        Size = UDim2.new(1, -(sidePadding * 2), 0, searchHeight),
+        Position = UDim2.new(0, sidePadding, 0, top),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+
+        BackgroundTransparency = 1, -- In = FieldTransparency
+
+        Parent = self.main,
+    }, { BackgroundColor3 = "FieldBackground" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.searchBox })
+
+    self.searchIcon = window:Create("ImageLabel", {
+        Image = constants.icons.search,
+        Size = UDim2.fromOffset(14, 14),
+        Position = UDim2.new(0, 11, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+
+        ImageTransparency = 1, -- In = 0.5
+
+        Parent = self.searchBox,
+    }, { ImageColor3 = "ContentColor" })
+
+    self.searchInput = window:Create("TextBox", {
+        Text = "",
+        PlaceholderText = locale.t(self.searchPlaceholder),
+        Size = UDim2.new(1, -44, 1, 0),
+        Position = UDim2.new(0, 33, 0, 0),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ClearTextOnFocus = false,
+
+        TextTransparency = 1, -- In = 0.15
+
+        Parent = self.searchBox,
+    }, { TextColor3 = "ContentColor", FontFace = "Font", PlaceholderColor3 = "PlaceholderColor" })
+
+    self.window:ConnectFor(self, self.searchInput:GetPropertyChangedSignal("Text"), function()
+        if self.locked then
+            return
+        end
+        self.searchText = self.searchInput.Text
+        self.customFilter = nil -- typing overrides a predicate a caller set programmatically
+        self:_applyFilter()
+    end)
+end
+
+function ItemGrid:_buildChips(top)
+    local window = self.window
+
+    -- A horizontal scroller rather than a wrapping layout: a dev can define ten tags, and the row
+    -- has to stay one row tall whatever they define (the shape tabbox's own pill row uses).
+    self.chipRow = window:Create("ScrollingFrame", {
+        Name = "Filters",
+        Size = UDim2.new(1, -(sidePadding * 2), 0, chipHeight),
+        Position = UDim2.new(0, sidePadding, 0, top),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        AutomaticCanvasSize = Enum.AutomaticSize.X,
+        CanvasSize = UDim2.new(),
+        ScrollBarThickness = 0,
+        ScrollingDirection = Enum.ScrollingDirection.X,
+
+        Parent = self.main,
+    })
+
+    self.chipLayout = window:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        HorizontalAlignment = Enum.HorizontalAlignment.Left,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        Padding = UDim.new(0, chipGap),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+
+        Parent = self.chipRow,
+    })
+
+    for order, descriptor in self.filters do
+        self.chips[descriptor.tag] = self:_buildChip(descriptor, order)
+    end
+end
+
+function ItemGrid:_buildChip(descriptor, order)
+    local window = self.window
+    local chip = { descriptor = descriptor }
+
+    local width = functions.textWidth(window.theme.Font, 13, descriptor.name) + chipPadding * 2
+
+    chip.frame = window:Create("Frame", {
+        Name = descriptor.tag,
+        LayoutOrder = order,
+        Size = UDim2.fromOffset(math.ceil(width), chipHeight),
+        BackgroundColor3 = descriptor.color or Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+
+        BackgroundTransparency = 1, -- In = inactive
+
+        Parent = self.chipRow,
+    })
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = chip.frame })
+
+    chip.stroke = window:Create("UIStroke", {
+        Thickness = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Color = descriptor.color or Color3.fromRGB(255, 255, 255),
+
+        Transparency = 1, -- In = inactive
+
+        Parent = chip.frame,
+    })
+
+    chip.title = window:Create("TextLabel", {
+        Text = locale.t(descriptor.name),
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        TextSize = 13,
+
+        TextTransparency = 1, -- In = inactive
+
+        Parent = chip.frame,
+    }, { FontFace = "Font" })
+    chip.title.TextColor3 = descriptor.color or window.theme.ContentColor
+
+    chip.interact = window:Create("TextButton", {
+        Text = "",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        AutoButtonColor = false,
+
+        Parent = chip.frame,
+    })
+
+    self.window:ConnectFor(self, chip.interact.MouseButton1Click, function()
+        if self.locked then
+            return
+        end
+        self:ToggleTag(descriptor.tag)
+    end)
+
+    return chip
+end
+
+function ItemGrid:_applyChip(chip, animate)
+    local active = self.activeTags[chip.descriptor.tag] == true
+    local color = chip.descriptor.color or self.window.theme.ContentColor
+
+    local goals = {
+        frame = { BackgroundTransparency = if active then 0.75 else 1 },
+        stroke = { Transparency = if active then 0.15 else 0.65 },
+        title = { TextColor3 = color, TextTransparency = if active then 0 else 0.35 },
+    }
+
+    for part, properties in goals do
+        if animate then
+            variables.tweenService:Create(chip[part], stateInfo, properties):Play()
+        else
+            for property, value in properties do
+                chip[part][property] = value
+            end
+        end
+    end
+end
+
 -- Fit `columns` cells across the real width, dropping columns while they'd come out too narrow.
 function ItemGrid:_applyColumns()
-    local width = self.scroll.AbsoluteSize.X
+    -- AbsoluteWindowSize, not AbsoluteSize: the latter counts the vertical scrollbar's strip, so
+    -- sizing cells off it pushes the last column past the card's rounded edge by exactly
+    -- ScrollBarThickness the moment the content becomes long enough to scroll.
+    local width = self.scroll.AbsoluteWindowSize.X
+    if width <= 0 then
+        width = self.scroll.AbsoluteSize.X - self.scroll.ScrollBarThickness
+    end
     if width <= 0 then
         return
     end
@@ -266,12 +529,14 @@ end
 function ItemGrid:_buildCell(entry, order)
     local window = self.window
     local cell = { connections = {}, entry = entry }
+    cell.stacked = self.imageLayout == "top" and entry.image ~= nil
 
     cell.frame = window:Create("Frame", {
         Name = entry.name,
         LayoutOrder = order,
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
+        ClipsDescendants = true,
 
         BackgroundTransparency = 1, -- In = cellRest
 
@@ -289,11 +554,23 @@ function ItemGrid:_buildCell(entry, order)
         Parent = cell.frame,
     })
 
+    if entry.image then
+        cell.image = window:Create("ImageLabel", {
+            Name = "Preview",
+            Image = entry.image,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            ScaleType = Enum.ScaleType.Fit, -- never distort a cosmetic's proportions
+
+            ImageTransparency = 1, -- In = 0
+
+            Parent = cell.frame,
+        })
+    end
+
     cell.box = window:Create("Frame", {
         Name = "Box",
         Size = UDim2.fromOffset(boxSize, boxSize),
-        Position = UDim2.new(0, 10, 0.5, 0),
-        AnchorPoint = Vector2.new(0, 0.5),
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
 
@@ -326,29 +603,8 @@ function ItemGrid:_buildCell(entry, order)
         Parent = cell.box,
     })
 
-    local textLeft = 10 + boxSize + 8
-    local iconRoom = if entry.icon then 20 else 0
-
-    if entry.icon then
-        cell.iconLabel = window:Create("ImageLabel", {
-            Image = entry.icon,
-            Size = UDim2.fromOffset(16, 16),
-            Position = UDim2.new(0, textLeft, 0.5, 0),
-            AnchorPoint = Vector2.new(0, 0.5),
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
-
-            ImageTransparency = 1, -- In = 0.2
-
-            Parent = cell.frame,
-        }, { ImageColor3 = "ContentColor" })
-    end
-
     cell.title = window:Create("TextLabel", {
         Text = locale.t(entry.name),
-        Size = UDim2.new(1, -(textLeft + iconRoom + 10), 1, -6),
-        Position = UDim2.new(0, textLeft + iconRoom, 0.5, 0),
-        AnchorPoint = Vector2.new(0, 0.5),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         TextSize = 14,
@@ -360,6 +616,20 @@ function ItemGrid:_buildCell(entry, order)
         Parent = cell.frame,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
+    if entry.icon and not entry.image then
+        cell.iconLabel = window:Create("ImageLabel", {
+            Image = entry.icon,
+            Size = UDim2.fromOffset(16, 16),
+            AnchorPoint = Vector2.new(0, 0.5),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+
+            ImageTransparency = 1, -- In = 0.2
+
+            Parent = cell.frame,
+        }, { ImageColor3 = "ContentColor" })
+    end
+
     cell.interact = window:Create("TextButton", {
         Name = "Interact",
         Text = "",
@@ -370,6 +640,8 @@ function ItemGrid:_buildCell(entry, order)
 
         Parent = cell.frame,
     })
+
+    self:_layoutCell(cell)
 
     self:_cellConnect(cell, cell.interact.MouseEnter, function()
         cell.hovered = true
@@ -389,6 +661,51 @@ function ItemGrid:_buildCell(entry, order)
     end)
 
     return cell
+end
+
+-- Places the parts inside one card. Two shapes: a row (tick, optional thumbnail, name) and a
+-- stacked card (thumbnail filling the top, tick floating in its corner, name underneath).
+function ItemGrid:_layoutCell(cell)
+    if cell.stacked then
+        local nameHeight = 30
+        cell.image.Size = UDim2.new(1, -16, 1, -(nameHeight + 14))
+        cell.image.Position = UDim2.new(0.5, 0, 0, 8)
+        cell.image.AnchorPoint = Vector2.new(0.5, 0)
+
+        -- floats over the thumbnail's corner, so it needs to outrank it explicitly: this
+        -- project's ZIndexBehavior is Global, so a child does not inherit its parent's order
+        cell.box.Position = UDim2.new(1, -8, 0, 8)
+        cell.box.AnchorPoint = Vector2.new(1, 0)
+        cell.box.ZIndex = 4
+        cell.boxStroke.ZIndex = 4
+        cell.check.ZIndex = 5
+        cell.interact.ZIndex = 6
+
+        cell.title.Size = UDim2.new(1, -12, 0, nameHeight)
+        cell.title.Position = UDim2.new(0.5, 0, 1, -6)
+        cell.title.AnchorPoint = Vector2.new(0.5, 1)
+        return
+    end
+
+    cell.box.Position = UDim2.new(0, 10, 0.5, 0)
+    cell.box.AnchorPoint = Vector2.new(0, 0.5)
+
+    local left = 10 + boxSize + 8
+
+    if cell.image then
+        local thumb = math.max(self.cellHeight - 16, 16)
+        cell.image.Size = UDim2.fromOffset(thumb, thumb)
+        cell.image.Position = UDim2.new(0, left, 0.5, 0)
+        cell.image.AnchorPoint = Vector2.new(0, 0.5)
+        left += thumb + 8
+    elseif cell.iconLabel then
+        cell.iconLabel.Position = UDim2.new(0, left, 0.5, 0)
+        left += 22
+    end
+
+    cell.title.Size = UDim2.new(1, -(left + 10), 1, -6)
+    cell.title.Position = UDim2.new(0, left, 0.5, 0)
+    cell.title.AnchorPoint = Vector2.new(0, 0.5)
 end
 
 -- One place that decides what a cell looks like, so hover/selection/theme can't disagree.
@@ -418,17 +735,14 @@ function ItemGrid:_applyCell(cell, animate)
         },
     }
 
-    if not animate then
-        for part, properties in goals do
+    for part, properties in goals do
+        if animate then
+            variables.tweenService:Create(cell[part], stateInfo, properties):Play()
+        else
             for property, value in properties do
                 cell[part][property] = value
             end
         end
-        return
-    end
-
-    for part, properties in goals do
-        variables.tweenService:Create(cell[part], stateInfo, properties):Play()
     end
 end
 
@@ -443,29 +757,27 @@ function ItemGrid:_syncValue()
     end
     self.value = ids
 
-    -- selected / TOTAL, never selected / currently-shown: filtering to two cards while two
-    -- hidden ones are ticked read as "2 / 2", which says every visible card is selected and is
-    -- flatly untrue. The total is the only denominator that doesn't lie as the filter moves.
+    -- selected / TOTAL, never selected / currently-shown: filtering to two cards while two hidden
+    -- ones are ticked read as "2 / 2", which says every visible card is selected and is flatly
+    -- untrue. The total is the only denominator that doesn't lie as the filter moves.
     self.counter.Text = `{#ids} / {#self.entries}`
 end
 
--- Does this entry survive the current filter? nil filter means everything does.
+-- Does this entry survive the current filter?
 function ItemGrid:_matches(entry): boolean
-    local filter = self.filter
-    if filter == nil then
-        return true
-    end
-    if type(filter) == "function" then
-        return filter(entry) == true
+    if self.customFilter then
+        return self.customFilter(entry) == true
     end
 
-    if filter.text and filter.text ~= "" then
-        if not string.find(string.lower(entry.name), string.lower(filter.text), 1, true) then
+    if self.searchText ~= "" then
+        if not string.find(string.lower(entry.name), string.lower(self.searchText), 1, true) then
             return false
         end
     end
-    if filter.tags and next(filter.tags) ~= nil then
-        if entry.tag == nil or not filter.tags[entry.tag] then
+
+    -- no chip active means every tag passes, which is what an untouched chip row should do
+    if next(self.activeTags) ~= nil then
+        if entry.tag == nil or not self.activeTags[entry.tag] then
             return false
         end
     end
@@ -477,16 +789,20 @@ function ItemGrid:_applyFilter()
     for _, entry in self.entries do
         local cell = self.cells[entry.id]
         if cell then
+            -- an invisible child is skipped by UIGridLayout, so hiding is the whole filter
             local visible = self:_matches(entry)
             cell.frame.Visible = visible
             anyVisible = anyVisible or visible
         end
     end
 
-    -- an invisible child is skipped by UIGridLayout, so hiding is the whole filter
     self.emptyLabel.Visible = not anyVisible
     self.scroll.Visible = anyVisible
     self:_syncValue()
+
+    if self.onFilterChanged then
+        self.window:_runGuarded(self, self.onFilterChanged, self:GetFilter())
+    end
 end
 
 function ItemGrid:_rebuildCells()
@@ -515,8 +831,11 @@ function ItemGrid:_rebuildCells()
 end
 
 function ItemGrid:_syncHeight()
+    local top = self:_gridTop()
     self.scroll.Size = UDim2.new(1, -(sidePadding * 2), 0, self.height)
-    self.main.Size = UDim2.new(1, -20, 0, headerTop + headerHeight + headerGap + self.height + sidePadding)
+    self.scroll.Position = UDim2.new(0, sidePadding, 0, top)
+    self.emptyLabel.Position = UDim2.new(0, sidePadding, 0, top + 8)
+    self.main.Size = UDim2.new(1, -20, 0, top + self.height + sidePadding)
 end
 
 moveable(ItemGrid)
@@ -604,8 +923,8 @@ function ItemGrid:Deselect(id, skipCallback)
     end
 end
 
--- Tick everything the filter currently shows - "select all" on a filtered view meaning the
--- whole catalogue would be a nasty surprise.
+-- Tick everything the filter currently shows - "select all" on a filtered view meaning the whole
+-- catalogue would be a nasty surprise.
 function ItemGrid:SelectAll(skipCallback)
     if not self.multiSelect then
         return
@@ -630,29 +949,61 @@ function ItemGrid:Clear(skipCallback)
     self:Set({}, skipCallback)
 end
 
+-- What the filter currently is, in the same shape Filter() accepts.
+function ItemGrid:GetFilter()
+    local tags = {}
+    for tag in self.activeTags do
+        table.insert(tags, tag)
+    end
+    table.sort(tags)
+    return { text = self.searchText, tags = tags }
+end
+
+-- Turn one chip on or off. Also the programmatic half of clicking it, so a hub can drive the
+-- chips from a keybind or restore them itself.
+function ItemGrid:ToggleTag(tag)
+    tag = tostring(tag)
+    self.activeTags[tag] = (not self.activeTags[tag]) or nil
+    self.customFilter = nil
+
+    local chip = self.chips[tag]
+    if chip then
+        self:_applyChip(chip, true)
+        hapticEngine.click()
+        soundEngine.click()
+    end
+
+    self:_applyFilter()
+end
+
 -- Narrow the visible cards. Takes a plain search string, a { text = , tags = } table (tags as an
--- array or a set), or a predicate over the entry. nil clears the filter.
+-- array or a set), or a predicate over the entry. nil clears everything, chips included.
 function ItemGrid:Filter(query)
     if query == nil then
-        self.filter = nil
+        self.customFilter = nil
+        self.searchText = ""
+        table.clear(self.activeTags)
     elseif type(query) == "string" then
-        self.filter = { text = query }
+        self.customFilter = nil
+        self.searchText = query
     elseif type(query) == "function" then
-        self.filter = query
+        self.customFilter = query
     elseif type(query) == "table" then
-        local tags = nil
-        if query.tags or query.Tags then
-            tags = {}
-            for key, value in (query.tags or query.Tags) do
-                -- an array of tags and a set of them both land here
-                if value == true then
-                    tags[tostring(key)] = true
-                else
-                    tags[tostring(value)] = true
-                end
-            end
+        self.customFilter = nil
+        self.searchText = query.text or query.Text or ""
+        table.clear(self.activeTags)
+        for key, value in (query.tags or query.Tags or {}) do
+            -- an array of tags and a set of them both land here
+            self.activeTags[if value == true then tostring(key) else tostring(value)] = true
         end
-        self.filter = { text = query.text or query.Text, tags = tags }
+    end
+
+    -- keep the visible controls honest about the filter they represent
+    if self.searchInput and self.searchInput.Text ~= self.searchText then
+        self.searchInput.Text = self.searchText
+    end
+    for _, chip in self.chips do
+        self:_applyChip(chip, true)
     end
 
     self:_applyFilter()
@@ -700,6 +1051,19 @@ function ItemGrid:_setShown(shown, animate)
         w:_revealCommon(self, animate)
         w:_reveal(self.counter, { TextTransparency = 0.45 }, animate)
         w:_reveal(self.emptyLabel, { TextTransparency = 0.55 }, animate)
+
+        if self.searchBox then
+            w:_reveal(self.searchBox, { BackgroundTransparency = w.theme.FieldTransparency }, animate)
+            w:_reveal(self.searchIcon, { ImageTransparency = 0.5 }, animate)
+            w:_reveal(self.searchInput, { TextTransparency = 0.15 }, animate)
+        end
+        for _, chip in self.chips do
+            local active = self.activeTags[chip.descriptor.tag] == true
+            w:_reveal(chip.frame, { BackgroundTransparency = if active then 0.75 else 1 }, animate)
+            w:_reveal(chip.stroke, { Transparency = if active then 0.15 else 0.65 }, animate)
+            w:_reveal(chip.title, { TextTransparency = if active then 0 else 0.35 }, animate)
+        end
+
         for _, cell in self.cells do
             local isSelected = self.selected[cell.entry.id] == true
             w:_reveal(cell.frame, { BackgroundTransparency = cellRest }, animate)
@@ -712,6 +1076,9 @@ function ItemGrid:_setShown(shown, animate)
             w:_reveal(cell.boxStroke, { Transparency = if isSelected then 0 else 0.7 }, animate)
             w:_reveal(cell.check, { ImageTransparency = if isSelected then 0 else 1 }, animate)
             w:_reveal(cell.title, { TextTransparency = if isSelected then 0 else 0.1 }, animate)
+            if cell.image then
+                w:_reveal(cell.image, { ImageTransparency = 0 }, animate)
+            end
             if cell.iconLabel then
                 w:_reveal(cell.iconLabel, { ImageTransparency = 0.2 }, animate)
             end
@@ -720,6 +1087,18 @@ function ItemGrid:_setShown(shown, animate)
         w:_hideCommon(self, animate)
         w:_reveal(self.counter, { TextTransparency = 1 }, animate)
         w:_reveal(self.emptyLabel, { TextTransparency = 1 }, animate)
+
+        if self.searchBox then
+            w:_reveal(self.searchBox, { BackgroundTransparency = 1 }, animate)
+            w:_reveal(self.searchIcon, { ImageTransparency = 1 }, animate)
+            w:_reveal(self.searchInput, { TextTransparency = 1 }, animate)
+        end
+        for _, chip in self.chips do
+            w:_reveal(chip.frame, { BackgroundTransparency = 1 }, animate)
+            w:_reveal(chip.stroke, { Transparency = 1 }, animate)
+            w:_reveal(chip.title, { TextTransparency = 1 }, animate)
+        end
+
         for _, cell in self.cells do
             w:_reveal(cell.frame, { BackgroundTransparency = 1 }, animate)
             w:_reveal(cell.stroke, { Transparency = 1 }, animate)
@@ -727,6 +1106,9 @@ function ItemGrid:_setShown(shown, animate)
             w:_reveal(cell.boxStroke, { Transparency = 1 }, animate)
             w:_reveal(cell.check, { ImageTransparency = 1 }, animate)
             w:_reveal(cell.title, { TextTransparency = 1 }, animate)
+            if cell.image then
+                w:_reveal(cell.image, { ImageTransparency = 1 }, animate)
+            end
             if cell.iconLabel then
                 w:_reveal(cell.iconLabel, { ImageTransparency = 1 }, animate)
             end
@@ -738,6 +1120,9 @@ end
 function ItemGrid:_refreshTheme()
     for _, cell in self.cells do
         self:_applyCell(cell, true)
+    end
+    for _, chip in self.chips do
+        self:_applyChip(chip, true)
     end
 end
 
