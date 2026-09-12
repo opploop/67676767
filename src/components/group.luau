@@ -265,6 +265,9 @@ end
 function Group:CreateReorderList(properties)
     return self:_add("reorderlist", properties)
 end
+function Group:CreateItemGrid(properties)
+    return self:_add("itemgrid", properties)
+end
 function Group:CreateSection(properties)
     return self:_add("section", properties)
 end

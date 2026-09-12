@@ -365,6 +365,35 @@ export type PlayerDropdownProps = {
     callback: ((value: any) -> ())?,
 }
 
+export type GridItem = {
+    id: string?, -- defaults to `name` when omitted
+    name: string?,
+    icon: (string | number)?,
+    color: Color3?, -- the card's edge while unselected: a rarity/category tint
+    tag: string?, -- what ItemGrid:Filter({ tags = ... }) narrows on
+}
+
+export type ItemGridProps = {
+    name: string?,
+    description: string?,
+    icon: (string | number)?,
+    tooltip: string?,
+    flag: string?, -- persists the selected ids
+    items: { string | GridItem }?,
+    value: (string | { string })?,
+    columns: number?, -- ceiling, default 4; a narrow window drops below it on its own
+    height: number?, -- the scrolling viewport, default 210
+    cellHeight: number?, -- default 46
+    multiSelect: boolean?, -- default true
+    emptyText: string?,
+    callback: ((selected: { string }) -> ())?,
+}
+
+export type GridFilter = string | ((item: GridItem) -> boolean) | {
+    text: string?,
+    tags: ({ string } | { [string]: boolean })?,
+}
+
 export type ReorderItem = {
     id: string?, -- defaults to `name` when omitted
     name: string?,
@@ -713,6 +742,25 @@ export type Dropdown = Moveable & {
     IsLocked: (self: Dropdown) -> boolean,
 }
 
+export type ItemGrid = Moveable & {
+    value: { string }, -- the selected ids, in item order
+    locked: boolean,
+    Get: (self: ItemGrid) -> { string },
+    Set: (self: ItemGrid, ids: string | { string }, skipCallback: boolean?) -> (),
+    Toggle: (self: ItemGrid, id: string, skipCallback: boolean?) -> boolean,
+    Select: (self: ItemGrid, id: string, skipCallback: boolean?) -> (),
+    Deselect: (self: ItemGrid, id: string, skipCallback: boolean?) -> (),
+    SelectAll: (self: ItemGrid, skipCallback: boolean?) -> (), -- only what the filter shows
+    Clear: (self: ItemGrid, skipCallback: boolean?) -> (),
+    Filter: (self: ItemGrid, query: GridFilter?) -> (), -- nil clears it
+    Refresh: (self: ItemGrid, items: { string | GridItem }, skipCallback: boolean?) -> (),
+    SetHeight: (self: ItemGrid, height: number) -> (),
+    SetColumns: (self: ItemGrid, columns: number) -> (),
+    Lock: (self: ItemGrid, reason: string?) -> (),
+    Unlock: (self: ItemGrid) -> (),
+    IsLocked: (self: ItemGrid) -> boolean,
+}
+
 export type ReorderList = Moveable & {
     value: { string }, -- the current order, as ids
     locked: boolean,
@@ -842,6 +890,7 @@ export type Collapsible = Moveable & {
     CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,
     CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateReorderList: (self: Collapsible, props: ReorderListProps) -> ReorderList,
+    CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,
     CreateSection: (self: Collapsible, props: SectionProps) -> Section,
     CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,
     CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,
@@ -881,6 +930,7 @@ export type Group = Moveable & {
     CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,
     CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateReorderList: (self: Group, props: ReorderListProps) -> ReorderList,
+    CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,
     CreateSection: (self: Group, props: SectionProps) -> Section,
     CreateLabel: (self: Group, props: LabelProps?) -> Label,
     CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,
@@ -900,6 +950,7 @@ export type Tab = {
     CreateDropdown: (self: Tab, props: DropdownProps) -> Dropdown,
     CreatePlayerDropdown: (self: Tab, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateReorderList: (self: Tab, props: ReorderListProps) -> ReorderList,
+    CreateItemGrid: (self: Tab, props: ItemGridProps) -> ItemGrid,
     CreateInput: (self: Tab, props: InputProps) -> Input,
     CreateKeybind: (self: Tab, props: KeybindProps) -> Keybind,
     CreateColorPicker: (self: Tab, props: ColorPickerProps) -> ColorPicker,

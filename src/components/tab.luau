@@ -384,6 +384,11 @@ function Tab:CreateReorderList(properties)
     return self:_register(require(script.Parent.reorderlist).new(self, properties))
 end
 
+-- Scrolling multi-select grid of cards, with search/tag filtering
+function Tab:CreateItemGrid(properties)
+    return self:_register(require(script.Parent.itemgrid).new(self, properties))
+end
+
 -- Progress bar: read-only gradient fill + readout, animates on Set
 function Tab:CreateProgressBar(properties)
     return self:_register(require(script.Parent.progressbar).new(self, properties))
