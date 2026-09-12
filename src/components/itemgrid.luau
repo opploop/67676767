@@ -44,12 +44,13 @@ local searchHeight = 32
 local chipHeight = 26
 local chipGap = 6
 local chipPadding = 12
-local cellGap = 8
+local cellGap = 10
 local boxSize = 18
+local dotSize = 7
 local defaultColumns = 4
 local defaultHeight = 210
-local defaultCellHeight = 46
-local stackedCellHeight = 112 -- room for a thumbnail plus its name underneath
+local defaultCellHeight = 52
+local stackedCellHeight = 128 -- room for a thumbnail plus its name underneath
 
 -- Below this a card can't hold a two-word name, so the grid drops a column instead of letting
 -- every label truncate. Checked against the real width, so a collapsed window reflows.
@@ -536,23 +537,40 @@ function ItemGrid:_buildCell(entry, order)
         LayoutOrder = order,
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel = 0,
-        ClipsDescendants = true,
 
         BackgroundTransparency = 1, -- In = cellRest
 
         Parent = self.scroll,
     })
-    window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = cell.frame })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = cell.frame })
 
+    -- Neutral, like every other card in the library. The rarity is NOT this stroke: a coloured
+    -- outline around every card is loud at a glance and, on ApplyStrokeMode.Border, is drawn
+    -- OUTSIDE the frame's bounds - so it bled over the neighbouring cell, past the panel's own
+    -- rounded edge, and broke visibly at the corners. The colour lives on a dot instead, which
+    -- has no geometry to fight. Leaving ApplyStrokeMode at its default keeps this identical to
+    -- StyleElementBody's own stroke.
     cell.stroke = window:Create("UIStroke", {
         Thickness = 1,
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-        Color = entry.color or Color3.fromRGB(255, 255, 255),
 
         Transparency = 1, -- In = the unselected edge
 
         Parent = cell.frame,
+    }, { Color = "ElementStroke" })
+
+    -- The rarity/category, as a dot rather than an outline.
+    cell.dot = window:Create("Frame", {
+        Name = "Rarity",
+        Size = UDim2.fromOffset(dotSize, dotSize),
+        BackgroundColor3 = entry.color or Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0,
+        Visible = entry.color ~= nil,
+
+        BackgroundTransparency = 1, -- In = 0.05
+
+        Parent = cell.frame,
     })
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = cell.dot })
 
     if entry.image then
         cell.image = window:Create("ImageLabel", {
@@ -566,6 +584,9 @@ function ItemGrid:_buildCell(entry, order)
 
             Parent = cell.frame,
         })
+        -- rounds itself rather than relying on the card clipping it: ClipsDescendants on a card
+        -- that also carries a UIStroke is what chewed the corners up
+        window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = cell.image })
     end
 
     cell.box = window:Create("Frame", {
@@ -609,7 +630,7 @@ function ItemGrid:_buildCell(entry, order)
         BorderSizePixel = 0,
         TextSize = 14,
         TextWrapped = true,
-        TextXAlignment = Enum.TextXAlignment.Center,
+        TextXAlignment = Enum.TextXAlignment.Left,
 
         TextTransparency = 1, -- In = 0.1
 
@@ -667,9 +688,9 @@ end
 -- stacked card (thumbnail filling the top, tick floating in its corner, name underneath).
 function ItemGrid:_layoutCell(cell)
     if cell.stacked then
-        local nameHeight = 30
-        cell.image.Size = UDim2.new(1, -16, 1, -(nameHeight + 14))
-        cell.image.Position = UDim2.new(0.5, 0, 0, 8)
+        local nameHeight = 28
+        cell.image.Size = UDim2.new(1, -20, 1, -(nameHeight + 20))
+        cell.image.Position = UDim2.new(0.5, 0, 0, 10)
         cell.image.AnchorPoint = Vector2.new(0.5, 0)
 
         -- floats over the thumbnail's corner, so it needs to outrank it explicitly: this
@@ -681,29 +702,43 @@ function ItemGrid:_layoutCell(cell)
         cell.check.ZIndex = 5
         cell.interact.ZIndex = 6
 
-        cell.title.Size = UDim2.new(1, -12, 0, nameHeight)
-        cell.title.Position = UDim2.new(0.5, 0, 1, -6)
-        cell.title.AnchorPoint = Vector2.new(0.5, 1)
+        local nameLeft = 10
+        if cell.dot.Visible then
+            cell.dot.Position = UDim2.new(0, nameLeft, 1, -(nameHeight / 2) - 8)
+            cell.dot.AnchorPoint = Vector2.new(0, 0.5)
+            cell.dot.ZIndex = 4
+            nameLeft += dotSize + 7
+        end
+
+        cell.title.Size = UDim2.new(1, -(nameLeft + 10), 0, nameHeight)
+        cell.title.Position = UDim2.new(0, nameLeft, 1, -8)
+        cell.title.AnchorPoint = Vector2.new(0, 1)
         return
     end
 
-    cell.box.Position = UDim2.new(0, 10, 0.5, 0)
+    cell.box.Position = UDim2.new(0, 12, 0.5, 0)
     cell.box.AnchorPoint = Vector2.new(0, 0.5)
 
-    local left = 10 + boxSize + 8
+    local left = 12 + boxSize + 10
 
     if cell.image then
-        local thumb = math.max(self.cellHeight - 16, 16)
+        local thumb = math.max(self.cellHeight - 18, 16)
         cell.image.Size = UDim2.fromOffset(thumb, thumb)
         cell.image.Position = UDim2.new(0, left, 0.5, 0)
         cell.image.AnchorPoint = Vector2.new(0, 0.5)
-        left += thumb + 8
+        left += thumb + 10
     elseif cell.iconLabel then
         cell.iconLabel.Position = UDim2.new(0, left, 0.5, 0)
         left += 22
     end
 
-    cell.title.Size = UDim2.new(1, -(left + 10), 1, -6)
+    if cell.dot.Visible then
+        cell.dot.Position = UDim2.new(0, left, 0.5, 0)
+        cell.dot.AnchorPoint = Vector2.new(0, 0.5)
+        left += dotSize + 7
+    end
+
+    cell.title.Size = UDim2.new(1, -(left + 12), 1, -8)
     cell.title.Position = UDim2.new(0, left, 0.5, 0)
     cell.title.AnchorPoint = Vector2.new(0, 0.5)
 end
@@ -712,14 +747,14 @@ end
 function ItemGrid:_applyCell(cell, animate)
     local theme = self.window.theme
     local isSelected = self.selected[cell.entry.id] == true
-    local edge = cell.entry.color or theme.ElementStroke
 
     local goals = {
         frame = { BackgroundTransparency = if cell.hovered then cellHover else cellRest },
         stroke = {
-            Color = if isSelected then theme.AccentStroke else edge,
-            Transparency = if isSelected then 0.1 elseif cell.entry.color then 0.45 else 0.8,
+            Color = if isSelected then theme.AccentStroke else theme.ElementStroke,
+            Transparency = if isSelected then 0.15 else 0.85,
         },
+        dot = { BackgroundTransparency = if isSelected then 0 else 0.15 },
         box = {
             BackgroundColor3 = if isSelected then theme.AccentColor else theme.ToggleKnobOff,
             BackgroundTransparency = if isSelected then 0 else theme.ToggleKnobOffTransparency,
@@ -1067,9 +1102,8 @@ function ItemGrid:_setShown(shown, animate)
         for _, cell in self.cells do
             local isSelected = self.selected[cell.entry.id] == true
             w:_reveal(cell.frame, { BackgroundTransparency = cellRest }, animate)
-            w:_reveal(cell.stroke, {
-                Transparency = if isSelected then 0.1 elseif cell.entry.color then 0.45 else 0.8,
-            }, animate)
+            w:_reveal(cell.stroke, { Transparency = if isSelected then 0.15 else 0.85 }, animate)
+            w:_reveal(cell.dot, { BackgroundTransparency = if isSelected then 0 else 0.15 }, animate)
             w:_reveal(cell.box, {
                 BackgroundTransparency = if isSelected then 0 else w.theme.ToggleKnobOffTransparency,
             }, animate)
@@ -1102,6 +1136,7 @@ function ItemGrid:_setShown(shown, animate)
         for _, cell in self.cells do
             w:_reveal(cell.frame, { BackgroundTransparency = 1 }, animate)
             w:_reveal(cell.stroke, { Transparency = 1 }, animate)
+            w:_reveal(cell.dot, { BackgroundTransparency = 1 }, animate)
             w:_reveal(cell.box, { BackgroundTransparency = 1 }, animate)
             w:_reveal(cell.boxStroke, { Transparency = 1 }, animate)
             w:_reveal(cell.check, { ImageTransparency = 1 }, animate)
