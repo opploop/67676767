@@ -342,13 +342,19 @@ function hsvEditor.build(window, owner, parent, opts)
     end
 
     window:ConnectFor(owner, squareInteract.InputBegan, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             beginDrag("square", input.UserInputType == Enum.UserInputType.MouseButton1)
         end
     end)
 
     window:ConnectFor(owner, hueInteract.InputBegan, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             beginDrag("hue", input.UserInputType == Enum.UserInputType.MouseButton1)
         end
     end)

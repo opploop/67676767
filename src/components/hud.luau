@@ -239,9 +239,7 @@ function Hud:_wireDrag()
     -- brightens the stroke while held, same tactile cue drag.luau's own bar uses, so the chip
     -- doesn't just silently teleport around with nothing acknowledging the grab
     local function setGrabbed(grabbed)
-        variables.tweenService
-            :Create(self.stroke, dragStrokeInfo, { Transparency = grabbed and 0.35 or 0.8 })
-            :Play()
+        variables.tweenService:Create(self.stroke, dragStrokeInfo, { Transparency = grabbed and 0.35 or 0.8 }):Play()
     end
 
     self.window:ConnectFor(self, self.main.InputBegan, function(input, processed)

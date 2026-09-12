@@ -348,10 +348,10 @@ function ListPicker:_applyRow(row, animate)
     local fill = row.entry.color or theme.AccentColor
 
     local goals = {
-        frame = { BackgroundColor3 = fill, BackgroundTransparency = if selected
-            then 0
-            elseif row.hovered then rowHover
-            else rowRest },
+        frame = {
+            BackgroundColor3 = fill,
+            BackgroundTransparency = if selected then 0 elseif row.hovered then rowHover else rowRest,
+        },
         stroke = {
             Color = if selected then (row.entry.color or theme.AccentStroke) else theme.ElementStroke,
             Transparency = if selected then 0.2 elseif row.hovered then 0.75 else 1,
@@ -519,10 +519,11 @@ function ListPicker:_setShown(shown, animate)
         for _, row in self.rows do
             local selected = self.value == row.entry.id
             local fill = row.entry.color or w.theme.AccentColor
-            w:_reveal(row.frame, { BackgroundTransparency = if selected
-                then 0
-                elseif row.hovered then rowHover
-                else rowRest }, animate)
+            w:_reveal(
+                row.frame,
+                { BackgroundTransparency = if selected then 0 elseif row.hovered then rowHover else rowRest },
+                animate
+            )
             w:_reveal(row.stroke, { Transparency = if selected then 0.2 else 1 }, animate)
             w:_reveal(row.title, { TextTransparency = if selected then 0 else 0.35 }, animate)
             if row.iconLabel then

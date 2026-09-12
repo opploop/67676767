@@ -18,7 +18,6 @@
 -- is the safer default here even though it means picking from Roblox's smaller built-in set
 -- rather than a custom SFX pack.
 
-local services = require(script.Parent.services)
 local variables = require(script.Parent.variables)
 
 local sound = {}

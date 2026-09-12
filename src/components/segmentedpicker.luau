@@ -65,8 +65,7 @@ local function slideIndicator(pill, targetPos, targetSize, skipAnimation)
     local stretchSize =
         UDim2.new(stretchRight - stretchLeft, targetSize.X.Offset, targetSize.Y.Scale, targetSize.Y.Offset)
 
-    local stretchTween =
-        variables.tweenService:Create(pill, stretchInfo, { Position = stretchPos, Size = stretchSize })
+    local stretchTween = variables.tweenService:Create(pill, stretchInfo, { Position = stretchPos, Size = stretchSize })
     stretchTween:Play()
 
     -- :Once() isn't guaranteed on every client this session has run into - :Connect() + manual

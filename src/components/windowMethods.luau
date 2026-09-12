@@ -17,27 +17,21 @@ local Window = core.Window
 -- Utility (aliased off windowCore so every split file shares the exact same module instances -
 -- see windowCore.luau's own header comment)
 local image = core.image
-local functions = core.functions
 local persistence = core.persistence
 local constants = core.constants
 local locale = core.locale
 local log = core.log
 local hapticEngine = core.hapticEngine
 local soundEngine = core.soundEngine
-local windowSizing = core.windowSizing
-local icons = core.icons
 local acrylic = core.acrylic
-local clipboard = core.clipboard
 local chrome = core.chrome
 local search = core.search
 local tabSelector = require(script.Parent.tabSelector)
 local filesystem = core.filesystem
 local path = core.path
 local variables = core.variables
-local themes = core.themes
 
 -- Shared constants/helpers (see windowCore.luau)
-local revealInfo = core.revealInfo
 local collapsedSize = core.collapsedSize
 local collapsedTop = core.collapsedTop
 local maxToastWidth = core.maxToastWidth
@@ -46,22 +40,14 @@ local maxToastWidth = core.maxToastWidth
 -- to just below the pill instead; open, it sits back at its normal spot under the topbar.
 local topToastOpenPosition = UDim2.new(0.5, 0, 0, 12)
 local topToastClosedPosition = UDim2.new(0.5, 0, 0, collapsedTop.Y.Offset + collapsedSize.Y.Offset + 12)
-local compactRowHeight = core.compactRowHeight
 local viewportReconcileInterval = core.viewportReconcileInterval
 local fitWindowSize = core.fitWindowSize
-local resolveCustomSize = core.resolveCustomSize
 local fontChoices = core.fontChoices
 local fontOptionNames = core.fontOptionNames
 local fontAtWeight = core.fontAtWeight
-local gradientKeys = core.gradientKeys
 local coerceThemeValue = core.coerceThemeValue
-local firstColor = core.firstColor
-local edgeShade = core.edgeShade
 local deriveStrokes = core.deriveStrokes
-local themeOverrides = core.themeOverrides
 local resolveTheme = core.resolveTheme
-local WINDOW_REGISTRY_KEY = core.WINDOW_REGISTRY_KEY
-local windowRegistry = core.windowRegistry
 
 function Window:_syncLiveAnimation()
     if not self.theme.LiveAnimation then
@@ -704,7 +690,13 @@ function Window:_scheduleAutoSaveConfig()
     local generation = self._autoSaveConfigGeneration
     task.delay(autoSaveDebounce, function()
         local name = self._selectedConfigName
-        if self._autoSaveConfigGeneration == generation and not self._loading and self._autoSaveConfigEnabled and name and name ~= "" then
+        if
+            self._autoSaveConfigGeneration == generation
+            and not self._loading
+            and self._autoSaveConfigEnabled
+            and name
+            and name ~= ""
+        then
             self:Save(name)
         end
     end)
@@ -1272,7 +1264,9 @@ function Window:ToggleMinimise()
         image.assign(self.minimiseAction.iconLabel, "Image", constants.icons.minimise) -- back to the minimise icon
 
         variables.tweenService:Create(self.main, sizeInfo, { Size = self.size }):Play()
-        variables.tweenService:Create(self.windowShadow, fadeInfo, { Transparency = self._shadowTransparency or 0.6 }):Play()
+        variables.tweenService
+            :Create(self.windowShadow, fadeInfo, { Transparency = self._shadowTransparency or 0.6 })
+            :Play()
         variables.tweenService:Create(self.bottomFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
         variables.tweenService:Create(self.topFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
 
@@ -2167,7 +2161,9 @@ function Window:_buildSettingsUI()
             name = "Export",
             icon = "lucide:share-2",
             callback = function()
-                local ok, encoded = self:ExportConfig()
+                -- ExportConfig puts the string on the clipboard itself; the caller only
+                -- needs to know whether that worked
+                local ok = self:ExportConfig()
                 if ok then
                     self:Toast({
                         title = locale.resolve("Configuration copied"),
@@ -2395,6 +2391,5 @@ function Window:_buildSessionDashboard()
         end
     end)
 end
-
 
 return Window

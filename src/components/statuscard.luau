@@ -23,7 +23,6 @@ StatusCard.__type = "StatusCard"
 
 local utility = script.Parent.Parent.utility
 local variables = require(utility.variables)
-local functions = require(utility.functions)
 local moveable = require(utility.moveable)
 local lockable = require(utility.lockable)
 local constants = require(utility.constants)
@@ -60,7 +59,10 @@ function StatusCard.new(tab, properties)
             then properties.collapsible
             elseif properties.Collapsible ~= nil then properties.Collapsible
             else true,
-        glow = if properties.glow ~= nil then properties.glow elseif properties.Glow ~= nil then properties.Glow else true,
+        glow = if properties.glow ~= nil
+            then properties.glow
+            elseif properties.Glow ~= nil then properties.Glow
+            else true,
         expanded = if properties.expanded ~= nil
             then properties.expanded
             elseif properties.Expanded ~= nil then properties.Expanded
@@ -295,7 +297,9 @@ function StatusCard:_buildRow(row)
     local window = self.window
     local key = keyOf(row)
     if not key then
-        log.warn("Rayfield: a StatusCard row needs a `label` (or explicit `key`), skipping one on '" .. self.name .. "'.")
+        log.warn(
+            "Rayfield: a StatusCard row needs a `label` (or explicit `key`), skipping one on '" .. self.name .. "'."
+        )
         return
     end
 

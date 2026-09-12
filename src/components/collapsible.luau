@@ -233,7 +233,12 @@ function Collapsible:_buildHeader()
         Parent = self.header,
     })
 
-    self.window:_wireElementHover({ main = self.header, stroke = self.stroke, title = self.title, hoverOverlay = self.hoverOverlay })
+    self.window:_wireElementHover({
+        main = self.header,
+        stroke = self.stroke,
+        title = self.title,
+        hoverOverlay = self.hoverOverlay,
+    })
 
     self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
         hapticEngine.click()
@@ -268,18 +273,44 @@ end
 -- or Group to a dev using it. Kept in sync with Group's own CreateX list (see group.luau) -
 -- anything Group can host, a Collapsible's own content column can too, since it's just another
 -- Group underneath.
-for _, name in {
-    "CreateButton", "CreateFlipButton", "CreateCopyButton", "CreateRippleButton", "CreateToggle",
-    "CreateSwitch", "CreateCheckbox", "CreateStat", "CreateStatusCard", "CreateSlider", "CreateDropdown",
-    "CreatePlayerDropdown", "CreateReorderList", "CreateItemGrid", "CreateListPicker",
-    "CreateSection", "CreateLabel",
-    "CreateParagraph",
-    "CreateDivider",
-    "CreateGroup", "CreateProgressBar",
-    "CreateScrollHint", "CreateSegmentedPicker", "CreateShimmerLabel", "CreateInput", "CreateKeybind",
-    "CreateColorPicker", "CreateGradientPicker", "CreateHoldButton", "CreateChangelog", "CreateSpacer",
-    "CreateTabbox", "CreateConsole", "CreateCollapsible",
-} do
+for _, name in
+    {
+        "CreateButton",
+        "CreateFlipButton",
+        "CreateCopyButton",
+        "CreateRippleButton",
+        "CreateToggle",
+        "CreateSwitch",
+        "CreateCheckbox",
+        "CreateStat",
+        "CreateStatusCard",
+        "CreateSlider",
+        "CreateDropdown",
+        "CreatePlayerDropdown",
+        "CreateReorderList",
+        "CreateItemGrid",
+        "CreateListPicker",
+        "CreateSection",
+        "CreateLabel",
+        "CreateParagraph",
+        "CreateDivider",
+        "CreateGroup",
+        "CreateProgressBar",
+        "CreateScrollHint",
+        "CreateSegmentedPicker",
+        "CreateShimmerLabel",
+        "CreateInput",
+        "CreateKeybind",
+        "CreateColorPicker",
+        "CreateGradientPicker",
+        "CreateHoldButton",
+        "CreateChangelog",
+        "CreateSpacer",
+        "CreateTabbox",
+        "CreateConsole",
+        "CreateCollapsible",
+    }
+do
     Collapsible[name] = function(self, properties)
         return self._group[name](self._group, properties)
     end

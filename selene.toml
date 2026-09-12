@@ -3,6 +3,10 @@
 std = "rayfield"
 
 [lints]
+# Luau supports \u{XXXX} escapes; selene's Lua parser does not know them and flags every
+# one as "string escape sequence doesn't exist". The strings are correct - the middot in
+# changelog.luau and the multiplication sign in reorderlist.luau both render live.
+bad_string_escape = "allow"
 # We intentionally guard optional executor globals in boolean context.
 global_usage = "allow"
 # Shadowing is used deliberately in a few builders (local window = self.window etc).

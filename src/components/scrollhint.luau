@@ -121,8 +121,11 @@ function ScrollHint:_startBounce()
     task.spawn(function()
         local down = true
         while self.arrow.Parent do
-            local tween = variables.tweenService
-                :Create(self.arrow, bounceInfo, { Position = UDim2.fromOffset(0, down and 5 or 0) })
+            local tween = variables.tweenService:Create(
+                self.arrow,
+                bounceInfo,
+                { Position = UDim2.fromOffset(0, down and 5 or 0) }
+            )
             tween:Play()
             tween.Completed:Wait()
             down = not down

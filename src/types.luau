@@ -297,8 +297,8 @@ export type SegmentedPickerOption = string | {
     text: string?,
     Text: string?,
     -- nested sub-options, expanded inline within this segment's own slot once it's selected
-    options: { (string | { text: string?, Text: string? }) }?,
-    Options: { (string | { text: string?, Text: string? }) }?,
+    options: { string | { text: string?, Text: string? } }?,
+    Options: { string | { text: string?, Text: string? } }?,
 }
 
 export type SegmentedPickerProps = {
@@ -888,7 +888,7 @@ export type ColorPicker = Moveable & {
 
 export type GradientPicker = Moveable & {
     value: ColorSequence,
-    Set: (self: GradientPicker, value: (ColorSequence | { Color3 } | { GradientStop }), skipCallback: boolean?) -> (),
+    Set: (self: GradientPicker, value: ColorSequence | { Color3 } | { GradientStop }, skipCallback: boolean?) -> (),
     SetGlow: (self: GradientPicker, shown: boolean) -> (),
 }
 

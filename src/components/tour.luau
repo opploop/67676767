@@ -106,7 +106,9 @@ local function scrollIntoView(tab, target): boolean
     -- Centre the target in the viewport rather than just nudging it to the nearest edge - reads
     -- better with the ring's own padding/glow around it than the target sitting flush against
     -- the very top or bottom edge of the visible area.
-    local canvasY = tabPage.CanvasPosition.Y + (targetTop - viewTop) - (tabPage.AbsoluteSize.Y - target.AbsoluteSize.Y) / 2
+    local canvasY = tabPage.CanvasPosition.Y
+        + (targetTop - viewTop)
+        - (tabPage.AbsoluteSize.Y - target.AbsoluteSize.Y) / 2
     -- Confirmed live: AutomaticCanvasSize doesn't keep CanvasSize itself readable - it stays
     -- whatever was explicitly set at construction (UDim2.new(0,0,0,0) here), never the computed
     -- content height, so clamping against it always clamped to 0 and silently ate every scroll.
@@ -284,18 +286,22 @@ function Tour.new(window)
         -- colour below instead of just seeding a start-state, the exact mistake this project's
         -- own tabDock background fix ran into earlier this session. No literal BackgroundColor3
         -- in this table at all; the theme binding is the only thing that ever sets it.
-        local btn = window:Create("TextButton", {
-            AutomaticSize = Enum.AutomaticSize.X,
-            Size = UDim2.fromOffset(0, 28),
-            BorderSizePixel = 0,
-            Text = "",
-            TextSize = 13,
-            LayoutOrder = order,
-            ZIndex = constants.zIndex.tourBubble,
-            Parent = self.buttonRow,
-        }, if primary
-            then { BackgroundColor3 = "AccentColor", TextColor3 = "ContentColor", FontFace = "Font" }
-            else { BackgroundColor3 = "NeutralButton", TextColor3 = "ContentColor", FontFace = "Font" })
+        local btn = window:Create(
+            "TextButton",
+            {
+                AutomaticSize = Enum.AutomaticSize.X,
+                Size = UDim2.fromOffset(0, 28),
+                BorderSizePixel = 0,
+                Text = "",
+                TextSize = 13,
+                LayoutOrder = order,
+                ZIndex = constants.zIndex.tourBubble,
+                Parent = self.buttonRow,
+            },
+            if primary
+                then { BackgroundColor3 = "AccentColor", TextColor3 = "ContentColor", FontFace = "Font" }
+                else { BackgroundColor3 = "NeutralButton", TextColor3 = "ContentColor", FontFace = "Font" }
+        )
         window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = btn })
         window:Create("UIPadding", {
             PaddingLeft = UDim.new(0, 14),

@@ -115,7 +115,11 @@ local function httpGet(url: string): string?
         if ok and type(response) == "table" then
             local body = (response :: any).Body
             local status = (response :: any).StatusCode
-            if type(body) == "string" and #body > 0 and (type(status) ~= "number" or (status >= 200 and status < 300)) then
+            if
+                type(body) == "string"
+                and #body > 0
+                and (type(status) ~= "number" or (status >= 200 and status < 300))
+            then
                 return body
             end
         end
@@ -140,8 +144,10 @@ end
 -- more than pure MT) but perfectly fine for short UI copy, and it's what actually answered during
 -- that same test. Only once *both* fail does resolve() fall back to the built-in/registered table.
 local function tryGoogle(protectedText: string, targetLang: string): string?
-    local url = ("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=%s&dt=t&q=%s")
-        :format(variables.httpService:UrlEncode(targetLang), variables.httpService:UrlEncode(protectedText))
+    local url = ("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=%s&dt=t&q=%s"):format(
+        variables.httpService:UrlEncode(targetLang),
+        variables.httpService:UrlEncode(protectedText)
+    )
     local body = httpGet(url)
     if not body then
         return nil
@@ -168,8 +174,10 @@ local function tryMyMemory(protectedText: string, targetLang: string): string?
     -- MyMemory wants an explicit source language rather than an auto-detect flag - every source
     -- string in this project is written in English (see locale.luau's own header comment: "English
     -- is canonical"), so that's a safe fixed value rather than something worth detecting.
-    local url = ("https://api.mymemory.translated.net/get?q=%s&langpair=en|%s")
-        :format(variables.httpService:UrlEncode(protectedText), variables.httpService:UrlEncode(targetLang))
+    local url = ("https://api.mymemory.translated.net/get?q=%s&langpair=en|%s"):format(
+        variables.httpService:UrlEncode(protectedText),
+        variables.httpService:UrlEncode(targetLang)
+    )
     local body = httpGet(url)
     if not body then
         return nil
@@ -231,7 +239,9 @@ function autoTranslate.request(source: string, localeId: string, onDone: (() -> 
             memoryCache[localeId][source] = translated
             persist(localeId)
             if usedFallbackProvider then
-                log.print("Rayfield: auto-translate used the MyMemory fallback for '" .. localeId .. "' (Google unavailable).")
+                log.print(
+                    "Rayfield: auto-translate used the MyMemory fallback for '" .. localeId .. "' (Google unavailable)."
+                )
             end
             if onDone then
                 onDone()

@@ -42,7 +42,10 @@ end
 
 -- Nothing to fade in/out - a spacer has no visual content of its own. Still needs the method:
 -- Tab:_register's reveal pass, and a runtime SetVisible, both call it unconditionally.
-function Spacer:_setShown(shown, animate) end
+-- A spacer has nothing to reveal or hide - it is pure empty layout. The parameters stay to
+-- match the interface every other element implements; the underscores say they are unused
+-- on purpose rather than forgotten.
+function Spacer:_setShown(_shown, _animate) end
 
 -- Changes the gap's height, tweened by default (pass animate = false to snap instantly).
 function Spacer:SetHeight(height, animate)

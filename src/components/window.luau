@@ -20,46 +20,21 @@ local Window = core.Window
 -- see windowCore.luau's own header comment)
 local image = core.image
 local functions = core.functions
-local persistence = core.persistence
 local constants = core.constants
 local locale = core.locale
 local log = core.log
 local hapticEngine = core.hapticEngine
 local soundEngine = core.soundEngine
-local windowSizing = core.windowSizing
-local icons = core.icons
-local acrylic = core.acrylic
-local clipboard = core.clipboard
 local chrome = core.chrome
 local search = core.search
-local filesystem = core.filesystem
-local path = core.path
 local squircle = core.squircle
 local variables = core.variables
-local themes = core.themes
 
 -- Shared constants/helpers (see windowCore.luau)
-local revealInfo = core.revealInfo
-local collapsedSize = core.collapsedSize
-local collapsedTop = core.collapsedTop
-local maxToastWidth = core.maxToastWidth
-local compactRowHeight = core.compactRowHeight
-local viewportReconcileInterval = core.viewportReconcileInterval
 local fitWindowSize = core.fitWindowSize
 local resolveCustomSize = core.resolveCustomSize
-local fontChoices = core.fontChoices
-local fontOptionNames = core.fontOptionNames
-local fontAtWeight = core.fontAtWeight
-local gradientKeys = core.gradientKeys
-local coerceThemeValue = core.coerceThemeValue
-local firstColor = core.firstColor
-local edgeShade = core.edgeShade
-local deriveStrokes = core.deriveStrokes
-local themeOverrides = core.themeOverrides
 local resolveTheme = core.resolveTheme
-local WINDOW_REGISTRY_KEY = core.WINDOW_REGISTRY_KEY
 local windowRegistry = core.windowRegistry
-
 
 function Window.new(properties)
     properties = if typeof(properties) == "table" then properties else {}
@@ -535,7 +510,6 @@ function Window.new(properties)
     -- Sidebar layout was live-reported to show. Sized to nothing rather than skipped outright so
     -- every other reference to self.topFade/topFadeGradient below still resolves to a real
     -- (just invisible and zero-size) instance instead of nil.
-    local isSidebarMode = self.tabsMode == "Sidebar"
 
     -- Live-reported as a cheap-looking "elements dissolve at the top edge" effect once v1.2's
     -- own bordered elements card gave the content area a real edge of its own to scroll against -
@@ -730,7 +704,8 @@ function Window.new(properties)
     self.sidebarCollapseBelow = 589
     -- nil = follow the window's own width; true/false pins it either way (also settable live
     -- via Window:SetSidebarCollapsed).
-    self._sidebarCollapsedOverride = if properties.sidebarCollapsed ~= nil then properties.sidebarCollapsed == true
+    self._sidebarCollapsedOverride = if properties.sidebarCollapsed ~= nil
+        then properties.sidebarCollapsed == true
         elseif properties.SidebarCollapsed ~= nil then properties.SidebarCollapsed == true
         else nil
     self.sidebarWidth = if self._sidebarCollapsedOverride == true
@@ -753,9 +728,7 @@ function Window.new(properties)
         -- Rayfield Gen2 1.2's own card exactly (AnchorPoint (1,1), Size (1,0,1,-chromeHeight),
         -- zero margin on those two sides) rather than floating with a gap all around it, so the
         -- card visually runs into the window's own edge instead of stopping short of it.
-        Size = if elementsSidebar
-            then UDim2.new(1, -self.sidebarWidth, 1, -70)
-            else UDim2.new(1, 0, 1, -118),
+        Size = if elementsSidebar then UDim2.new(1, -self.sidebarWidth, 1, -70) else UDim2.new(1, 0, 1, -118),
         Position = if elementsSidebar then UDim2.fromScale(1, 1) else UDim2.fromScale(0.5, 1),
         AnchorPoint = if elementsSidebar then Vector2.new(1, 1) else Vector2.new(0.5, 1),
         -- Sidebar mode: a card around the content, matching upstream Rayfield Gen2 1.2's own

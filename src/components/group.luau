@@ -77,9 +77,11 @@ function Group.new(tab, properties)
     local dependsOn = properties.dependsOn or properties.DependsOn
     if dependsOn then
         self._dependsOn = dependsOn
-        self._condition = properties.condition or properties.Condition or function(value)
-            return value == true
-        end
+        self._condition = properties.condition
+            or properties.Condition
+            or function(value)
+                return value == true
+            end
 
         local originalCallback = dependsOn.callback
         dependsOn.callback = function(...)

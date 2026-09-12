@@ -219,7 +219,11 @@ function ColorPicker.new(tab, properties)
         end
         local theme = self.window.theme
         variables.tweenService
-            :Create(self.stroke, fadeInfo, { Transparency = theme.ElementStrokeHoverTransparency, Color = theme.ElementStrokeHover })
+            :Create(
+                self.stroke,
+                fadeInfo,
+                { Transparency = theme.ElementStrokeHoverTransparency, Color = theme.ElementStrokeHover }
+            )
             :Play()
         variables.tweenService:Create(self.title, fadeInfo, { TextColor3 = theme.ElementTextHoverColor }):Play()
         variables.tweenService:Create(self.hoverOverlay, fadeInfo, { BackgroundTransparency = 0.97 }):Play()
@@ -228,7 +232,11 @@ function ColorPicker.new(tab, properties)
     self.window:ConnectFor(self, self.main.MouseLeave, function()
         local theme = self.window.theme
         variables.tweenService
-            :Create(self.stroke, fadeInfo, { Transparency = theme.ElementStrokeTransparency, Color = theme.ElementStroke })
+            :Create(
+                self.stroke,
+                fadeInfo,
+                { Transparency = theme.ElementStrokeTransparency, Color = theme.ElementStroke }
+            )
             :Play()
         variables.tweenService:Create(self.title, fadeInfo, { TextColor3 = theme.ContentColor }):Play()
         variables.tweenService:Create(self.hoverOverlay, fadeInfo, { BackgroundTransparency = 1 }):Play()
@@ -652,13 +660,21 @@ function ColorPicker:_open()
         self.window:Disconnect(self._outsideClickConn)
     end
     self._outsideClickConn = self.window:Connect(variables.userInputService.InputBegan, function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+        if
+            input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch
+        then
             return
         end
         local pos = input.Position
         local mainPos = self.main.AbsolutePosition
         local mainSize = self.main.AbsoluteSize
-        if pos.X < mainPos.X or pos.X > mainPos.X + mainSize.X or pos.Y < mainPos.Y or pos.Y > mainPos.Y + mainSize.Y then
+        if
+            pos.X < mainPos.X
+            or pos.X > mainPos.X + mainSize.X
+            or pos.Y < mainPos.Y
+            or pos.Y > mainPos.Y + mainSize.Y
+        then
             self:_close()
         end
     end)
@@ -669,10 +685,14 @@ function ColorPicker:_open()
 
     -- glow pulse: flashes past its steady-state glow, then relaxes back down to it
     if self.showGlow then
-        variables.tweenService:Create(self.previewGlow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.3) }):Play()
+        variables.tweenService
+            :Create(self.previewGlow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.3) })
+            :Play()
         task.delay(glowPulseInfo.Time, function()
             if self._isOpen and self._openSeq == seq then
-                variables.tweenService:Create(self.previewGlow, glowRelaxInfo, { Transparency = glowOnTransparency }):Play()
+                variables.tweenService
+                    :Create(self.previewGlow, glowRelaxInfo, { Transparency = glowOnTransparency })
+                    :Play()
             end
         end)
     end
@@ -835,9 +855,13 @@ end
 
 function ColorPicker:_revealRgb(open, animate)
     local set = {}
-    for _, field in { { self.rBox, self.rBoxStroke, self.rBoxText, self.rInput },
-        { self.gBox, self.gBoxStroke, self.gBoxText, self.gInput },
-        { self.bBox, self.bBoxStroke, self.bBoxText, self.bInput } } do
+    for _, field in
+        {
+            { self.rBox, self.rBoxStroke, self.rBoxText, self.rInput },
+            { self.gBox, self.gBoxStroke, self.gBoxText, self.gInput },
+            { self.bBox, self.bBoxStroke, self.bBoxText, self.bInput },
+        }
+    do
         local box, stroke, text, input = field[1], field[2], field[3], field[4]
         set[box] = { BackgroundTransparency = if open then 0.85 else 1 }
         set[stroke] = { Transparency = if open then 0.75 else 1 }

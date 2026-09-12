@@ -235,7 +235,11 @@ function GradientPicker.new(tab, properties)
         end
         local theme = self.window.theme
         variables.tweenService
-            :Create(self.stroke, fadeInfo, { Transparency = theme.ElementStrokeHoverTransparency, Color = theme.ElementStrokeHover })
+            :Create(
+                self.stroke,
+                fadeInfo,
+                { Transparency = theme.ElementStrokeHoverTransparency, Color = theme.ElementStrokeHover }
+            )
             :Play()
         variables.tweenService:Create(self.title, fadeInfo, { TextColor3 = theme.ElementTextHoverColor }):Play()
         variables.tweenService:Create(self.hoverOverlay, fadeInfo, { BackgroundTransparency = 0.97 }):Play()
@@ -244,7 +248,11 @@ function GradientPicker.new(tab, properties)
     self.window:ConnectFor(self, self.main.MouseLeave, function()
         local theme = self.window.theme
         variables.tweenService
-            :Create(self.stroke, fadeInfo, { Transparency = theme.ElementStrokeTransparency, Color = theme.ElementStroke })
+            :Create(
+                self.stroke,
+                fadeInfo,
+                { Transparency = theme.ElementStrokeTransparency, Color = theme.ElementStroke }
+            )
             :Play()
         variables.tweenService:Create(self.title, fadeInfo, { TextColor3 = theme.ContentColor }):Play()
         variables.tweenService:Create(self.hoverOverlay, fadeInfo, { BackgroundTransparency = 1 }):Play()
@@ -476,7 +484,10 @@ function GradientPicker:_buildBody()
     })
 
     self.window:ConnectFor(self, self.railInteract.InputBegan, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             -- a bare click on the track (not a handle) adds a stop right there
             local width = self.rail.AbsoluteSize.X
             if width <= 0 then
@@ -558,7 +569,10 @@ function GradientPicker:_createStopHandle(stop)
     self.stopHandles[stop] = { frame = handle, ring = ring }
 
     self.window:ConnectFor(self, grabber.InputBegan, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             self:_selectStop(stop)
             self:_beginDrag(stop, input.UserInputType == Enum.UserInputType.MouseButton1)
         end
@@ -717,7 +731,11 @@ function GradientPicker:_render(mode)
         local pos = UDim2.new(stop.time, 0, 0.5, 0)
         if mode == "drag" or mode == "animate" then
             variables.tweenService
-                :Create(handle.frame, if mode == "drag" then dragInfo else openInfo, { Position = pos, BackgroundColor3 = stop.color })
+                :Create(
+                    handle.frame,
+                    if mode == "drag" then dragInfo else openInfo,
+                    { Position = pos, BackgroundColor3 = stop.color }
+                )
                 :Play()
         else
             handle.frame.Position = pos
@@ -784,7 +802,9 @@ function GradientPicker:_revealStopHandles(open, animate)
             handle.frame.BackgroundTransparency = 0
             task.delay((i - 1) * 0.04, function()
                 if self._isOpen then
-                    variables.tweenService:Create(handle.frame, handleSpringInfo, { Size = UDim2.fromOffset(20, 20) }):Play()
+                    variables.tweenService
+                        :Create(handle.frame, handleSpringInfo, { Size = UDim2.fromOffset(20, 20) })
+                        :Play()
                 end
             end)
         end
@@ -804,13 +824,21 @@ function GradientPicker:_open()
         self.window:Disconnect(self._outsideClickConn)
     end
     self._outsideClickConn = self.window:Connect(variables.userInputService.InputBegan, function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+        if
+            input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch
+        then
             return
         end
         local pos = input.Position
         local mainPos = self.main.AbsolutePosition
         local mainSize = self.main.AbsoluteSize
-        if pos.X < mainPos.X or pos.X > mainPos.X + mainSize.X or pos.Y < mainPos.Y or pos.Y > mainPos.Y + mainSize.Y then
+        if
+            pos.X < mainPos.X
+            or pos.X > mainPos.X + mainSize.X
+            or pos.Y < mainPos.Y
+            or pos.Y > mainPos.Y + mainSize.Y
+        then
             self:_close()
         end
     end)
@@ -824,7 +852,9 @@ function GradientPicker:_open()
     -- 4) glow pulse: flashes past its steady-state glow, then relaxes back down to it
     if self.showGlow then
         for _, glow in self.previewGlows do
-            variables.tweenService:Create(glow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.3) }):Play()
+            variables.tweenService
+                :Create(glow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.3) })
+                :Play()
         end
         task.delay(glowPulseInfo.Time, function()
             if self._isOpen and self._openSeq == seq then
@@ -846,8 +876,12 @@ function GradientPicker:_open()
             return
         end
         variables.tweenService:Create(self.rail, fadeInfo, { BackgroundTransparency = 0.85 }):Play()
-        variables.tweenService:Create(self.addButton, fadeInfo, { BackgroundTransparency = 0.9, TextTransparency = 0.15 }):Play()
-        variables.tweenService:Create(self.removeButton, fadeInfo, { BackgroundTransparency = 0.9, TextTransparency = 0.15 }):Play()
+        variables.tweenService
+            :Create(self.addButton, fadeInfo, { BackgroundTransparency = 0.9, TextTransparency = 0.15 })
+            :Play()
+        variables.tweenService
+            :Create(self.removeButton, fadeInfo, { BackgroundTransparency = 0.9, TextTransparency = 0.15 })
+            :Play()
         self:_revealStopHandles(true, fadeInfo)
     end)
 
@@ -881,8 +915,12 @@ function GradientPicker:_close()
     variables.tweenService:Create(self.preview, closeFadeInfo, { BackgroundTransparency = 1 }):Play()
     variables.tweenService:Create(self.previewStroke, closeFadeInfo, { Transparency = 1 }):Play()
     variables.tweenService:Create(self.rail, closeFadeInfo, { BackgroundTransparency = 1 }):Play()
-    variables.tweenService:Create(self.addButton, closeFadeInfo, { BackgroundTransparency = 1, TextTransparency = 1 }):Play()
-    variables.tweenService:Create(self.removeButton, closeFadeInfo, { BackgroundTransparency = 1, TextTransparency = 1 }):Play()
+    variables.tweenService
+        :Create(self.addButton, closeFadeInfo, { BackgroundTransparency = 1, TextTransparency = 1 })
+        :Play()
+    variables.tweenService
+        :Create(self.removeButton, closeFadeInfo, { BackgroundTransparency = 1, TextTransparency = 1 })
+        :Play()
     self:_revealStopHandles(false, closeFadeInfo)
     self.previewCover.Size = UDim2.fromScale(1, 1) -- reset instantly, ready to wipe again next open
     self.hsv:SetVisible(false, true)
@@ -906,8 +944,14 @@ function GradientPicker:_applyBodyVisibility(open, animate)
         [self.preview] = { BackgroundTransparency = if open then 0 else 1 },
         [self.previewStroke] = { Transparency = if open then 0.9 else 1 },
         [self.rail] = { BackgroundTransparency = if open then 0.85 else 1 },
-        [self.addButton] = { BackgroundTransparency = if open then 0.9 else 1, TextTransparency = if open then 0.15 else 1 },
-        [self.removeButton] = { BackgroundTransparency = if open then 0.9 else 1, TextTransparency = if open then 0.15 else 1 },
+        [self.addButton] = {
+            BackgroundTransparency = if open then 0.9 else 1,
+            TextTransparency = if open then 0.15 else 1,
+        },
+        [self.removeButton] = {
+            BackgroundTransparency = if open then 0.9 else 1,
+            TextTransparency = if open then 0.15 else 1,
+        },
     }
 
     for instance, props in set do
@@ -995,7 +1039,9 @@ end
 function GradientPicker:SetGlow(shown)
     self.showGlow = shown and true or false
     for _, glow in self.previewGlows do
-        variables.tweenService:Create(glow, fadeInfo, { Transparency = if self.showGlow then glowOnTransparency else 1 }):Play()
+        variables.tweenService
+            :Create(glow, fadeInfo, { Transparency = if self.showGlow then glowOnTransparency else 1 })
+            :Play()
     end
 end
 

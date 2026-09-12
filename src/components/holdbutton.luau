@@ -155,7 +155,10 @@ end
 
 function HoldButton:_wireHold()
     self.window:ConnectFor(self, self.interact.InputBegan, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             self:_beginHold()
         end
     end)
@@ -163,7 +166,10 @@ function HoldButton:_wireHold()
     -- global, like the pickers' own drag release: a mouse-up anywhere ends the hold, not just
     -- one that lands back on the button
     self.window:ConnectFor(self, variables.userInputService.InputEnded, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             self:_cancelHold()
         end
     end)

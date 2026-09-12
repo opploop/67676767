@@ -24,6 +24,7 @@ local utility = script.Parent.Parent.utility
 -- Variables
 local moveable = require(utility.moveable)
 local locale = require(utility.locale)
+local clipboard = require(utility.clipboard)
 
 local defaultHeight = 120
 local minHeight = 48
@@ -345,12 +346,13 @@ function Console:Clear()
 end
 
 -- Put the body on the clipboard, where the executor gives us one. Returns whether it landed.
+--
+-- Through utility/clipboard rather than reaching for `setclipboard` directly: executors name the
+-- writer four different ways (setclipboard / toclipboard / set_clipboard / Clipboard.set) and it
+-- probes every one off getfenv(), so this both works on more of them and stops referencing a
+-- global the linter has every right to call undefined.
 function Console:Copy(): boolean
-    local clipboard = (getgenv and getgenv().setclipboard) or setclipboard
-    if typeof(clipboard) ~= "function" then
-        return false
-    end
-    return (pcall(clipboard, self:Get()))
+    return clipboard.copy(self:Get())
 end
 
 -- Change how tall the block stands. The panel takes the height; the element grows around it.

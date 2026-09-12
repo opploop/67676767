@@ -1,4 +1,5 @@
 local fs = require("@lune/fs")
+local luau = require("@lune/luau")
 local process = require("@lune/process")
 local roblox = require("@lune/roblox")
 
@@ -327,6 +328,18 @@ local function endsContinuation(text)
         or text:match("^return%s*$")
         or text == "elseif"
         or text:match("=%s*if%s")
+        -- StyLua wraps a long condition by leaving the keyword alone on its line and
+        -- indenting the condition under it. That following line is NOT a statement, so a
+        -- probe inserted above it lands between the keyword and its condition and the file
+        -- stops parsing: "Expected then when parsing if statement, got ;".
+        or text == "if"
+        or text == "while"
+        or text == "elseif"
+        -- a dangling opener, or a boolean operator left at end of line, is the same shape
+        or text:match("[%(%{%[]%s*$")
+        or text:match("%f[%w]and%s*$")
+        or text:match("%f[%w]or%s*$")
+        or text:match("%f[%w]not%s*$")
 end
 
 local function isContinuationOnly(text)
@@ -494,13 +507,40 @@ table.sort(sourceModules, function(a, b)
 end)
 
 local sourceModulePaths = {}
+local uninstrumented = {}
 for _, moduleInfo in sourceModules do
     local source = fs.readFile(moduleInfo.path)
     local instrumented = instrumentSource(moduleInfo.relativePath, source)
+
+    -- Probe placement is a line-based heuristic, and it cannot win against every way a
+    -- formatter may wrap an expression: a condition, a for-loop iterator list or an
+    -- argument list split across lines all leave a following line that is not a statement,
+    -- and a probe above it makes the file stop parsing. That used to take the WHOLE suite
+    -- down with a syntax error pointing at generated code nobody wrote.
+    --
+    -- So check the output before trusting it. A file whose instrumented form does not
+    -- compile is written through untouched: it reports no coverage, which is visible and
+    -- fixable, instead of breaking every spec that happens to require it.
+    if not pcall(luau.compile, instrumented) then
+        table.insert(uninstrumented, moduleInfo.relativePath)
+        instrumented = source
+        coverage.files[moduleInfo.relativePath] = nil
+    end
+
     local outputPath = instrumentedRoot .. "/" .. moduleInfo.relativePath
     fs.writeDir(parentDir(outputPath))
     fs.writeFile(outputPath, instrumented)
     sourceModulePaths[moduleInfo.relativePath] = outputPath
+end
+
+if #uninstrumented > 0 then
+    table.sort(uninstrumented)
+    warn(
+        ("coverage: %d file(s) could not be instrumented and report no coverage - %s"):format(
+            #uninstrumented,
+            table.concat(uninstrumented, ", ")
+        )
+    )
 end
 
 local function makeSourceNode(name, parent, path)

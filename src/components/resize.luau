@@ -138,10 +138,12 @@ function Resize.new(window)
     -- the grip reads as interactive without shouting for attention sitting over the game behind
     -- it, and covers touch (which never fires MouseEnter/MouseLeave) the same way the bar does.
     local function setIconState(transparency, size)
-        variables.tweenService:Create(self.icon, hoverInfo, {
-            ImageTransparency = transparency,
-            Size = UDim2.fromOffset(size, size),
-        }):Play()
+        variables.tweenService
+            :Create(self.icon, hoverInfo, {
+                ImageTransparency = transparency,
+                Size = UDim2.fromOffset(size, size),
+            })
+            :Play()
     end
 
     self.window:Connect(self.interact.MouseEnter, function()
@@ -228,10 +230,8 @@ function Resize.new(window)
         local consumed = clamped - dragStartSize -- how much of the drag survived clamping
 
         local newCentrePositionSpace = dragStartCentreAbs + consumed / 2 + insetOffset()
-        local target = clampedPositionForSize(
-            UDim2.fromOffset(newCentrePositionSpace.X, newCentrePositionSpace.Y),
-            clamped
-        )
+        local target =
+            clampedPositionForSize(UDim2.fromOffset(newCentrePositionSpace.X, newCentrePositionSpace.Y), clamped)
 
         lastTargetSize = clamped
         lastTargetPosition = target
@@ -347,7 +347,8 @@ function Resize.new(window)
     function self:_snapToDefault()
         local target = windowSizing.fit(currentViewport(), self.window.defaultSize)
 
-        local centreAbs = self.window.main.AbsolutePosition + self.window.main.AbsoluteSize * self.window.main.AnchorPoint
+        local centreAbs = self.window.main.AbsolutePosition
+            + self.window.main.AbsoluteSize * self.window.main.AnchorPoint
         local centrePositionSpace = centreAbs + insetOffset()
         -- Same stale-size clamp trap as applyResize above - clamp against the size we're
         -- snapping *to* (target), not self.window.size (still whatever it was before the snap).
@@ -356,7 +357,8 @@ function Resize.new(window)
             Vector2.new(target.X.Offset, target.Y.Offset)
         )
 
-        variables.tweenService:Create(self.window.main, snapBackInfo, { Size = target, Position = targetPosition })
+        variables.tweenService
+            :Create(self.window.main, snapBackInfo, { Size = target, Position = targetPosition })
             :Play()
         if self.window.drag and self.window.drag.drag then
             local barTarget = UDim2.new(

@@ -393,7 +393,9 @@ function Toast:_show()
     variables.tweenService:Create(self.shadow, fadeShort, { Transparency = 0.6 }):Play()
     variables.tweenService:Create(self.titleLabel, fadeShort, { TextTransparency = 0 }):Play()
     if self.actionButton then
-        variables.tweenService:Create(self.actionButton, fadeShort, { BackgroundTransparency = 0.1, TextTransparency = 0 }):Play()
+        variables.tweenService
+            :Create(self.actionButton, fadeShort, { BackgroundTransparency = 0.1, TextTransparency = 0 })
+            :Play()
     end
 
     task.wait(0.05)
@@ -444,7 +446,9 @@ function Toast:_dismiss()
         variables.tweenService:Create(self.subtitleLabel, fadeShort, { TextTransparency = 1 }):Play()
     end
     if self.actionButton then
-        variables.tweenService:Create(self.actionButton, fadeShort, { BackgroundTransparency = 1, TextTransparency = 1 }):Play()
+        variables.tweenService
+            :Create(self.actionButton, fadeShort, { BackgroundTransparency = 1, TextTransparency = 1 })
+            :Play()
     end
     if self.iconLabel then
         variables.tweenService

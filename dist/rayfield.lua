@@ -1786,7 +1786,12 @@ function Collapsible:_buildHeader()
         Parent = self.header,
     })
 
-    self.window:_wireElementHover({ main = self.header, stroke = self.stroke, title = self.title, hoverOverlay = self.hoverOverlay })
+    self.window:_wireElementHover({
+        main = self.header,
+        stroke = self.stroke,
+        title = self.title,
+        hoverOverlay = self.hoverOverlay,
+    })
 
     self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
         hapticEngine.click()
@@ -1821,18 +1826,44 @@ end
 -- or Group to a dev using it. Kept in sync with Group's own CreateX list (see group.luau) -
 -- anything Group can host, a Collapsible's own content column can too, since it's just another
 -- Group underneath.
-for _, name in {
-    "CreateButton", "CreateFlipButton", "CreateCopyButton", "CreateRippleButton", "CreateToggle",
-    "CreateSwitch", "CreateCheckbox", "CreateStat", "CreateStatusCard", "CreateSlider", "CreateDropdown",
-    "CreatePlayerDropdown", "CreateReorderList", "CreateItemGrid", "CreateListPicker",
-    "CreateSection", "CreateLabel",
-    "CreateParagraph",
-    "CreateDivider",
-    "CreateGroup", "CreateProgressBar",
-    "CreateScrollHint", "CreateSegmentedPicker", "CreateShimmerLabel", "CreateInput", "CreateKeybind",
-    "CreateColorPicker", "CreateGradientPicker", "CreateHoldButton", "CreateChangelog", "CreateSpacer",
-    "CreateTabbox", "CreateConsole", "CreateCollapsible",
-} do
+for _, name in
+    {
+        "CreateButton",
+        "CreateFlipButton",
+        "CreateCopyButton",
+        "CreateRippleButton",
+        "CreateToggle",
+        "CreateSwitch",
+        "CreateCheckbox",
+        "CreateStat",
+        "CreateStatusCard",
+        "CreateSlider",
+        "CreateDropdown",
+        "CreatePlayerDropdown",
+        "CreateReorderList",
+        "CreateItemGrid",
+        "CreateListPicker",
+        "CreateSection",
+        "CreateLabel",
+        "CreateParagraph",
+        "CreateDivider",
+        "CreateGroup",
+        "CreateProgressBar",
+        "CreateScrollHint",
+        "CreateSegmentedPicker",
+        "CreateShimmerLabel",
+        "CreateInput",
+        "CreateKeybind",
+        "CreateColorPicker",
+        "CreateGradientPicker",
+        "CreateHoldButton",
+        "CreateChangelog",
+        "CreateSpacer",
+        "CreateTabbox",
+        "CreateConsole",
+        "CreateCollapsible",
+    }
+do
     Collapsible[name] = function(self, properties)
         return self._group[name](self._group, properties)
     end
@@ -2082,7 +2113,11 @@ function ColorPicker.new(tab, properties)
         end
         local theme = self.window.theme
         variables.tweenService
-            :Create(self.stroke, fadeInfo, { Transparency = theme.ElementStrokeHoverTransparency, Color = theme.ElementStrokeHover })
+            :Create(
+                self.stroke,
+                fadeInfo,
+                { Transparency = theme.ElementStrokeHoverTransparency, Color = theme.ElementStrokeHover }
+            )
             :Play()
         variables.tweenService:Create(self.title, fadeInfo, { TextColor3 = theme.ElementTextHoverColor }):Play()
         variables.tweenService:Create(self.hoverOverlay, fadeInfo, { BackgroundTransparency = 0.97 }):Play()
@@ -2091,7 +2126,11 @@ function ColorPicker.new(tab, properties)
     self.window:ConnectFor(self, self.main.MouseLeave, function()
         local theme = self.window.theme
         variables.tweenService
-            :Create(self.stroke, fadeInfo, { Transparency = theme.ElementStrokeTransparency, Color = theme.ElementStroke })
+            :Create(
+                self.stroke,
+                fadeInfo,
+                { Transparency = theme.ElementStrokeTransparency, Color = theme.ElementStroke }
+            )
             :Play()
         variables.tweenService:Create(self.title, fadeInfo, { TextColor3 = theme.ContentColor }):Play()
         variables.tweenService:Create(self.hoverOverlay, fadeInfo, { BackgroundTransparency = 1 }):Play()
@@ -2515,13 +2554,21 @@ function ColorPicker:_open()
         self.window:Disconnect(self._outsideClickConn)
     end
     self._outsideClickConn = self.window:Connect(variables.userInputService.InputBegan, function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+        if
+            input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch
+        then
             return
         end
         local pos = input.Position
         local mainPos = self.main.AbsolutePosition
         local mainSize = self.main.AbsoluteSize
-        if pos.X < mainPos.X or pos.X > mainPos.X + mainSize.X or pos.Y < mainPos.Y or pos.Y > mainPos.Y + mainSize.Y then
+        if
+            pos.X < mainPos.X
+            or pos.X > mainPos.X + mainSize.X
+            or pos.Y < mainPos.Y
+            or pos.Y > mainPos.Y + mainSize.Y
+        then
             self:_close()
         end
     end)
@@ -2532,10 +2579,14 @@ function ColorPicker:_open()
 
     -- glow pulse: flashes past its steady-state glow, then relaxes back down to it
     if self.showGlow then
-        variables.tweenService:Create(self.previewGlow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.3) }):Play()
+        variables.tweenService
+            :Create(self.previewGlow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.3) })
+            :Play()
         task.delay(glowPulseInfo.Time, function()
             if self._isOpen and self._openSeq == seq then
-                variables.tweenService:Create(self.previewGlow, glowRelaxInfo, { Transparency = glowOnTransparency }):Play()
+                variables.tweenService
+                    :Create(self.previewGlow, glowRelaxInfo, { Transparency = glowOnTransparency })
+                    :Play()
             end
         end)
     end
@@ -2698,9 +2749,13 @@ end
 
 function ColorPicker:_revealRgb(open, animate)
     local set = {}
-    for _, field in { { self.rBox, self.rBoxStroke, self.rBoxText, self.rInput },
-        { self.gBox, self.gBoxStroke, self.gBoxText, self.gInput },
-        { self.bBox, self.bBoxStroke, self.bBoxText, self.bInput } } do
+    for _, field in
+        {
+            { self.rBox, self.rBoxStroke, self.rBoxText, self.rInput },
+            { self.gBox, self.gBoxStroke, self.gBoxText, self.gInput },
+            { self.bBox, self.bBoxStroke, self.bBoxText, self.bInput },
+        }
+    do
         local box, stroke, text, input = field[1], field[2], field[3], field[4]
         set[box] = { BackgroundTransparency = if open then 0.85 else 1 }
         set[stroke] = { Transparency = if open then 0.75 else 1 }
@@ -2792,6 +2847,7 @@ local utility = script.Parent.Parent.utility
 -- Variables
 local moveable = require(utility.moveable)
 local locale = require(utility.locale)
+local clipboard = require(utility.clipboard)
 
 local defaultHeight = 120
 local minHeight = 48
@@ -3113,12 +3169,13 @@ function Console:Clear()
 end
 
 -- Put the body on the clipboard, where the executor gives us one. Returns whether it landed.
+--
+-- Through utility/clipboard rather than reaching for `setclipboard` directly: executors name the
+-- writer four different ways (setclipboard / toclipboard / set_clipboard / Clipboard.set) and it
+-- probes every one off getfenv(), so this both works on more of them and stops referencing a
+-- global the linter has every right to call undefined.
 function Console:Copy(): boolean
-    local clipboard = (getgenv and getgenv().setclipboard) or setclipboard
-    if typeof(clipboard) ~= "function" then
-        return false
-    end
-    return (pcall(clipboard, self:Get()))
+    return clipboard.copy(self:Get())
 end
 
 -- Change how tall the block stands. The panel takes the height; the element grows around it.
@@ -6274,7 +6331,11 @@ function GradientPicker.new(tab, properties)
         end
         local theme = self.window.theme
         variables.tweenService
-            :Create(self.stroke, fadeInfo, { Transparency = theme.ElementStrokeHoverTransparency, Color = theme.ElementStrokeHover })
+            :Create(
+                self.stroke,
+                fadeInfo,
+                { Transparency = theme.ElementStrokeHoverTransparency, Color = theme.ElementStrokeHover }
+            )
             :Play()
         variables.tweenService:Create(self.title, fadeInfo, { TextColor3 = theme.ElementTextHoverColor }):Play()
         variables.tweenService:Create(self.hoverOverlay, fadeInfo, { BackgroundTransparency = 0.97 }):Play()
@@ -6283,7 +6344,11 @@ function GradientPicker.new(tab, properties)
     self.window:ConnectFor(self, self.main.MouseLeave, function()
         local theme = self.window.theme
         variables.tweenService
-            :Create(self.stroke, fadeInfo, { Transparency = theme.ElementStrokeTransparency, Color = theme.ElementStroke })
+            :Create(
+                self.stroke,
+                fadeInfo,
+                { Transparency = theme.ElementStrokeTransparency, Color = theme.ElementStroke }
+            )
             :Play()
         variables.tweenService:Create(self.title, fadeInfo, { TextColor3 = theme.ContentColor }):Play()
         variables.tweenService:Create(self.hoverOverlay, fadeInfo, { BackgroundTransparency = 1 }):Play()
@@ -6515,7 +6580,10 @@ function GradientPicker:_buildBody()
     })
 
     self.window:ConnectFor(self, self.railInteract.InputBegan, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             -- a bare click on the track (not a handle) adds a stop right there
             local width = self.rail.AbsoluteSize.X
             if width <= 0 then
@@ -6597,7 +6665,10 @@ function GradientPicker:_createStopHandle(stop)
     self.stopHandles[stop] = { frame = handle, ring = ring }
 
     self.window:ConnectFor(self, grabber.InputBegan, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             self:_selectStop(stop)
             self:_beginDrag(stop, input.UserInputType == Enum.UserInputType.MouseButton1)
         end
@@ -6756,7 +6827,11 @@ function GradientPicker:_render(mode)
         local pos = UDim2.new(stop.time, 0, 0.5, 0)
         if mode == "drag" or mode == "animate" then
             variables.tweenService
-                :Create(handle.frame, if mode == "drag" then dragInfo else openInfo, { Position = pos, BackgroundColor3 = stop.color })
+                :Create(
+                    handle.frame,
+                    if mode == "drag" then dragInfo else openInfo,
+                    { Position = pos, BackgroundColor3 = stop.color }
+                )
                 :Play()
         else
             handle.frame.Position = pos
@@ -6823,7 +6898,9 @@ function GradientPicker:_revealStopHandles(open, animate)
             handle.frame.BackgroundTransparency = 0
             task.delay((i - 1) * 0.04, function()
                 if self._isOpen then
-                    variables.tweenService:Create(handle.frame, handleSpringInfo, { Size = UDim2.fromOffset(20, 20) }):Play()
+                    variables.tweenService
+                        :Create(handle.frame, handleSpringInfo, { Size = UDim2.fromOffset(20, 20) })
+                        :Play()
                 end
             end)
         end
@@ -6843,13 +6920,21 @@ function GradientPicker:_open()
         self.window:Disconnect(self._outsideClickConn)
     end
     self._outsideClickConn = self.window:Connect(variables.userInputService.InputBegan, function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+        if
+            input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch
+        then
             return
         end
         local pos = input.Position
         local mainPos = self.main.AbsolutePosition
         local mainSize = self.main.AbsoluteSize
-        if pos.X < mainPos.X or pos.X > mainPos.X + mainSize.X or pos.Y < mainPos.Y or pos.Y > mainPos.Y + mainSize.Y then
+        if
+            pos.X < mainPos.X
+            or pos.X > mainPos.X + mainSize.X
+            or pos.Y < mainPos.Y
+            or pos.Y > mainPos.Y + mainSize.Y
+        then
             self:_close()
         end
     end)
@@ -6863,7 +6948,9 @@ function GradientPicker:_open()
     -- 4) glow pulse: flashes past its steady-state glow, then relaxes back down to it
     if self.showGlow then
         for _, glow in self.previewGlows do
-            variables.tweenService:Create(glow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.3) }):Play()
+            variables.tweenService
+                :Create(glow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.3) })
+                :Play()
         end
         task.delay(glowPulseInfo.Time, function()
             if self._isOpen and self._openSeq == seq then
@@ -6885,8 +6972,12 @@ function GradientPicker:_open()
             return
         end
         variables.tweenService:Create(self.rail, fadeInfo, { BackgroundTransparency = 0.85 }):Play()
-        variables.tweenService:Create(self.addButton, fadeInfo, { BackgroundTransparency = 0.9, TextTransparency = 0.15 }):Play()
-        variables.tweenService:Create(self.removeButton, fadeInfo, { BackgroundTransparency = 0.9, TextTransparency = 0.15 }):Play()
+        variables.tweenService
+            :Create(self.addButton, fadeInfo, { BackgroundTransparency = 0.9, TextTransparency = 0.15 })
+            :Play()
+        variables.tweenService
+            :Create(self.removeButton, fadeInfo, { BackgroundTransparency = 0.9, TextTransparency = 0.15 })
+            :Play()
         self:_revealStopHandles(true, fadeInfo)
     end)
 
@@ -6920,8 +7011,12 @@ function GradientPicker:_close()
     variables.tweenService:Create(self.preview, closeFadeInfo, { BackgroundTransparency = 1 }):Play()
     variables.tweenService:Create(self.previewStroke, closeFadeInfo, { Transparency = 1 }):Play()
     variables.tweenService:Create(self.rail, closeFadeInfo, { BackgroundTransparency = 1 }):Play()
-    variables.tweenService:Create(self.addButton, closeFadeInfo, { BackgroundTransparency = 1, TextTransparency = 1 }):Play()
-    variables.tweenService:Create(self.removeButton, closeFadeInfo, { BackgroundTransparency = 1, TextTransparency = 1 }):Play()
+    variables.tweenService
+        :Create(self.addButton, closeFadeInfo, { BackgroundTransparency = 1, TextTransparency = 1 })
+        :Play()
+    variables.tweenService
+        :Create(self.removeButton, closeFadeInfo, { BackgroundTransparency = 1, TextTransparency = 1 })
+        :Play()
     self:_revealStopHandles(false, closeFadeInfo)
     self.previewCover.Size = UDim2.fromScale(1, 1) -- reset instantly, ready to wipe again next open
     self.hsv:SetVisible(false, true)
@@ -6945,8 +7040,14 @@ function GradientPicker:_applyBodyVisibility(open, animate)
         [self.preview] = { BackgroundTransparency = if open then 0 else 1 },
         [self.previewStroke] = { Transparency = if open then 0.9 else 1 },
         [self.rail] = { BackgroundTransparency = if open then 0.85 else 1 },
-        [self.addButton] = { BackgroundTransparency = if open then 0.9 else 1, TextTransparency = if open then 0.15 else 1 },
-        [self.removeButton] = { BackgroundTransparency = if open then 0.9 else 1, TextTransparency = if open then 0.15 else 1 },
+        [self.addButton] = {
+            BackgroundTransparency = if open then 0.9 else 1,
+            TextTransparency = if open then 0.15 else 1,
+        },
+        [self.removeButton] = {
+            BackgroundTransparency = if open then 0.9 else 1,
+            TextTransparency = if open then 0.15 else 1,
+        },
     }
 
     for instance, props in set do
@@ -7034,7 +7135,9 @@ end
 function GradientPicker:SetGlow(shown)
     self.showGlow = shown and true or false
     for _, glow in self.previewGlows do
-        variables.tweenService:Create(glow, fadeInfo, { Transparency = if self.showGlow then glowOnTransparency else 1 }):Play()
+        variables.tweenService
+            :Create(glow, fadeInfo, { Transparency = if self.showGlow then glowOnTransparency else 1 })
+            :Play()
     end
 end
 
@@ -7171,9 +7274,11 @@ function Group.new(tab, properties)
     local dependsOn = properties.dependsOn or properties.DependsOn
     if dependsOn then
         self._dependsOn = dependsOn
-        self._condition = properties.condition or properties.Condition or function(value)
-            return value == true
-        end
+        self._condition = properties.condition
+            or properties.Condition
+            or function(value)
+                return value == true
+            end
 
         local originalCallback = dependsOn.callback
         dependsOn.callback = function(...)
@@ -7672,7 +7777,10 @@ end
 
 function HoldButton:_wireHold()
     self.window:ConnectFor(self, self.interact.InputBegan, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             self:_beginHold()
         end
     end)
@@ -7680,7 +7788,10 @@ function HoldButton:_wireHold()
     -- global, like the pickers' own drag release: a mouse-up anywhere ends the hold, not just
     -- one that lands back on the button
     self.window:ConnectFor(self, variables.userInputService.InputEnded, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             self:_cancelHold()
         end
     end)
@@ -8139,9 +8250,7 @@ function Hud:_wireDrag()
     -- brightens the stroke while held, same tactile cue drag.luau's own bar uses, so the chip
     -- doesn't just silently teleport around with nothing acknowledging the grab
     local function setGrabbed(grabbed)
-        variables.tweenService
-            :Create(self.stroke, dragStrokeInfo, { Transparency = grabbed and 0.35 or 0.8 })
-            :Play()
+        variables.tweenService:Create(self.stroke, dragStrokeInfo, { Transparency = grabbed and 0.35 or 0.8 }):Play()
     end
 
     self.window:ConnectFor(self, self.main.InputBegan, function(input, processed)
@@ -10779,10 +10888,10 @@ function ListPicker:_applyRow(row, animate)
     local fill = row.entry.color or theme.AccentColor
 
     local goals = {
-        frame = { BackgroundColor3 = fill, BackgroundTransparency = if selected
-            then 0
-            elseif row.hovered then rowHover
-            else rowRest },
+        frame = {
+            BackgroundColor3 = fill,
+            BackgroundTransparency = if selected then 0 elseif row.hovered then rowHover else rowRest,
+        },
         stroke = {
             Color = if selected then (row.entry.color or theme.AccentStroke) else theme.ElementStroke,
             Transparency = if selected then 0.2 elseif row.hovered then 0.75 else 1,
@@ -10950,10 +11059,11 @@ function ListPicker:_setShown(shown, animate)
         for _, row in self.rows do
             local selected = self.value == row.entry.id
             local fill = row.entry.color or w.theme.AccentColor
-            w:_reveal(row.frame, { BackgroundTransparency = if selected
-                then 0
-                elseif row.hovered then rowHover
-                else rowRest }, animate)
+            w:_reveal(
+                row.frame,
+                { BackgroundTransparency = if selected then 0 elseif row.hovered then rowHover else rowRest },
+                animate
+            )
             w:_reveal(row.stroke, { Transparency = if selected then 0.2 else 1 }, animate)
             w:_reveal(row.title, { TextTransparency = if selected then 0 else 0.35 }, animate)
             if row.iconLabel then
@@ -14151,10 +14261,12 @@ function Resize.new(window)
     -- the grip reads as interactive without shouting for attention sitting over the game behind
     -- it, and covers touch (which never fires MouseEnter/MouseLeave) the same way the bar does.
     local function setIconState(transparency, size)
-        variables.tweenService:Create(self.icon, hoverInfo, {
-            ImageTransparency = transparency,
-            Size = UDim2.fromOffset(size, size),
-        }):Play()
+        variables.tweenService
+            :Create(self.icon, hoverInfo, {
+                ImageTransparency = transparency,
+                Size = UDim2.fromOffset(size, size),
+            })
+            :Play()
     end
 
     self.window:Connect(self.interact.MouseEnter, function()
@@ -14241,10 +14353,8 @@ function Resize.new(window)
         local consumed = clamped - dragStartSize -- how much of the drag survived clamping
 
         local newCentrePositionSpace = dragStartCentreAbs + consumed / 2 + insetOffset()
-        local target = clampedPositionForSize(
-            UDim2.fromOffset(newCentrePositionSpace.X, newCentrePositionSpace.Y),
-            clamped
-        )
+        local target =
+            clampedPositionForSize(UDim2.fromOffset(newCentrePositionSpace.X, newCentrePositionSpace.Y), clamped)
 
         lastTargetSize = clamped
         lastTargetPosition = target
@@ -14360,7 +14470,8 @@ function Resize.new(window)
     function self:_snapToDefault()
         local target = windowSizing.fit(currentViewport(), self.window.defaultSize)
 
-        local centreAbs = self.window.main.AbsolutePosition + self.window.main.AbsoluteSize * self.window.main.AnchorPoint
+        local centreAbs = self.window.main.AbsolutePosition
+            + self.window.main.AbsoluteSize * self.window.main.AnchorPoint
         local centrePositionSpace = centreAbs + insetOffset()
         -- Same stale-size clamp trap as applyResize above - clamp against the size we're
         -- snapping *to* (target), not self.window.size (still whatever it was before the snap).
@@ -14369,7 +14480,8 @@ function Resize.new(window)
             Vector2.new(target.X.Offset, target.Y.Offset)
         )
 
-        variables.tweenService:Create(self.window.main, snapBackInfo, { Size = target, Position = targetPosition })
+        variables.tweenService
+            :Create(self.window.main, snapBackInfo, { Size = target, Position = targetPosition })
             :Play()
         if self.window.drag and self.window.drag.drag then
             local barTarget = UDim2.new(
@@ -14920,8 +15032,11 @@ function ScrollHint:_startBounce()
     task.spawn(function()
         local down = true
         while self.arrow.Parent do
-            local tween = variables.tweenService
-                :Create(self.arrow, bounceInfo, { Position = UDim2.fromOffset(0, down and 5 or 0) })
+            local tween = variables.tweenService:Create(
+                self.arrow,
+                bounceInfo,
+                { Position = UDim2.fromOffset(0, down and 5 or 0) }
+            )
             tween:Play()
             tween.Completed:Wait()
             down = not down
@@ -15530,8 +15645,7 @@ local function slideIndicator(pill, targetPos, targetSize, skipAnimation)
     local stretchSize =
         UDim2.new(stretchRight - stretchLeft, targetSize.X.Offset, targetSize.Y.Scale, targetSize.Y.Offset)
 
-    local stretchTween =
-        variables.tweenService:Create(pill, stretchInfo, { Position = stretchPos, Size = stretchSize })
+    local stretchTween = variables.tweenService:Create(pill, stretchInfo, { Position = stretchPos, Size = stretchSize })
     stretchTween:Play()
 
     -- :Once() isn't guaranteed on every client this session has run into - :Connect() + manual
@@ -16915,7 +17029,10 @@ end
 
 -- Nothing to fade in/out - a spacer has no visual content of its own. Still needs the method:
 -- Tab:_register's reveal pass, and a runtime SetVisible, both call it unconditionally.
-function Spacer:_setShown(shown, animate) end
+-- A spacer has nothing to reveal or hide - it is pure empty layout. The parameters stay to
+-- match the interface every other element implements; the underscores say they are unused
+-- on purpose rather than forgotten.
+function Spacer:_setShown(_shown, _animate) end
 
 -- Changes the gap's height, tweened by default (pass animate = false to snap instantly).
 function Spacer:SetHeight(height, animate)
@@ -17662,7 +17779,6 @@ StatusCard.__type = "StatusCard"
 
 local utility = script.Parent.Parent.utility
 local variables = require(utility.variables)
-local functions = require(utility.functions)
 local moveable = require(utility.moveable)
 local lockable = require(utility.lockable)
 local constants = require(utility.constants)
@@ -17699,7 +17815,10 @@ function StatusCard.new(tab, properties)
             then properties.collapsible
             elseif properties.Collapsible ~= nil then properties.Collapsible
             else true,
-        glow = if properties.glow ~= nil then properties.glow elseif properties.Glow ~= nil then properties.Glow else true,
+        glow = if properties.glow ~= nil
+            then properties.glow
+            elseif properties.Glow ~= nil then properties.Glow
+            else true,
         expanded = if properties.expanded ~= nil
             then properties.expanded
             elseif properties.Expanded ~= nil then properties.Expanded
@@ -17934,7 +18053,9 @@ function StatusCard:_buildRow(row)
     local window = self.window
     local key = keyOf(row)
     if not key then
-        log.warn("Rayfield: a StatusCard row needs a `label` (or explicit `key`), skipping one on '" .. self.name .. "'.")
+        log.warn(
+            "Rayfield: a StatusCard row needs a `label` (or explicit `key`), skipping one on '" .. self.name .. "'."
+        )
         return
     end
 
@@ -18192,7 +18313,6 @@ local utility = script.Parent.Parent.utility
 
 -- Variables
 local variables = require(utility.variables)
-local locale = require(utility.locale)
 local assignOrder = require(utility.ordering)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
@@ -18229,7 +18349,6 @@ local function teardownElements(window, elements)
         end
     end
 end
-
 
 local selectTweenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local hoverTweenInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -18363,7 +18482,6 @@ function Tab.new(window, properties)
                 end
             end)
         )
-
     end
 
     -- Auto-select is handled by Window:CreateTab after insertion
@@ -20115,7 +20233,9 @@ function Toast:_show()
     variables.tweenService:Create(self.shadow, fadeShort, { Transparency = 0.6 }):Play()
     variables.tweenService:Create(self.titleLabel, fadeShort, { TextTransparency = 0 }):Play()
     if self.actionButton then
-        variables.tweenService:Create(self.actionButton, fadeShort, { BackgroundTransparency = 0.1, TextTransparency = 0 }):Play()
+        variables.tweenService
+            :Create(self.actionButton, fadeShort, { BackgroundTransparency = 0.1, TextTransparency = 0 })
+            :Play()
     end
 
     task.wait(0.05)
@@ -20166,7 +20286,9 @@ function Toast:_dismiss()
         variables.tweenService:Create(self.subtitleLabel, fadeShort, { TextTransparency = 1 }):Play()
     end
     if self.actionButton then
-        variables.tweenService:Create(self.actionButton, fadeShort, { BackgroundTransparency = 1, TextTransparency = 1 }):Play()
+        variables.tweenService
+            :Create(self.actionButton, fadeShort, { BackgroundTransparency = 1, TextTransparency = 1 })
+            :Play()
     end
     if self.iconLabel then
         variables.tweenService
@@ -20971,7 +21093,9 @@ local function scrollIntoView(tab, target): boolean
     -- Centre the target in the viewport rather than just nudging it to the nearest edge - reads
     -- better with the ring's own padding/glow around it than the target sitting flush against
     -- the very top or bottom edge of the visible area.
-    local canvasY = tabPage.CanvasPosition.Y + (targetTop - viewTop) - (tabPage.AbsoluteSize.Y - target.AbsoluteSize.Y) / 2
+    local canvasY = tabPage.CanvasPosition.Y
+        + (targetTop - viewTop)
+        - (tabPage.AbsoluteSize.Y - target.AbsoluteSize.Y) / 2
     -- Confirmed live: AutomaticCanvasSize doesn't keep CanvasSize itself readable - it stays
     -- whatever was explicitly set at construction (UDim2.new(0,0,0,0) here), never the computed
     -- content height, so clamping against it always clamped to 0 and silently ate every scroll.
@@ -21149,18 +21273,22 @@ function Tour.new(window)
         -- colour below instead of just seeding a start-state, the exact mistake this project's
         -- own tabDock background fix ran into earlier this session. No literal BackgroundColor3
         -- in this table at all; the theme binding is the only thing that ever sets it.
-        local btn = window:Create("TextButton", {
-            AutomaticSize = Enum.AutomaticSize.X,
-            Size = UDim2.fromOffset(0, 28),
-            BorderSizePixel = 0,
-            Text = "",
-            TextSize = 13,
-            LayoutOrder = order,
-            ZIndex = constants.zIndex.tourBubble,
-            Parent = self.buttonRow,
-        }, if primary
-            then { BackgroundColor3 = "AccentColor", TextColor3 = "ContentColor", FontFace = "Font" }
-            else { BackgroundColor3 = "NeutralButton", TextColor3 = "ContentColor", FontFace = "Font" })
+        local btn = window:Create(
+            "TextButton",
+            {
+                AutomaticSize = Enum.AutomaticSize.X,
+                Size = UDim2.fromOffset(0, 28),
+                BorderSizePixel = 0,
+                Text = "",
+                TextSize = 13,
+                LayoutOrder = order,
+                ZIndex = constants.zIndex.tourBubble,
+                Parent = self.buttonRow,
+            },
+            if primary
+                then { BackgroundColor3 = "AccentColor", TextColor3 = "ContentColor", FontFace = "Font" }
+                else { BackgroundColor3 = "NeutralButton", TextColor3 = "ContentColor", FontFace = "Font" }
+        )
         window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = btn })
         window:Create("UIPadding", {
             PaddingLeft = UDim.new(0, 14),
@@ -21360,46 +21488,21 @@ local Window = core.Window
 -- see windowCore.luau's own header comment)
 local image = core.image
 local functions = core.functions
-local persistence = core.persistence
 local constants = core.constants
 local locale = core.locale
 local log = core.log
 local hapticEngine = core.hapticEngine
 local soundEngine = core.soundEngine
-local windowSizing = core.windowSizing
-local icons = core.icons
-local acrylic = core.acrylic
-local clipboard = core.clipboard
 local chrome = core.chrome
 local search = core.search
-local filesystem = core.filesystem
-local path = core.path
 local squircle = core.squircle
 local variables = core.variables
-local themes = core.themes
 
 -- Shared constants/helpers (see windowCore.luau)
-local revealInfo = core.revealInfo
-local collapsedSize = core.collapsedSize
-local collapsedTop = core.collapsedTop
-local maxToastWidth = core.maxToastWidth
-local compactRowHeight = core.compactRowHeight
-local viewportReconcileInterval = core.viewportReconcileInterval
 local fitWindowSize = core.fitWindowSize
 local resolveCustomSize = core.resolveCustomSize
-local fontChoices = core.fontChoices
-local fontOptionNames = core.fontOptionNames
-local fontAtWeight = core.fontAtWeight
-local gradientKeys = core.gradientKeys
-local coerceThemeValue = core.coerceThemeValue
-local firstColor = core.firstColor
-local edgeShade = core.edgeShade
-local deriveStrokes = core.deriveStrokes
-local themeOverrides = core.themeOverrides
 local resolveTheme = core.resolveTheme
-local WINDOW_REGISTRY_KEY = core.WINDOW_REGISTRY_KEY
 local windowRegistry = core.windowRegistry
-
 
 function Window.new(properties)
     properties = if typeof(properties) == "table" then properties else {}
@@ -21875,7 +21978,6 @@ function Window.new(properties)
     -- Sidebar layout was live-reported to show. Sized to nothing rather than skipped outright so
     -- every other reference to self.topFade/topFadeGradient below still resolves to a real
     -- (just invisible and zero-size) instance instead of nil.
-    local isSidebarMode = self.tabsMode == "Sidebar"
 
     -- Live-reported as a cheap-looking "elements dissolve at the top edge" effect once v1.2's
     -- own bordered elements card gave the content area a real edge of its own to scroll against -
@@ -22070,7 +22172,8 @@ function Window.new(properties)
     self.sidebarCollapseBelow = 589
     -- nil = follow the window's own width; true/false pins it either way (also settable live
     -- via Window:SetSidebarCollapsed).
-    self._sidebarCollapsedOverride = if properties.sidebarCollapsed ~= nil then properties.sidebarCollapsed == true
+    self._sidebarCollapsedOverride = if properties.sidebarCollapsed ~= nil
+        then properties.sidebarCollapsed == true
         elseif properties.SidebarCollapsed ~= nil then properties.SidebarCollapsed == true
         else nil
     self.sidebarWidth = if self._sidebarCollapsedOverride == true
@@ -22093,9 +22196,7 @@ function Window.new(properties)
         -- Rayfield Gen2 1.2's own card exactly (AnchorPoint (1,1), Size (1,0,1,-chromeHeight),
         -- zero margin on those two sides) rather than floating with a gap all around it, so the
         -- card visually runs into the window's own edge instead of stopping short of it.
-        Size = if elementsSidebar
-            then UDim2.new(1, -self.sidebarWidth, 1, -70)
-            else UDim2.new(1, 0, 1, -118),
+        Size = if elementsSidebar then UDim2.new(1, -self.sidebarWidth, 1, -70) else UDim2.new(1, 0, 1, -118),
         Position = if elementsSidebar then UDim2.fromScale(1, 1) else UDim2.fromScale(0.5, 1),
         AnchorPoint = if elementsSidebar then Vector2.new(1, 1) else Vector2.new(0.5, 1),
         -- Sidebar mode: a card around the content, matching upstream Rayfield Gen2 1.2's own
@@ -22889,37 +22990,17 @@ local locale = core.locale
 local log = core.log
 local hapticEngine = core.hapticEngine
 local soundEngine = core.soundEngine
-local windowSizing = core.windowSizing
 local icons = core.icons
 local acrylic = core.acrylic
 local clipboard = core.clipboard
 local chrome = core.chrome
-local search = core.search
-local filesystem = core.filesystem
-local path = core.path
 local variables = core.variables
-local themes = core.themes
 
 -- Shared constants/helpers (see windowCore.luau)
 local revealInfo = core.revealInfo
 local collapsedSize = core.collapsedSize
 local collapsedTop = core.collapsedTop
-local maxToastWidth = core.maxToastWidth
 local compactRowHeight = core.compactRowHeight
-local viewportReconcileInterval = core.viewportReconcileInterval
-local fitWindowSize = core.fitWindowSize
-local resolveCustomSize = core.resolveCustomSize
-local fontChoices = core.fontChoices
-local fontOptionNames = core.fontOptionNames
-local fontAtWeight = core.fontAtWeight
-local gradientKeys = core.gradientKeys
-local coerceThemeValue = core.coerceThemeValue
-local firstColor = core.firstColor
-local edgeShade = core.edgeShade
-local deriveStrokes = core.deriveStrokes
-local themeOverrides = core.themeOverrides
-local resolveTheme = core.resolveTheme
-local WINDOW_REGISTRY_KEY = core.WINDOW_REGISTRY_KEY
 local windowRegistry = core.windowRegistry
 
 function Window:SaveSettings()
@@ -23059,7 +23140,9 @@ function Window:_quickRestore()
     -- the squircle shape just stays at its own normal radius throughout the restore (a known,
     -- disclosed gap: the pill-collapse animation isn't squircle-aware yet, see Hide's own note).
     if self.windowCorner then
-        variables.tweenService:Create(self.windowCorner, cornerInfo, { CornerRadius = self.theme.CornerRoundness }):Play()
+        variables.tweenService
+            :Create(self.windowCorner, cornerInfo, { CornerRadius = self.theme.CornerRoundness })
+            :Play()
     end
 
     -- Phase 2: once the frame actually reads as a window, fade its chrome in and stagger the
@@ -23069,15 +23152,16 @@ function Window:_quickRestore()
         self.resize.grip.Visible = self.settings.resizeGripEnabled
         if self.profile then
             self.profile.Visible = self.settings.showProfile
-            self.tabList.Size =
-                UDim2.new(1, 0, 1, if self.settings.showProfile then -self._tabListFooterReserve else 0)
+            self.tabList.Size = UDim2.new(1, 0, 1, if self.settings.showProfile then -self._tabListFooterReserve else 0)
         end
         self.topbar.Visible = true
         self.tabList.Visible = true
         self.tabDock.Visible = true
         self.elements.Visible = true
 
-        variables.tweenService:Create(self.windowShadow, fadeInfo, { Transparency = self._shadowTransparency or 0.6 }):Play()
+        variables.tweenService
+            :Create(self.windowShadow, fadeInfo, { Transparency = self._shadowTransparency or 0.6 })
+            :Play()
         variables.tweenService:Create(self.bottomFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
         variables.tweenService:Create(self.topFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
 
@@ -23381,17 +23465,21 @@ function Window:_playLoadingSplash()
         for i, tip in tips do
             tipLabel.Text = locale.resolve(tostring(tip))
             tipLabel.Position = UDim2.new(0.5, 0, 0.5, tipRestY + 6)
-            variables.tweenService:Create(tipLabel, loadingTipSlideInfo, {
-                TextTransparency = 0.4,
-                Position = UDim2.new(0.5, 0, 0.5, tipRestY),
-            }):Play()
+            variables.tweenService
+                :Create(tipLabel, loadingTipSlideInfo, {
+                    TextTransparency = 0.4,
+                    Position = UDim2.new(0.5, 0, 0.5, tipRestY),
+                })
+                :Play()
             task.wait(config.tipHoldTime)
             elapsed += config.tipHoldTime
             if i < #tips then
-                variables.tweenService:Create(tipLabel, loadingTipSlideInfo, {
-                    TextTransparency = 1,
-                    Position = UDim2.new(0.5, 0, 0.5, tipRestY - 6),
-                }):Play()
+                variables.tweenService
+                    :Create(tipLabel, loadingTipSlideInfo, {
+                        TextTransparency = 1,
+                        Position = UDim2.new(0.5, 0, 0.5, tipRestY - 6),
+                    })
+                    :Play()
                 task.wait(0.15)
                 elapsed += 0.15
             end
@@ -24204,9 +24292,7 @@ function Window:RetryWithBackoff(fn, options: { attempts: number?, baseDelay: nu
             task.wait(math.min(baseDelay * (2 ^ (attempt - 1)), maxDelay))
         end
     end
-    log.warn(
-        "Rayfield: Window:RetryWithBackoff gave up after " .. attempts .. " attempts - " .. tostring(lastError)
-    )
+    log.warn("Rayfield: Window:RetryWithBackoff gave up after " .. attempts .. " attempts - " .. tostring(lastError))
     return false, lastError
 end
 
@@ -24775,27 +24861,21 @@ local Window = core.Window
 -- Utility (aliased off windowCore so every split file shares the exact same module instances -
 -- see windowCore.luau's own header comment)
 local image = core.image
-local functions = core.functions
 local persistence = core.persistence
 local constants = core.constants
 local locale = core.locale
 local log = core.log
 local hapticEngine = core.hapticEngine
 local soundEngine = core.soundEngine
-local windowSizing = core.windowSizing
-local icons = core.icons
 local acrylic = core.acrylic
-local clipboard = core.clipboard
 local chrome = core.chrome
 local search = core.search
 local tabSelector = require(script.Parent.tabSelector)
 local filesystem = core.filesystem
 local path = core.path
 local variables = core.variables
-local themes = core.themes
 
 -- Shared constants/helpers (see windowCore.luau)
-local revealInfo = core.revealInfo
 local collapsedSize = core.collapsedSize
 local collapsedTop = core.collapsedTop
 local maxToastWidth = core.maxToastWidth
@@ -24804,22 +24884,14 @@ local maxToastWidth = core.maxToastWidth
 -- to just below the pill instead; open, it sits back at its normal spot under the topbar.
 local topToastOpenPosition = UDim2.new(0.5, 0, 0, 12)
 local topToastClosedPosition = UDim2.new(0.5, 0, 0, collapsedTop.Y.Offset + collapsedSize.Y.Offset + 12)
-local compactRowHeight = core.compactRowHeight
 local viewportReconcileInterval = core.viewportReconcileInterval
 local fitWindowSize = core.fitWindowSize
-local resolveCustomSize = core.resolveCustomSize
 local fontChoices = core.fontChoices
 local fontOptionNames = core.fontOptionNames
 local fontAtWeight = core.fontAtWeight
-local gradientKeys = core.gradientKeys
 local coerceThemeValue = core.coerceThemeValue
-local firstColor = core.firstColor
-local edgeShade = core.edgeShade
 local deriveStrokes = core.deriveStrokes
-local themeOverrides = core.themeOverrides
 local resolveTheme = core.resolveTheme
-local WINDOW_REGISTRY_KEY = core.WINDOW_REGISTRY_KEY
-local windowRegistry = core.windowRegistry
 
 function Window:_syncLiveAnimation()
     if not self.theme.LiveAnimation then
@@ -25462,7 +25534,13 @@ function Window:_scheduleAutoSaveConfig()
     local generation = self._autoSaveConfigGeneration
     task.delay(autoSaveDebounce, function()
         local name = self._selectedConfigName
-        if self._autoSaveConfigGeneration == generation and not self._loading and self._autoSaveConfigEnabled and name and name ~= "" then
+        if
+            self._autoSaveConfigGeneration == generation
+            and not self._loading
+            and self._autoSaveConfigEnabled
+            and name
+            and name ~= ""
+        then
             self:Save(name)
         end
     end)
@@ -26030,7 +26108,9 @@ function Window:ToggleMinimise()
         image.assign(self.minimiseAction.iconLabel, "Image", constants.icons.minimise) -- back to the minimise icon
 
         variables.tweenService:Create(self.main, sizeInfo, { Size = self.size }):Play()
-        variables.tweenService:Create(self.windowShadow, fadeInfo, { Transparency = self._shadowTransparency or 0.6 }):Play()
+        variables.tweenService
+            :Create(self.windowShadow, fadeInfo, { Transparency = self._shadowTransparency or 0.6 })
+            :Play()
         variables.tweenService:Create(self.bottomFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
         variables.tweenService:Create(self.topFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
 
@@ -26925,7 +27005,9 @@ function Window:_buildSettingsUI()
             name = "Export",
             icon = "lucide:share-2",
             callback = function()
-                local ok, encoded = self:ExportConfig()
+                -- ExportConfig puts the string on the clipboard itself; the caller only
+                -- needs to know whether that worked
+                local ok = self:ExportConfig()
                 if ok then
                     self:Toast({
                         title = locale.resolve("Configuration copied"),
@@ -27153,7 +27235,6 @@ function Window:_buildSessionDashboard()
         end
     end)
 end
-
 
 return Window
 ]=====]
@@ -28334,8 +28415,8 @@ export type SegmentedPickerOption = string | {
     text: string?,
     Text: string?,
     -- nested sub-options, expanded inline within this segment's own slot once it's selected
-    options: { (string | { text: string?, Text: string? }) }?,
-    Options: { (string | { text: string?, Text: string? }) }?,
+    options: { string | { text: string?, Text: string? } }?,
+    Options: { string | { text: string?, Text: string? } }?,
 }
 
 export type SegmentedPickerProps = {
@@ -28925,7 +29006,7 @@ export type ColorPicker = Moveable & {
 
 export type GradientPicker = Moveable & {
     value: ColorSequence,
-    Set: (self: GradientPicker, value: (ColorSequence | { Color3 } | { GradientStop }), skipCallback: boolean?) -> (),
+    Set: (self: GradientPicker, value: ColorSequence | { Color3 } | { GradientStop }, skipCallback: boolean?) -> (),
     SetGlow: (self: GradientPicker, shown: boolean) -> (),
 }
 
@@ -29634,7 +29715,11 @@ local function httpGet(url: string): string?
         if ok and type(response) == "table" then
             local body = (response :: any).Body
             local status = (response :: any).StatusCode
-            if type(body) == "string" and #body > 0 and (type(status) ~= "number" or (status >= 200 and status < 300)) then
+            if
+                type(body) == "string"
+                and #body > 0
+                and (type(status) ~= "number" or (status >= 200 and status < 300))
+            then
                 return body
             end
         end
@@ -29659,8 +29744,10 @@ end
 -- more than pure MT) but perfectly fine for short UI copy, and it's what actually answered during
 -- that same test. Only once *both* fail does resolve() fall back to the built-in/registered table.
 local function tryGoogle(protectedText: string, targetLang: string): string?
-    local url = ("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=%s&dt=t&q=%s")
-        :format(variables.httpService:UrlEncode(targetLang), variables.httpService:UrlEncode(protectedText))
+    local url = ("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=%s&dt=t&q=%s"):format(
+        variables.httpService:UrlEncode(targetLang),
+        variables.httpService:UrlEncode(protectedText)
+    )
     local body = httpGet(url)
     if not body then
         return nil
@@ -29687,8 +29774,10 @@ local function tryMyMemory(protectedText: string, targetLang: string): string?
     -- MyMemory wants an explicit source language rather than an auto-detect flag - every source
     -- string in this project is written in English (see locale.luau's own header comment: "English
     -- is canonical"), so that's a safe fixed value rather than something worth detecting.
-    local url = ("https://api.mymemory.translated.net/get?q=%s&langpair=en|%s")
-        :format(variables.httpService:UrlEncode(protectedText), variables.httpService:UrlEncode(targetLang))
+    local url = ("https://api.mymemory.translated.net/get?q=%s&langpair=en|%s"):format(
+        variables.httpService:UrlEncode(protectedText),
+        variables.httpService:UrlEncode(targetLang)
+    )
     local body = httpGet(url)
     if not body then
         return nil
@@ -29750,7 +29839,9 @@ function autoTranslate.request(source: string, localeId: string, onDone: (() -> 
             memoryCache[localeId][source] = translated
             persist(localeId)
             if usedFallbackProvider then
-                log.print("Rayfield: auto-translate used the MyMemory fallback for '" .. localeId .. "' (Google unavailable).")
+                log.print(
+                    "Rayfield: auto-translate used the MyMemory fallback for '" .. localeId .. "' (Google unavailable)."
+                )
             end
             if onDone then
                 onDone()
@@ -31272,13 +31363,19 @@ function hsvEditor.build(window, owner, parent, opts)
     end
 
     window:ConnectFor(owner, squareInteract.InputBegan, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             beginDrag("square", input.UserInputType == Enum.UserInputType.MouseButton1)
         end
     end)
 
     window:ConnectFor(owner, hueInteract.InputBegan, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
             beginDrag("hue", input.UserInputType == Enum.UserInputType.MouseButton1)
         end
     end)
@@ -33550,7 +33647,6 @@ sources["utility/sound"] = [=====[
 -- is the safer default here even though it means picking from Roblox's smaller built-in set
 -- rather than a custom SFX pack.
 
-local services = require(script.Parent.services)
 local variables = require(script.Parent.variables)
 
 local sound = {}

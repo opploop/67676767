@@ -14,7 +14,6 @@ local utility = script.Parent.Parent.utility
 
 -- Variables
 local variables = require(utility.variables)
-local locale = require(utility.locale)
 local assignOrder = require(utility.ordering)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
@@ -51,7 +50,6 @@ local function teardownElements(window, elements)
         end
     end
 end
-
 
 local selectTweenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local hoverTweenInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -185,7 +183,6 @@ function Tab.new(window, properties)
                 end
             end)
         )
-
     end
 
     -- Auto-select is handled by Window:CreateTab after insertion

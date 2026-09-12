@@ -24,37 +24,17 @@ local locale = core.locale
 local log = core.log
 local hapticEngine = core.hapticEngine
 local soundEngine = core.soundEngine
-local windowSizing = core.windowSizing
 local icons = core.icons
 local acrylic = core.acrylic
 local clipboard = core.clipboard
 local chrome = core.chrome
-local search = core.search
-local filesystem = core.filesystem
-local path = core.path
 local variables = core.variables
-local themes = core.themes
 
 -- Shared constants/helpers (see windowCore.luau)
 local revealInfo = core.revealInfo
 local collapsedSize = core.collapsedSize
 local collapsedTop = core.collapsedTop
-local maxToastWidth = core.maxToastWidth
 local compactRowHeight = core.compactRowHeight
-local viewportReconcileInterval = core.viewportReconcileInterval
-local fitWindowSize = core.fitWindowSize
-local resolveCustomSize = core.resolveCustomSize
-local fontChoices = core.fontChoices
-local fontOptionNames = core.fontOptionNames
-local fontAtWeight = core.fontAtWeight
-local gradientKeys = core.gradientKeys
-local coerceThemeValue = core.coerceThemeValue
-local firstColor = core.firstColor
-local edgeShade = core.edgeShade
-local deriveStrokes = core.deriveStrokes
-local themeOverrides = core.themeOverrides
-local resolveTheme = core.resolveTheme
-local WINDOW_REGISTRY_KEY = core.WINDOW_REGISTRY_KEY
 local windowRegistry = core.windowRegistry
 
 function Window:SaveSettings()
@@ -194,7 +174,9 @@ function Window:_quickRestore()
     -- the squircle shape just stays at its own normal radius throughout the restore (a known,
     -- disclosed gap: the pill-collapse animation isn't squircle-aware yet, see Hide's own note).
     if self.windowCorner then
-        variables.tweenService:Create(self.windowCorner, cornerInfo, { CornerRadius = self.theme.CornerRoundness }):Play()
+        variables.tweenService
+            :Create(self.windowCorner, cornerInfo, { CornerRadius = self.theme.CornerRoundness })
+            :Play()
     end
 
     -- Phase 2: once the frame actually reads as a window, fade its chrome in and stagger the
@@ -204,15 +186,16 @@ function Window:_quickRestore()
         self.resize.grip.Visible = self.settings.resizeGripEnabled
         if self.profile then
             self.profile.Visible = self.settings.showProfile
-            self.tabList.Size =
-                UDim2.new(1, 0, 1, if self.settings.showProfile then -self._tabListFooterReserve else 0)
+            self.tabList.Size = UDim2.new(1, 0, 1, if self.settings.showProfile then -self._tabListFooterReserve else 0)
         end
         self.topbar.Visible = true
         self.tabList.Visible = true
         self.tabDock.Visible = true
         self.elements.Visible = true
 
-        variables.tweenService:Create(self.windowShadow, fadeInfo, { Transparency = self._shadowTransparency or 0.6 }):Play()
+        variables.tweenService
+            :Create(self.windowShadow, fadeInfo, { Transparency = self._shadowTransparency or 0.6 })
+            :Play()
         variables.tweenService:Create(self.bottomFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
         variables.tweenService:Create(self.topFade, fadeInfo, { BackgroundTransparency = 0 }):Play()
 
@@ -516,17 +499,21 @@ function Window:_playLoadingSplash()
         for i, tip in tips do
             tipLabel.Text = locale.resolve(tostring(tip))
             tipLabel.Position = UDim2.new(0.5, 0, 0.5, tipRestY + 6)
-            variables.tweenService:Create(tipLabel, loadingTipSlideInfo, {
-                TextTransparency = 0.4,
-                Position = UDim2.new(0.5, 0, 0.5, tipRestY),
-            }):Play()
+            variables.tweenService
+                :Create(tipLabel, loadingTipSlideInfo, {
+                    TextTransparency = 0.4,
+                    Position = UDim2.new(0.5, 0, 0.5, tipRestY),
+                })
+                :Play()
             task.wait(config.tipHoldTime)
             elapsed += config.tipHoldTime
             if i < #tips then
-                variables.tweenService:Create(tipLabel, loadingTipSlideInfo, {
-                    TextTransparency = 1,
-                    Position = UDim2.new(0.5, 0, 0.5, tipRestY - 6),
-                }):Play()
+                variables.tweenService
+                    :Create(tipLabel, loadingTipSlideInfo, {
+                        TextTransparency = 1,
+                        Position = UDim2.new(0.5, 0, 0.5, tipRestY - 6),
+                    })
+                    :Play()
                 task.wait(0.15)
                 elapsed += 0.15
             end
@@ -1339,9 +1326,7 @@ function Window:RetryWithBackoff(fn, options: { attempts: number?, baseDelay: nu
             task.wait(math.min(baseDelay * (2 ^ (attempt - 1)), maxDelay))
         end
     end
-    log.warn(
-        "Rayfield: Window:RetryWithBackoff gave up after " .. attempts .. " attempts - " .. tostring(lastError)
-    )
+    log.warn("Rayfield: Window:RetryWithBackoff gave up after " .. attempts .. " attempts - " .. tostring(lastError))
     return false, lastError
 end
 
