@@ -174,10 +174,13 @@ function ListPicker:_build()
             }, { ImageColor3 = "ContentColor" })
         end
 
-        -- the header reads as a section label, not another row: small, spaced, and dimmer than
-        -- the options under it
+        -- The header reads as a section label, not another row: small and dimmer than the options
+        -- under it. Rendered exactly as given rather than forced uppercase - locale.t returns a
+        -- translation TOKEN that Create resolves on assignment, so there is no string to upper
+        -- here, and uppercasing the source first would change the key a translation table is
+        -- looked up by. Pass name = "COSMETIC TYPE" if you want that look.
         self.title = window:Create("TextLabel", {
-            Text = string.upper(locale.t(self.name)),
+            Text = locale.t(self.name),
             Size = UDim2.new(1, -(sidePadding * 2), 0, headerHeight),
             Position = UDim2.new(0, sidePadding + (if self.icon then iconSize + 5 else 0), 0, headerTop),
             BorderSizePixel = 0,
