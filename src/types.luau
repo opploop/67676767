@@ -381,6 +381,15 @@ export type GridFilterChip = string | {
     color: Color3?,
 }
 
+-- Options a Group takes. `width`/`weight` only mean anything for a column nested in a row.
+export type GroupProps = {
+    direction: ("row" | "column")?,
+    width: number?, -- pin this column's width; the rest of the row absorbs what's left
+    weight: number?, -- proportional share of the row instead of an equal split
+    dependsOn: any?,
+    condition: ((value: any) -> boolean)?,
+}
+
 export type ListOption = string | {
     id: string?, -- defaults to `name`
     name: string?,

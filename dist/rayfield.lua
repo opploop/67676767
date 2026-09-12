@@ -7200,12 +7200,29 @@ function Group.new(tab, properties)
     })
 
     if nestedInRow then
-        -- let the parent row divide its width between columns
-        self.main.Size = UDim2.new(0, 0, 0, 0)
-        self.window:Create("UIFlexItem", {
-            FlexMode = Enum.UIFlexMode.Fill,
-            Parent = self.main,
-        })
+        -- How this column takes its share of the parent row's width. Default is an equal split,
+        -- which is right when the columns are peers; `width` pins one (a narrow category rail
+        -- beside a wide panel), and `weight` splits proportionally (weight 1 next to weight 3
+        -- gives a quarter / three quarters).
+        local fixedWidth = tonumber(properties.width or properties.Width)
+        local weight = tonumber(properties.weight or properties.Weight)
+
+        if fixedWidth then
+            -- FlexMode None: the row must leave this column alone at exactly this width, and
+            -- whatever else is in the row absorbs the rest
+            self.main.Size = UDim2.new(0, fixedWidth, 0, 0)
+            self.window:Create("UIFlexItem", {
+                FlexMode = Enum.UIFlexMode.None,
+                Parent = self.main,
+            })
+        else
+            self.main.Size = UDim2.new(0, 0, 0, 0)
+            self.window:Create("UIFlexItem", {
+                FlexMode = if weight then Enum.UIFlexMode.Custom else Enum.UIFlexMode.Fill,
+                GrowRatio = weight or 0,
+                Parent = self.main,
+            })
+        end
     end
 
     -- children parent here
@@ -28385,6 +28402,15 @@ export type GridFilterChip = string | {
     tag: string?,
     name: string?, -- the chip's label; defaults to the tag
     color: Color3?,
+}
+
+-- Options a Group takes. `width`/`weight` only mean anything for a column nested in a row.
+export type GroupProps = {
+    direction: ("row" | "column")?,
+    width: number?, -- pin this column's width; the rest of the row absorbs what's left
+    weight: number?, -- proportional share of the row instead of an equal split
+    dependsOn: any?,
+    condition: ((value: any) -> boolean)?,
 }
 
 export type ListOption = string | {
