@@ -8537,9 +8537,14 @@ local headerGap = 12
 local rowGap = 8
 local searchHeight = 32
 local chipHeight = 26
+local chipRowHeight = 30 -- chipHeight plus the padding that gives its strokes room
 local chipGap = 6
 local chipPadding = 12
 local cellGap = 10
+-- A UIStroke is drawn OUTSIDE its frame's bounds, so a cell flush against the scrolling frame's
+-- edge has its outline clipped away on that side - most visible on the accent stroke a selected
+-- card wears. Inset the canvas by more than the thickness and every edge has room to draw.
+local strokeInset = 3
 local boxSize = 18
 local dotSize = 7
 local defaultColumns = 4
@@ -8703,7 +8708,7 @@ function ItemGrid:_gridTop(): number
         top += searchHeight + rowGap
     end
     if #self.filters > 0 then
-        top += chipHeight + rowGap
+        top += chipRowHeight + rowGap
     end
     return top
 end
@@ -8776,7 +8781,7 @@ function ItemGrid:_build()
     end
     if #self.filters > 0 then
         self:_buildChips(nextTop)
-        nextTop += chipHeight + rowGap
+        nextTop += chipRowHeight + rowGap
     end
 
     self.scroll = window:Create("ScrollingFrame", {
@@ -8793,6 +8798,16 @@ function ItemGrid:_build()
 
         Parent = self.main,
     }, { ScrollBarImageColor3 = "ContentColor" })
+
+    -- room for the outward stroke on the cells that sit against each edge
+    window:Create("UIPadding", {
+        PaddingLeft = UDim.new(0, strokeInset),
+        PaddingRight = UDim.new(0, strokeInset),
+        PaddingTop = UDim.new(0, strokeInset),
+        PaddingBottom = UDim.new(0, strokeInset),
+
+        Parent = self.scroll,
+    })
 
     self.gridLayout = window:Create("UIGridLayout", {
         CellPadding = UDim2.fromOffset(cellGap, cellGap),
@@ -8889,7 +8904,7 @@ function ItemGrid:_buildChips(top)
     -- has to stay one row tall whatever they define (the shape tabbox's own pill row uses).
     self.chipRow = window:Create("ScrollingFrame", {
         Name = "Filters",
-        Size = UDim2.new(1, -(sidePadding * 2), 0, chipHeight),
+        Size = UDim2.new(1, -(sidePadding * 2), 0, chipRowHeight),
         Position = UDim2.new(0, sidePadding, 0, top),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
@@ -8899,6 +8914,14 @@ function ItemGrid:_buildChips(top)
         ScrollingDirection = Enum.ScrollingDirection.X,
 
         Parent = self.main,
+    })
+
+    window:Create("UIPadding", {
+        PaddingLeft = UDim.new(0, 2),
+        PaddingTop = UDim.new(0, 2),
+        PaddingBottom = UDim.new(0, 2),
+
+        Parent = self.chipRow,
     })
 
     self.chipLayout = window:Create("UIListLayout", {
@@ -8933,7 +8956,9 @@ function ItemGrid:_buildChip(descriptor, order)
 
         Parent = self.chipRow,
     })
-    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = chip.frame })
+    -- offset, not UDim.new(1, 0): a scale radius on a pill leaves the Border-mode stroke with
+    -- visible seams where it wraps the fully-rounded ends
+    window:Create("UICorner", { CornerRadius = UDim.new(0, math.floor(chipHeight / 2)), Parent = chip.frame })
 
     chip.stroke = window:Create("UIStroke", {
         Thickness = 1,
@@ -9008,6 +9033,7 @@ function ItemGrid:_applyColumns()
     if width <= 0 then
         width = self.scroll.AbsoluteSize.X - self.scroll.ScrollBarThickness
     end
+    width -= strokeInset * 2 -- the UIPadding above; cells lay out inside it
     if width <= 0 then
         return
     end
