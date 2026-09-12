@@ -437,9 +437,6 @@ function ReorderList:_buildRow(entry, index)
             input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch
         then
-            -- no pointer argument: grab offset and follow must read the SAME source, or they
-            -- disagree by the GUI inset (input.Position and AbsolutePosition have different
-            -- origins). slider.luau reads GetMouseLocation on both sides for exactly this reason.
             self:_beginDrag(row)
         end
     end)
@@ -536,15 +533,17 @@ function ReorderList:_rebuildRows()
     self._built = true
 end
 
--- Where the pointer is, in screen space. Split out (and threaded through _beginDrag/_follow as
--- an argument) so the drag maths can be driven from a known position instead of only from the
--- live cursor - which is what makes the reorder behaviour testable at all, and what lets a
--- touch drag pass its own contact point rather than the mouse's.
+-- Where the pointer is, in screen space. The ONE place the drag reads it, so the grab offset and
+-- the per-frame follow can never disagree about the coordinate space (input.Position and
+-- AbsolutePosition differ by the GUI inset; slider.luau reads GetMouseLocation on both sides for
+-- the same reason). Being a method also makes it the seam a test replaces to drive a drag from
+-- known positions - the drag loop itself is what calls it, so a test that stubs this exercises
+-- the real path rather than a parallel one.
 function ReorderList:_pointerY(): number
     return variables.userInputService:GetMouseLocation().Y
 end
 
-function ReorderList:_beginDrag(row, pointerY)
+function ReorderList:_beginDrag(row)
     if self.locked or self._dragIndex then
         return
     end
@@ -560,7 +559,7 @@ function ReorderList:_beginDrag(row, pointerY)
     self._dragIndex = index
     self._dragRow = row
     -- grab offset, so the row doesn't jump its centre to the cursor on pickup
-    self._grabOffset = (pointerY or self:_pointerY()) - row.frame.AbsolutePosition.Y
+    self._grabOffset = self:_pointerY() - row.frame.AbsolutePosition.Y
 
     -- above every other row, so the dragged one passes over them rather than under
     row.frame.ZIndex = 30
@@ -586,7 +585,7 @@ function ReorderList:_beginDrag(row, pointerY)
     end)
 end
 
-function ReorderList:_follow(pointerY)
+function ReorderList:_follow()
     local row = self._dragRow
     if not row or not row.frame.Parent then
         return
@@ -594,7 +593,7 @@ function ReorderList:_follow(pointerY)
 
     local slot = self:_slot()
     local count = #self.rows
-    local top = (pointerY or self:_pointerY()) - self._grabOffset - self.stack.AbsolutePosition.Y
+    local top = self:_pointerY() - self._grabOffset - self.stack.AbsolutePosition.Y
     top = math.clamp(top, 0, math.max((count - 1) * slot, 0))
 
     -- written, never tweened: a tween here trails the cursor by its own duration, which reads as
