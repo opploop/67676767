@@ -8631,7 +8631,7 @@ function ItemGrid.new(tab, properties)
         columns = math.clamp(tonumber(properties.columns or properties.Columns) or defaultColumns, 1, 8),
         height = math.max(tonumber(properties.height or properties.Height) or defaultHeight, 80),
         imageLayout = imageLayout,
-        multiSelect = (properties.multiSelect or properties.MultiSelect) ~= false,
+        multiSelect = functions.readBool(properties, "multiSelect", true),
         emptyText = properties.emptyText or properties.EmptyText or "Nothing matches that filter.",
 
         -- `search = true` for the default placeholder, or pass the placeholder string itself
@@ -12601,8 +12601,8 @@ function ReorderList.new(tab, properties)
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
 
         rowHeight = math.max(tonumber(properties.rowHeight or properties.RowHeight) or defaultRowHeight, 26),
-        showIndex = (properties.showIndex or properties.ShowIndex) ~= false,
-        removable = (properties.removable or properties.Removable) == true,
+        showIndex = functions.readBool(properties, "showIndex", true),
+        removable = functions.readBool(properties, "removable", false),
         emptyText = properties.emptyText or properties.EmptyText or "Nothing here yet.",
 
         flag = properties.flag
@@ -30086,6 +30086,24 @@ local functions = {}
 local textMetrics = require(script.Parent.textMetrics)
 local colors = require(script.Parent.colors)
 local flags = require(script.Parent.flagNames)
+
+-- Read a boolean property that accepts either casing, with a default for when neither is set.
+--
+-- Why this needs a helper: the obvious one-liner is wrong for exactly the value that matters.
+-- `(properties.showIndex or properties.ShowIndex) ~= false` evaluates `false or nil` to nil, and
+-- nil ~= false is true - so passing `showIndex = false` is silently ignored and the option can
+-- only ever be turned ON. Live-caught on ReorderList, whose index badges kept rendering for a
+-- caller that had explicitly switched them off.
+function functions.readBool(properties: { [string]: any }, name: string, default: boolean): boolean
+    local value = properties[name]
+    if value == nil then
+        value = properties[string.upper(string.sub(name, 1, 1)) .. string.sub(name, 2)]
+    end
+    if value == nil then
+        return default
+    end
+    return value ~= false
+end
 
 functions.textWidth = textMetrics.textWidth
 functions.textHeight = textMetrics.textHeight

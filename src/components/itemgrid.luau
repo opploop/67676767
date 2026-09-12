@@ -136,7 +136,7 @@ function ItemGrid.new(tab, properties)
         columns = math.clamp(tonumber(properties.columns or properties.Columns) or defaultColumns, 1, 8),
         height = math.max(tonumber(properties.height or properties.Height) or defaultHeight, 80),
         imageLayout = imageLayout,
-        multiSelect = (properties.multiSelect or properties.MultiSelect) ~= false,
+        multiSelect = functions.readBool(properties, "multiSelect", true),
         emptyText = properties.emptyText or properties.EmptyText or "Nothing matches that filter.",
 
         -- `search = true` for the default placeholder, or pass the placeholder string itself

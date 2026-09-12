@@ -93,8 +93,8 @@ function ReorderList.new(tab, properties)
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
 
         rowHeight = math.max(tonumber(properties.rowHeight or properties.RowHeight) or defaultRowHeight, 26),
-        showIndex = (properties.showIndex or properties.ShowIndex) ~= false,
-        removable = (properties.removable or properties.Removable) == true,
+        showIndex = functions.readBool(properties, "showIndex", true),
+        removable = functions.readBool(properties, "removable", false),
         emptyText = properties.emptyText or properties.EmptyText or "Nothing here yet.",
 
         flag = properties.flag
