@@ -138,6 +138,20 @@ function ItemGrid.new(tab, properties)
         height = math.max(tonumber(properties.height or properties.Height) or defaultHeight, 80),
         imageLayout = imageLayout,
         multiSelect = functions.readBool(properties, "multiSelect", true),
+        -- A cap on a multi-select grid: "pick up to 3 of these 40". nil means no cap, and it is
+        -- meaningless on a single-select grid (multiSelect = false is already a cap of one).
+        maxSelected = (function()
+            local max = tonumber(properties.maxSelected or properties.MaxSelected)
+            return if max and max >= 1 then math.floor(max) else nil
+        end)(),
+        -- A standing restriction ANDed with every other filter, and the piece `Filter` could not
+        -- express: a predicate passed to Filter REPLACES the text/tag matching and is cleared the
+        -- moment the player types (deliberately - see the search input's own handler). A scope is
+        -- the opposite intent, "these are the only rows that exist for this player at all", so it
+        -- survives typing and composes with it. Keep them as two slots rather than one.
+        scopeFilter = if type(properties.scope or properties.Scope) == "function"
+            then properties.scope or properties.Scope
+            else nil,
         emptyText = properties.emptyText or properties.EmptyText or "Nothing matches that filter.",
 
         -- `search = true` for the default placeholder, or pass the placeholder string itself
@@ -821,6 +835,21 @@ function ItemGrid:_applyCell(cell, animate)
     end
 end
 
+function ItemGrid:_selectedCount(): number
+    local count = 0
+    for _ in self.selected do
+        count += 1
+    end
+    return count
+end
+
+-- Replace the standing scope. nil drops it. Re-filters immediately, so a scope narrowed while
+-- rows are on screen takes effect without waiting for the next Refresh.
+function ItemGrid:SetScope(predicate)
+    self.scopeFilter = if type(predicate) == "function" then predicate else nil
+    self:_applyFilter()
+end
+
 function ItemGrid:_syncValue()
     -- ordered by the item list, not by click order: a persisted selection should round-trip to
     -- the same array regardless of which order the player happened to tick things in
@@ -835,11 +864,19 @@ function ItemGrid:_syncValue()
     -- selected / TOTAL, never selected / currently-shown: filtering to two cards while two hidden
     -- ones are ticked read as "2 / 2", which says every visible card is selected and is flatly
     -- untrue. The total is the only denominator that doesn't lie as the filter moves.
-    self.counter.Text = `{#ids} / {#self.entries}`
+    -- against the cap when there is one: "2 / 3" is the number a capped player is watching,
+    -- where "2 / 40" tells them nothing about how many picks they have left
+    self.counter.Text = `{#ids} / {self.maxSelected or #self.entries}`
 end
 
 -- Does this entry survive the current filter?
 function ItemGrid:_matches(entry): boolean
+    -- scope first and unconditionally: unlike Filter's predicate, nothing the player does clears
+    -- it, and a row it rejects is not reachable by searching for it either
+    if self.scopeFilter and self.scopeFilter(entry) ~= true then
+        return false
+    end
+
     if self.customFilter then
         return self.customFilter(entry) == true
     end
@@ -961,6 +998,9 @@ function ItemGrid:Set(ids, skipCallback)
             if not self.multiSelect then
                 break -- a single-select grid restoring a multi-entry config takes the first
             end
+            if self.maxSelected and self:_selectedCount() >= self.maxSelected then
+                break -- a config saved before the cap was lowered must not restore over it
+            end
         end
     end
 
@@ -983,6 +1023,11 @@ function ItemGrid:Toggle(id, skipCallback)
     end
 
     local turningOn = not self.selected[id]
+    if turningOn and self.multiSelect and self.maxSelected and self:_selectedCount() >= self.maxSelected then
+        -- at the cap: refuse the pick rather than silently dropping someone else's. The player
+        -- unticks something first, which is the only unambiguous reading of what they meant.
+        return false
+    end
     if turningOn and not self.multiSelect then
         table.clear(self.selected)
         for _, other in self.cells do

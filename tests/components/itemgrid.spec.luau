@@ -226,5 +226,145 @@ return function()
             -- two items are one row, not 400px of empty panel
             expect(few:_contentHeight() < 400).to.equal(true)
         end)
+
+        describe("maxSelected", function()
+            it("refuses a pick past the cap instead of dropping an earlier one", function()
+                local grid = makeTab():CreateItemGrid({
+                    items = rarityItems(),
+                    maxSelected = 2,
+                    forgetState = true,
+                })
+
+                expect(grid:Toggle("a")).never.to.equal(false)
+                expect(grid:Toggle("b")).never.to.equal(false)
+                -- at the cap: the third is refused, and the first two are untouched
+                expect(grid:Toggle("c")).to.equal(false)
+                expect(selected(grid)).to.equal("a,b")
+            end)
+
+            it("frees a slot again when something is unticked", function()
+                local grid = makeTab():CreateItemGrid({
+                    items = rarityItems(),
+                    maxSelected = 1,
+                    forgetState = true,
+                })
+
+                grid:Toggle("a")
+                expect(grid:Toggle("b")).to.equal(false)
+                grid:Toggle("a") -- untick
+                expect(grid:Toggle("b")).never.to.equal(false)
+                expect(selected(grid)).to.equal("b")
+            end)
+
+            it("caps a Set too, so a config saved before the cap cannot restore over it", function()
+                local grid = makeTab():CreateItemGrid({
+                    items = rarityItems(),
+                    maxSelected = 2,
+                    forgetState = true,
+                })
+
+                grid:Set({ "a", "b", "c" })
+
+                expect(selected(grid)).to.equal("a,b")
+            end)
+
+            it("counts against the cap rather than the total", function()
+                local grid = makeTab():CreateItemGrid({
+                    items = rarityItems(),
+                    maxSelected = 2,
+                    forgetState = true,
+                })
+
+                grid:Toggle("a")
+                -- "1 / 2" is what a capped player needs; "1 / 3" says nothing about picks left
+                expect(grid.counter.Text).to.equal("1 / 2")
+            end)
+
+            it("is ignored when it makes no sense, and absent by default", function()
+                local tab = makeTab()
+
+                expect(tab:CreateItemGrid({ items = rarityItems(), forgetState = true }).maxSelected).to.equal(nil)
+                expect(tab:CreateItemGrid({ items = rarityItems(), maxSelected = 0, forgetState = true }).maxSelected).to.equal(
+                    nil
+                )
+            end)
+        end)
+
+        describe("scope", function()
+            local function ownedOnly(entry)
+                return entry.tag == "RARE"
+            end
+
+            it("hides everything outside it, from the start", function()
+                local grid = makeTab():CreateItemGrid({
+                    items = rarityItems(),
+                    scope = ownedOnly,
+                    forgetState = true,
+                })
+
+                expect(visible(grid)).to.equal("a,c")
+            end)
+
+            it("survives the player typing, which a Filter predicate does not", function()
+                local grid = makeTab():CreateItemGrid({
+                    items = rarityItems(),
+                    scope = ownedOnly,
+                    search = true,
+                    forgetState = true,
+                })
+
+                grid.searchInput.Text = "Alp"
+                grid.searchInput:GetPropertyChangedSignal("Text"):Fire()
+
+                -- "Alpha" and "Alpine" both match the text, and both are in scope. "Bravo" is out
+                -- of scope and stays out - this is the whole reason scope is not Filter.
+                expect(visible(grid)).to.equal("a,c")
+
+                grid.searchInput.Text = "Bravo"
+                grid.searchInput:GetPropertyChangedSignal("Text"):Fire()
+                expect(visible(grid)).to.equal("")
+            end)
+
+            it("still ANDs with a Filter predicate", function()
+                local grid = makeTab():CreateItemGrid({
+                    items = rarityItems(),
+                    scope = ownedOnly,
+                    forgetState = true,
+                })
+
+                grid:Filter(function(entry)
+                    return entry.id ~= "a"
+                end)
+
+                expect(visible(grid)).to.equal("c")
+            end)
+
+            it("can be replaced and dropped later", function()
+                local grid = makeTab():CreateItemGrid({
+                    items = rarityItems(),
+                    scope = ownedOnly,
+                    forgetState = true,
+                })
+
+                grid:SetScope(function(entry)
+                    return entry.id == "b"
+                end)
+                expect(visible(grid)).to.equal("b")
+
+                grid:SetScope(nil)
+                expect(visible(grid)).to.equal("a,b,c")
+            end)
+
+            it("leaves a selection it hides alone rather than silently unticking it", function()
+                local grid = makeTab():CreateItemGrid({ items = rarityItems(), forgetState = true })
+
+                grid:Toggle("b")
+                grid:SetScope(ownedOnly)
+
+                -- b is off screen but still the player's pick, same as any other filter. Dropping
+                -- it would rewrite their saved value as a side effect of a scope change.
+                expect(selected(grid)).to.equal("b")
+            end)
+        end)
     end)
 end
