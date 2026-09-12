@@ -8555,6 +8555,7 @@ local boxSize = 18
 local dotSize = 7
 local defaultColumns = 4
 local defaultHeight = 210
+local emptyRoom = 28 -- the panel a grid keeps when it has nothing to show, for the empty label
 local defaultCellHeight = 56
 local stackedCellHeight = 128 -- room for a thumbnail plus its name underneath
 
@@ -9050,9 +9051,17 @@ function ItemGrid:_applyColumns()
     end
 
     local cellWidth = math.floor((width - cellGap * (columns - 1)) / columns)
+    local columnsChanged = self.columns ~= columns
     self.columns = columns
     self.gridLayout.FillDirectionMaxCells = columns
     self.gridLayout.CellSize = UDim2.fromOffset(cellWidth, self.cellHeight)
+
+    -- Fewer columns means more rows means a taller grid. Guarded on an actual change: _syncHeight
+    -- writes scroll.Size, which re-fires the AbsoluteSize listener that called us, and an
+    -- unguarded call would bounce between the two every frame.
+    if columnsChanged and self._built then
+        self:_syncHeight()
+    end
 end
 
 function ItemGrid:_cellConnect(cell, signal, handler)
@@ -9397,12 +9406,30 @@ function ItemGrid:_rebuildCells()
     self._built = true
 end
 
+-- `height` is the tallest the grid may get, not the space it always takes: a grid of two items
+-- reserving 210px of empty panel is just a hole in the page. The content height is measured off
+-- the FULL item count rather than the filtered one, so typing in the search box narrows the cards
+-- without the panel resizing under the cursor on every keystroke.
+function ItemGrid:_contentHeight(): number
+    local count = #self.entries
+    if count == 0 then
+        return 0
+    end
+    local rows = math.ceil(count / math.max(self.columns, 1))
+    local inset = if self.scroll:IsA("ScrollingFrame") then strokeInset * 2 else 0
+    return rows * self.cellHeight + (rows - 1) * cellGap + inset
+end
+
 function ItemGrid:_syncHeight()
     local top = self:_gridTop()
-    self.scroll.Size = UDim2.new(1, -(sidePadding * 2), 0, self.height)
+    local content = self:_contentHeight()
+    -- an empty grid still needs room for the empty label
+    local viewport = if content == 0 then emptyRoom else math.min(self.height, content)
+
+    self.scroll.Size = UDim2.new(1, -(sidePadding * 2), 0, viewport)
     self.scroll.Position = UDim2.new(0, sidePadding, 0, top)
     self.emptyLabel.Position = UDim2.new(0, sidePadding, 0, top + 8)
-    self.main.Size = UDim2.new(1, -20, 0, top + self.height + sidePadding)
+    self.main.Size = UDim2.new(1, -20, 0, top + viewport + sidePadding)
 end
 
 moveable(ItemGrid)
