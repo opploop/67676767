@@ -772,6 +772,112 @@ local advancedPanel = advancedPanelColumn:CreateCollapsible({ name = "Advanced" 
 advancedPanel:CreateToggle({ name = "Bypass Anti-AFK", forgetState = true })
 advancedPanel:CreateToggle({ name = "Bypass Rate Limit", forgetState = true })
 
+-- Devlog 15: ReorderList, ItemGrid --------------------------------------------------------------
+local tab15 = window:CreateTab({ name = "Devlog 15", icon = "lucide:list-ordered" })
+
+tab15:CreateDivider({ text = "Drag to reorder" })
+tab15:CreateLabel({
+    text = "Grab a row and drop it where it goes. The order IS the value: it persists through `flag` and the callback hands back the id array.",
+})
+
+-- Deliberately layout-free inside: animating a row's Position while a UIListLayout also owns it
+-- is unreliable on this project's executor, which is what killed PinnedList and CursorTag (see
+-- reorderlist.luau's own header). This component writes every row's Position itself, so there is
+-- nothing to fight the drag.
+local priorityOrder = tab15:CreateReorderList({
+    name = "Execution order",
+    description = "Higher rows win when two features collide.",
+    icon = "lucide:layers",
+    removable = true,
+    items = {
+        { id = "farm", name = "Auto Farm", icon = "lucide:swords", color = Color3.fromRGB(240, 165, 60) },
+        { id = "quest", name = "Auto Quest", icon = "lucide:scroll", color = Color3.fromRGB(120, 170, 255) },
+        { id = "boss", name = "Boss Hunter", icon = "lucide:skull", color = Color3.fromRGB(230, 100, 120) },
+        { id = "sell", name = "Auto Sell", icon = "lucide:coins", color = Color3.fromRGB(110, 210, 150) },
+    },
+    forgetState = true,
+})
+
+-- no index badge, no remove button: the same component with its chrome turned off
+tab15:CreateReorderList({
+    name = "Waypoint route",
+    showIndex = false,
+    items = { "Spawn", "Mine", "Vendor", "Boss Room" },
+    forgetState = true,
+})
+
+tab15:CreateButton({
+    name = "Read the current order",
+    icon = "lucide:eye",
+    callback = function()
+        window:Notify({
+            title = "Order",
+            content = table.concat(priorityOrder:Get(), "  >  "),
+            duration = 4,
+        })
+    end,
+})
+
+tab15:CreateDivider({ text = "Pick from many" })
+tab15:CreateLabel({
+    text = "The long-list case a Dropdown handles badly. The search box and the filter chips live inside the element - the dev supplies the tag set, so the axis can be rarity, slot, source, anything.",
+})
+
+local rarity = {
+    COMMON = Color3.fromRGB(150, 150, 150),
+    UNCOMMON = Color3.fromRGB(90, 200, 120),
+    RARE = Color3.fromRGB(110, 150, 255),
+    EPIC = Color3.fromRGB(190, 120, 235),
+    LEGENDARY = Color3.fromRGB(240, 165, 60),
+}
+local cosmeticNames = {
+    "Angelic Guardian", "Angelic Warrior", "Astral Guardian", "Banana",
+    "Bunny Knight", "Chaos Knight", "Corrupt Overlord", "Cyber Bunny Warrior",
+    "Demonic Guardian", "Demonic Warrior", "Dragon Lord", "Evil Beastmaster",
+    "Fergie5000", "Fusion Guardian", "Ghastly Snowman", "Headless Horseman",
+}
+local rarityCycle = { "LEGENDARY", "COMMON", "UNCOMMON", "RARE", "EPIC" }
+local cosmetics = {}
+for index, cosmeticName in cosmeticNames do
+    local tag = rarityCycle[(index - 1) % #rarityCycle + 1]
+    table.insert(cosmetics, { id = cosmeticName, name = cosmeticName, tag = tag, color = rarity[tag] })
+end
+local rarityChips = {}
+for _, tag in rarityCycle do
+    table.insert(rarityChips, { tag = tag, color = rarity[tag] })
+end
+
+local armorGrid = tab15:CreateItemGrid({
+    name = "Armors",
+    description = "Tick the cosmetics to roll for.",
+    icon = "lucide:shirt",
+    items = cosmetics,
+    filters = rarityChips,
+    search = true,
+    height = 260,
+    forgetState = true,
+})
+armorGrid:Set({ "Angelic Guardian", "Astral Guardian", "Demonic Warrior" }, true)
+
+tab15:CreateButton({
+    name = "Select every LEGENDARY",
+    icon = "lucide:wand-sparkles",
+    callback = function()
+        -- SelectAll only takes what the filter currently shows, so narrowing first is the whole
+        -- trick: "select all" meaning the entire catalogue would be a nasty surprise.
+        armorGrid:Filter({ tags = { "LEGENDARY" } })
+        armorGrid:SelectAll()
+    end,
+})
+tab15:CreateButton({
+    name = "Clear filter and selection",
+    icon = "lucide:eraser",
+    callback = function()
+        armorGrid:Filter(nil) -- clears the search box and the chips together
+        armorGrid:Clear()
+    end,
+})
+
 -- Not demoed above (nothing to click, they're either invisible improvements or need a real
 -- failure to show off): the singleton window registry (auto-unloads a same-named window left
 -- from a previous run of this exact script), Window:OnRenderFreeze (detects a stalled render
