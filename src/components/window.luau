@@ -36,6 +36,20 @@ local resolveCustomSize = core.resolveCustomSize
 local resolveTheme = core.resolveTheme
 local windowRegistry = core.windowRegistry
 
+-- First of these that is actually PRESENT. Same presence-not-truthiness rule as
+-- functions.readValue, but over a vararg instead of one properties table, because the candidates
+-- below come from two differently-shaped tables (`configuration` and upstream Rayfield's
+-- `ConfigurationSaving`) and a declared `false` has to beat a later non-nil default.
+local function readFirst(...)
+    for index = 1, select("#", ...) do
+        local value = select(index, ...)
+        if value ~= nil then
+            return value
+        end
+    end
+    return nil
+end
+
 function Window.new(properties)
     properties = if typeof(properties) == "table" then properties else {}
 
@@ -137,15 +151,26 @@ function Window.new(properties)
         controls = {},
 
         configuration = (function()
+            -- ConfigurationSaving is upstream Rayfield Gen2's spelling for this whole block, and
+            -- it is what a hub ported from upstream declares. Reading only `configuration` meant
+            -- such a hub got NO persistence at all, silently: nothing warns, the window builds
+            -- fine, and every flag is simply never saved or restored. Same class of problem as
+            -- `Default` vs `value` on a control, with a worse outcome, so it is tolerated the
+            -- same way. `Enabled` there covers both halves (upstream has no separate save/load
+            -- switch), and an explicit autoSave/autoLoad still wins over it.
             local cfg = properties.configuration or properties.Configuration
-            if not cfg then
+            local legacy = properties.ConfigurationSaving or properties.configurationSaving
+            if not cfg and not legacy then
                 return {}
             end
+            cfg = cfg or {}
+            legacy = legacy or {}
+            local legacyEnabled = if legacy.Enabled ~= nil then legacy.Enabled else legacy.enabled
             return {
-                autoSave = cfg.autoSave or cfg.AutoSave,
-                autoLoad = cfg.autoLoad or cfg.AutoLoad,
-                fileName = cfg.fileName or cfg.FileName,
-                customFolder = cfg.customFolder or cfg.CustomFolder,
+                autoSave = readFirst(cfg.autoSave, cfg.AutoSave, legacyEnabled),
+                autoLoad = readFirst(cfg.autoLoad, cfg.AutoLoad, legacyEnabled),
+                fileName = readFirst(cfg.fileName, cfg.FileName, legacy.FileName, legacy.fileName),
+                customFolder = readFirst(cfg.customFolder, cfg.CustomFolder, legacy.FolderName, legacy.folderName),
                 ignoreFlags = cfg.ignoreFlags or cfg.IgnoreFlags,
                 scopeByPlace = cfg.scopeByPlace or cfg.ScopeByPlace,
             }

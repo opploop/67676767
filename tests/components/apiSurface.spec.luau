@@ -206,6 +206,56 @@ return function()
         end)
     end)
 
+    -- Upstream Rayfield Gen2 declares the whole persistence block as
+    -- ConfigurationSaving = { Enabled, FolderName, FileName }. Reading only `configuration`
+    -- meant a hub ported from upstream got no persistence whatsoever and nothing said so: the
+    -- window builds, every control works, and not one flag is ever written or restored.
+    describe("ConfigurationSaving as an alias for configuration", function()
+        afterEach(cleanup)
+
+        local function configOf(properties)
+            window = Window.new(properties)
+            return window.configuration
+        end
+
+        it("maps Enabled onto both halves, since upstream has no separate switch", function()
+            local config = configOf({
+                name = "Legacy",
+                ConfigurationSaving = { Enabled = true, FileName = "Hub", FolderName = "HubFolder" },
+            })
+
+            expect(config.autoSave).to.equal(true)
+            expect(config.autoLoad).to.equal(true)
+            expect(config.fileName).to.equal("Hub")
+            expect(config.customFolder).to.equal("HubFolder")
+        end)
+
+        it("carries a disabled block through as disabled, not as absent", function()
+            local config = configOf({ name = "Legacy off", ConfigurationSaving = { Enabled = false } })
+
+            -- false, not nil: presence is what is read, so an explicit opt-out stays an opt-out
+            expect(config.autoSave).to.equal(false)
+            expect(config.autoLoad).to.equal(false)
+        end)
+
+        it("lets the canonical spelling win where both are given", function()
+            local config = configOf({
+                name = "Both",
+                configuration = { autoSave = false, fileName = "canonical" },
+                ConfigurationSaving = { Enabled = true, FileName = "legacy" },
+            })
+
+            expect(config.autoSave).to.equal(false)
+            expect(config.fileName).to.equal("canonical")
+            -- and the legacy block still fills in what the canonical one left out
+            expect(config.autoLoad).to.equal(true)
+        end)
+
+        it("leaves a window with neither block with an empty configuration", function()
+            expect(next(configOf({ name = "Neither" }))).to.equal(nil)
+        end)
+    end)
+
     describe("CreateHoverOverlay", function()
         afterEach(cleanup)
 
