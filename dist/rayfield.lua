@@ -17811,6 +17811,12 @@ function StatusCard.new(tab, properties)
         name = properties.name or properties.Name or "Status",
         icon = properties.icon or properties.Icon,
         width = properties.width or properties.Width or 260,
+        -- Whether 260 is a real request or just the fallback. A card standing on its own in a
+        -- column is a full-width element like every one of its neighbours; it only pins itself
+        -- to `width` when a caller names one. Without this it sat centred and narrow with a
+        -- gap down both sides while the console and the buttons above and below it filled the
+        -- page - live-reported twice as it not taking the space it should.
+        _explicitWidth = (properties.width or properties.Width) ~= nil,
         collapsible = if properties.collapsible ~= nil
             then properties.collapsible
             elseif properties.Collapsible ~= nil then properties.Collapsible
@@ -17835,7 +17841,7 @@ function StatusCard.new(tab, properties)
 
     self.main = window:Create("Frame", {
         Name = self.name,
-        Size = UDim2.fromOffset(self.width, outerPad * 2 + headerRowHeight),
+        Size = self:_outerSize(outerPad * 2 + headerRowHeight),
         BorderSizePixel = 0,
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         Active = true, -- Devlog 7 fix - see Window:StyleElementBody's own comment on why
@@ -18029,6 +18035,18 @@ end
 -- left on AutomaticSize. main's own height is outerPad on both sides of the header, PLUS
 -- contentWrapper's current height - forgetting the padding here is exactly what made the
 -- collapsed card shorter than its own header content (see outerPad's own comment above).
+-- The card's own frame size for a given height. Three cases, and only the middle one is a
+-- fixed width: inside a row the row's flex owns it, with an explicit `width` the caller does,
+-- and otherwise it fills its column like any other element.
+function StatusCard:_outerSize(height: number): UDim2
+    if self._widthManaged then
+        return UDim2.new(self.main.Size.X.Scale, self.main.Size.X.Offset, 0, height)
+    elseif self._explicitWidth then
+        return UDim2.fromOffset(self.width, height)
+    end
+    return UDim2.new(1, -20, 0, height)
+end
+
 function StatusCard:_setHeight(targetContentHeight, animate)
     local contentSize = UDim2.new(1, 0, 0, targetContentHeight)
     local height = outerPad * 2 + headerRowHeight + targetContentHeight
@@ -18037,9 +18055,7 @@ function StatusCard:_setHeight(targetContentHeight, animate)
     -- collapse is what left the card frozen at its own 260px next to a toggle that had stretched
     -- to fill the row, live-reported as "it stays a square and doesn't take the space it should".
     -- Keep whatever width it currently has in that case and only drive the height.
-    local mainSize = if self._widthManaged
-        then UDim2.new(self.main.Size.X.Scale, self.main.Size.X.Offset, 0, height)
-        else UDim2.fromOffset(self.width, height)
+    local mainSize = self:_outerSize(height)
     if animate then
         variables.tweenService:Create(self.contentWrapper, heightInfo, { Size = contentSize }):Play()
         variables.tweenService:Create(self.main, heightInfo, { Size = mainSize }):Play()
