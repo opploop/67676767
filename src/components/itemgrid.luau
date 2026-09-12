@@ -443,13 +443,10 @@ function ItemGrid:_syncValue()
     end
     self.value = ids
 
-    local shown = 0
-    for _, cell in self.cells do
-        if cell.frame.Visible then
-            shown += 1
-        end
-    end
-    self.counter.Text = `{#ids} / {shown}`
+    -- selected / TOTAL, never selected / currently-shown: filtering to two cards while two
+    -- hidden ones are ticked read as "2 / 2", which says every visible card is selected and is
+    -- flatly untrue. The total is the only denominator that doesn't lie as the filter moves.
+    self.counter.Text = `{#ids} / {#self.entries}`
 end
 
 -- Does this entry survive the current filter? nil filter means everything does.
