@@ -869,6 +869,57 @@ tab15:CreateButton({
         armorGrid:SelectAll()
     end,
 })
+tab15:CreateDivider({ text = "A rail driving the grid" })
+tab15:CreateLabel({
+    text = "ListPicker is the vertical single-select rail. A width on its column is what keeps it narrow - without it every column in a row takes an equal share.",
+})
+
+local catalog = {
+    Armors = { "Angelic Guardian", "Astral Guardian", "Banana", "Chaos Knight", "Dragon Lord" },
+    Weapons = { "Blade of Dawn", "Chaos Scythe", "Frost Lance" },
+    Enchants = { "Lifesteal", "Swiftness" },
+}
+local function catalogItems(kind)
+    local out = {}
+    for index, entryName in catalog[kind] do
+        local tag = rarityCycle[(index - 1) % #rarityCycle + 1]
+        table.insert(out, { id = entryName, name = entryName, tag = tag, color = rarity[tag] })
+    end
+    return out
+end
+
+local screenRow = tab15:CreateGroup({ direction = "row" })
+local railColumn = screenRow:CreateGroup({ direction = "column", width = 165 })
+local bodyColumn = screenRow:CreateGroup({ direction = "column" })
+
+local catalogGrid = bodyColumn:CreateItemGrid({
+    name = "Armors",
+    items = catalogItems("Armors"),
+    filters = rarityChips,
+    search = true,
+    height = 220,
+    forgetState = true,
+})
+
+railColumn:CreateListPicker({
+    name = "COSMETIC TYPE",
+    icon = "lucide:layout-grid",
+    options = {
+        { id = "Armors", name = "Armors", icon = "lucide:shirt" },
+        { id = "Weapons", name = "Weapons", icon = "lucide:swords" },
+        { id = "Enchants", name = "Enchants", icon = "lucide:sparkles" },
+    },
+    forgetState = true,
+    callback = function(kind)
+        if not kind then
+            return
+        end
+        -- skipCallback: the grid own callback reports ticks, and swapping the catalogue is not one
+        catalogGrid:Refresh(catalogItems(kind), true)
+        catalogGrid.title.Text = kind
+    end,
+})
+
 tab15:CreateButton({
     name = "Clear filter and selection",
     icon = "lucide:eraser",
