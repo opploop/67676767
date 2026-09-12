@@ -129,7 +129,11 @@ function rayfield:CreateWindow(properties: types.WindowProps): types.Window
     -- at all. Read directly off the raw properties table (not something Window.new resolves)
     -- since the banner exists and is destroyed entirely within this function, before any Window
     -- instance is even built.
-    local showBanner = properties.showBanner ~= false and properties.ShowBanner ~= false
+    -- read through `any`: every component accepts camelCase or PascalCase at runtime, but
+    -- WindowProps documents only the camelCase spelling, so the PascalCase probe is a type error
+    -- against a type that is deliberately the smaller of the two
+    local rawProperties = properties :: any
+    local showBanner = rawProperties.showBanner ~= false and rawProperties.ShowBanner ~= false
     local banner = if showBanner then createBanner() else nil
 
     local window: types.Window? -- forward declared so the settle callback below can reach it

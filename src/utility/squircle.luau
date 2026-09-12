@@ -23,7 +23,11 @@ local squircle = {}
 
 export type ShapeName = "Squircle" | "SquircleH" | "SquircleV"
 
-local shapes: { [ShapeName]: { image: string, rect: Rect, radius: number } } = {
+export type Shape = { image: string, rect: Rect, radius: number }
+
+-- Named fields rather than a [ShapeName] indexer: Luau refuses dot-access on an indexer-typed
+-- table, and shapeFor below reaches for these by name.
+local shapes: { Squircle: Shape, SquircleH: Shape, SquircleV: Shape } = {
     Squircle = { image = "rbxassetid://89641024074289", rect = Rect.new(460, 460, 460, 460), radius = 310 },
     SquircleH = { image = "rbxassetid://125083578015333", rect = Rect.new(512, 325, 512, 325), radius = 325 },
     SquircleV = { image = "rbxassetid://124965260437653", rect = Rect.new(325, 512, 325, 512), radius = 325 },
@@ -32,13 +36,16 @@ local shapes: { [ShapeName]: { image: string, rect: Rect, radius: number } } = {
 -- Picks the shape matching the element's own aspect ratio right now. A little slack (1.15x)
 -- around "square" so a near-square element doesn't flicker between Squircle and SquircleH/V on
 -- a 1px resize jitter.
-local function shapeFor(size: Vector2): ShapeName
+-- Returns the shape itself rather than its name. Going through the name meant indexing the
+-- shapes table with a value Luau had widened to plain `string`, which is not the ShapeName its
+-- keys are declared as - and there is nothing the caller wants the name for anyway.
+local function shapeFor(size: Vector2): Shape
     if size.X > size.Y * 1.15 then
-        return "SquircleH"
+        return shapes.SquircleH
     elseif size.Y > size.X * 1.15 then
-        return "SquircleV"
+        return shapes.SquircleV
     end
-    return "Squircle"
+    return shapes.Squircle
 end
 
 -- Applies a squircle corner to an ImageLabel/ImageButton, sized for `cornerRadius` pixels and
@@ -46,7 +53,11 @@ end
 -- SliceScale has to track the element's own size against whichever asset's baked-in radius is
 -- now in play). Returns a cleanup function - disconnects the resize listener, doesn't touch the
 -- image itself (a caller swapping back to a plain UICorner clears Image on its own).
-function squircle.apply(imageLabel: ImageLabel | ImageButton, cornerRadius: number): () -> ()
+function squircle.apply(target: ImageLabel | ImageButton, cornerRadius: number): () -> ()
+    -- Narrowed once here rather than annotated as a union throughout: Luau will happily READ a
+    -- property off a union but refuses to WRITE one, and every slice property this touches
+    -- (ScaleType, Image, SliceCenter, SliceScale) exists identically on both classes.
+    local imageLabel = target :: ImageLabel
     imageLabel.ScaleType = Enum.ScaleType.Slice
 
     local function refresh()
@@ -54,8 +65,7 @@ function squircle.apply(imageLabel: ImageLabel | ImageButton, cornerRadius: numb
         if size.X <= 0 or size.Y <= 0 then
             return
         end
-        local shapeName = shapeFor(size)
-        local shape = shapes[shapeName]
+        local shape = shapeFor(size)
         if imageLabel.Image ~= shape.image then
             imageLabel.Image = shape.image
             imageLabel.SliceCenter = shape.rect

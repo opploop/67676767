@@ -152,7 +152,9 @@ function image.resolve(value: unknown): string
         -- fetch failed, ...), which just resolves to the string as-is - a caller passing a real
         -- rbxassetid://... never round-trips through here to begin with.
         local packName, iconName = string.match(value, "^(%a+):([%w%-_]+)$")
-        if packName then
+        -- both, not just the first: string.match hands back two optionals and narrowing one
+        -- says nothing about the other
+        if packName and iconName then
             if not icons.packNames[packName] then
                 warnUnresolvedIcon(value, ("unknown icon pack '%s'"):format(packName))
             else

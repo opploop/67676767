@@ -37,7 +37,12 @@ type ConfigWindow = {
 }
 
 function persistenceConfig.getPath(window: ConfigWindow, name: unknown?): (string, string)
-    return paths.getConfigPath(window, name)
+    -- Cast, not a shared type: persistencePaths declares its own ConfigWindow with just the
+    -- fields IT needs, and two identical-looking table types from different modules are not
+    -- interchangeable to Luau. This one is a superset (it also carries controls/_loading), so
+    -- handing it over is safe - aliasing the two instead makes every controls/_loading access
+    -- in this file a type error.
+    return paths.getConfigPath(window :: any, name)
 end
 
 -- window.configuration.ignoreFlags as an O(1) lookup set, rebuilt fresh each call rather than

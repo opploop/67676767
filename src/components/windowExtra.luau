@@ -1310,10 +1310,12 @@ end
 -- (an instance that got destroyed, a bad argument) just fails the same way every attempt and
 -- burns the whole backoff for nothing; reach for Window:Safe instead for those.
 function Window:RetryWithBackoff(fn, options: { attempts: number?, baseDelay: number?, maxDelay: number? }?)
-    options = if typeof(options) == "table" then options else {}
-    local attempts = options.attempts or 3
-    local baseDelay = options.baseDelay or 1
-    local maxDelay = options.maxDelay or 10
+    -- a fresh local, not a reassigned parameter: writing to a parameter does not narrow away
+    -- its declared optional, so every read below still counted as possibly-nil
+    local settings = if typeof(options) == "table" then options else {}
+    local attempts = settings.attempts or 3
+    local baseDelay = settings.baseDelay or 1
+    local maxDelay = settings.maxDelay or 10
 
     local lastError
     for attempt = 1, attempts do

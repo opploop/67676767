@@ -80,12 +80,14 @@ end
 -- callers should have a plain fallback ready (a built-in rbxassetid, or draw one from Frames)
 -- rather than assume this always succeeds, since it depends on a third-party repo staying up.
 function icons.find(name: string, pack: string?): IconEntry?
-    pack = pack or "lucide"
-    if not icons.packNames[pack] then
+    -- a fresh local, not a reassigned parameter: Luau keeps the declared `string?` on the
+    -- parameter however it is written to, so fetchPack still saw an optional
+    local packName = pack or "lucide"
+    if not icons.packNames[packName] then
         return nil
     end
 
-    local data = fetchPack(pack)
+    local data = fetchPack(packName)
     if not data then
         return nil
     end

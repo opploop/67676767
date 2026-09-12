@@ -24292,10 +24292,12 @@ end
 -- (an instance that got destroyed, a bad argument) just fails the same way every attempt and
 -- burns the whole backoff for nothing; reach for Window:Safe instead for those.
 function Window:RetryWithBackoff(fn, options: { attempts: number?, baseDelay: number?, maxDelay: number? }?)
-    options = if typeof(options) == "table" then options else {}
-    local attempts = options.attempts or 3
-    local baseDelay = options.baseDelay or 1
-    local maxDelay = options.maxDelay or 10
+    -- a fresh local, not a reassigned parameter: writing to a parameter does not narrow away
+    -- its declared optional, so every read below still counted as possibly-nil
+    local settings = if typeof(options) == "table" then options else {}
+    local attempts = settings.attempts or 3
+    local baseDelay = settings.baseDelay or 1
+    local maxDelay = settings.maxDelay or 10
 
     local lastError
     for attempt = 1, attempts do
@@ -27387,7 +27389,11 @@ function rayfield:CreateWindow(properties: types.WindowProps): types.Window
     -- at all. Read directly off the raw properties table (not something Window.new resolves)
     -- since the banner exists and is destroyed entirely within this function, before any Window
     -- instance is even built.
-    local showBanner = properties.showBanner ~= false and properties.ShowBanner ~= false
+    -- read through `any`: every component accepts camelCase or PascalCase at runtime, but
+    -- WindowProps documents only the camelCase spelling, so the PascalCase probe is a type error
+    -- against a type that is deliberately the smaller of the two
+    local rawProperties = properties :: any
+    local showBanner = rawProperties.showBanner ~= false and rawProperties.ShowBanner ~= false
     local banner = if showBanner then createBanner() else nil
 
     local window: types.Window? -- forward declared so the settle callback below can reach it
@@ -28327,6 +28333,11 @@ export type Tabbox = Moveable & {
 
 export type GroupProps = {
     direction: string?, -- "row" | "column" (default row); "horizontal"/"vertical" also work
+    -- Only meaningful for a column nested in a row, where the default is an equal split:
+    -- `width` pins this column and lets the rest of the row absorb what is left, `weight`
+    -- splits proportionally instead.
+    width: number?,
+    weight: number?,
     -- Dependency group: hides/shows every child together based on another control's value -
     -- Fluent's own DependencyGroupbox. dependsOn is whatever CreateToggle/CreateDropdown/etc
     -- itself returned; condition defaults to a plain truthy check (built for a toggle) - pass
@@ -28524,15 +28535,6 @@ export type GridFilterChip = string | {
     tag: string?,
     name: string?, -- the chip's label; defaults to the tag
     color: Color3?,
-}
-
--- Options a Group takes. `width`/`weight` only mean anything for a column nested in a row.
-export type GroupProps = {
-    direction: ("row" | "column")?,
-    width: number?, -- pin this column's width; the rest of the row absorbs what's left
-    weight: number?, -- proportional share of the row instead of an equal split
-    dependsOn: any?,
-    condition: ((value: any) -> boolean)?,
 }
 
 export type ListOption = string | {
@@ -31496,12 +31498,14 @@ end
 -- callers should have a plain fallback ready (a built-in rbxassetid, or draw one from Frames)
 -- rather than assume this always succeeds, since it depends on a third-party repo staying up.
 function icons.find(name: string, pack: string?): IconEntry?
-    pack = pack or "lucide"
-    if not icons.packNames[pack] then
+    -- a fresh local, not a reassigned parameter: Luau keeps the declared `string?` on the
+    -- parameter however it is written to, so fetchPack still saw an optional
+    local packName = pack or "lucide"
+    if not icons.packNames[packName] then
         return nil
     end
 
-    local data = fetchPack(pack)
+    local data = fetchPack(packName)
     if not data then
         return nil
     end
@@ -31711,7 +31715,9 @@ function image.resolve(value: unknown): string
         -- fetch failed, ...), which just resolves to the string as-is - a caller passing a real
         -- rbxassetid://... never round-trips through here to begin with.
         local packName, iconName = string.match(value, "^(%a+):([%w%-_]+)$")
-        if packName then
+        -- both, not just the first: string.match hands back two optionals and narrowing one
+        -- says nothing about the other
+        if packName and iconName then
             if not icons.packNames[packName] then
                 warnUnresolvedIcon(value, ("unknown icon pack '%s'"):format(packName))
             else
@@ -32965,7 +32971,12 @@ type ConfigWindow = {
 }
 
 function persistenceConfig.getPath(window: ConfigWindow, name: unknown?): (string, string)
-    return paths.getConfigPath(window, name)
+    -- Cast, not a shared type: persistencePaths declares its own ConfigWindow with just the
+    -- fields IT needs, and two identical-looking table types from different modules are not
+    -- interchangeable to Luau. This one is a superset (it also carries controls/_loading), so
+    -- handing it over is safe - aliasing the two instead makes every controls/_loading access
+    -- in this file a type error.
+    return paths.getConfigPath(window :: any, name)
 end
 
 -- window.configuration.ignoreFlags as an O(1) lookup set, rebuilt fresh each call rather than
@@ -33785,7 +33796,11 @@ local squircle = {}
 
 export type ShapeName = "Squircle" | "SquircleH" | "SquircleV"
 
-local shapes: { [ShapeName]: { image: string, rect: Rect, radius: number } } = {
+export type Shape = { image: string, rect: Rect, radius: number }
+
+-- Named fields rather than a [ShapeName] indexer: Luau refuses dot-access on an indexer-typed
+-- table, and shapeFor below reaches for these by name.
+local shapes: { Squircle: Shape, SquircleH: Shape, SquircleV: Shape } = {
     Squircle = { image = "rbxassetid://89641024074289", rect = Rect.new(460, 460, 460, 460), radius = 310 },
     SquircleH = { image = "rbxassetid://125083578015333", rect = Rect.new(512, 325, 512, 325), radius = 325 },
     SquircleV = { image = "rbxassetid://124965260437653", rect = Rect.new(325, 512, 325, 512), radius = 325 },
@@ -33794,13 +33809,16 @@ local shapes: { [ShapeName]: { image: string, rect: Rect, radius: number } } = {
 -- Picks the shape matching the element's own aspect ratio right now. A little slack (1.15x)
 -- around "square" so a near-square element doesn't flicker between Squircle and SquircleH/V on
 -- a 1px resize jitter.
-local function shapeFor(size: Vector2): ShapeName
+-- Returns the shape itself rather than its name. Going through the name meant indexing the
+-- shapes table with a value Luau had widened to plain `string`, which is not the ShapeName its
+-- keys are declared as - and there is nothing the caller wants the name for anyway.
+local function shapeFor(size: Vector2): Shape
     if size.X > size.Y * 1.15 then
-        return "SquircleH"
+        return shapes.SquircleH
     elseif size.Y > size.X * 1.15 then
-        return "SquircleV"
+        return shapes.SquircleV
     end
-    return "Squircle"
+    return shapes.Squircle
 end
 
 -- Applies a squircle corner to an ImageLabel/ImageButton, sized for `cornerRadius` pixels and
@@ -33808,7 +33826,11 @@ end
 -- SliceScale has to track the element's own size against whichever asset's baked-in radius is
 -- now in play). Returns a cleanup function - disconnects the resize listener, doesn't touch the
 -- image itself (a caller swapping back to a plain UICorner clears Image on its own).
-function squircle.apply(imageLabel: ImageLabel | ImageButton, cornerRadius: number): () -> ()
+function squircle.apply(target: ImageLabel | ImageButton, cornerRadius: number): () -> ()
+    -- Narrowed once here rather than annotated as a union throughout: Luau will happily READ a
+    -- property off a union but refuses to WRITE one, and every slice property this touches
+    -- (ScaleType, Image, SliceCenter, SliceScale) exists identically on both classes.
+    local imageLabel = target :: ImageLabel
     imageLabel.ScaleType = Enum.ScaleType.Slice
 
     local function refresh()
@@ -33816,8 +33838,7 @@ function squircle.apply(imageLabel: ImageLabel | ImageButton, cornerRadius: numb
         if size.X <= 0 or size.Y <= 0 then
             return
         end
-        local shapeName = shapeFor(size)
-        local shape = shapes[shapeName]
+        local shape = shapeFor(size)
         if imageLabel.Image ~= shape.image then
             imageLabel.Image = shape.image
             imageLabel.SliceCenter = shape.rect
