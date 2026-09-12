@@ -65,7 +65,7 @@ function Divider.new(tab, properties)
 
     if not showLine then
         -- Spacing-only: just a fixed-height invisible gap, no row/line/title to build or reveal.
-        self.window:Create("Frame", {
+        self.spacer = self.window:Create("Frame", {
             Size = UDim2.fromOffset(0, spacerHeight),
             BackgroundTransparency = 1,
             BorderSizePixel = 0,

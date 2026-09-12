@@ -137,7 +137,7 @@ format-check:
 
 lint:
 	$(SELENE) generate-roblox-std
-	$(SELENE) $(SRC_DIR) $(TESTS_DIR)
+	$(SELENE) $(SRC_DIR) $(TESTS_DIR) $(SCRIPTS_DIR)
 
 $(GLOBAL_TYPES):
 	$(CURL) -fsSL -o "$(GLOBAL_TYPES)" "$(GLOBAL_TYPES_URL)"

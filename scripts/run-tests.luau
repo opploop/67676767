@@ -5,7 +5,6 @@ local roblox = require("@lune/roblox")
 
 local root = process.cwd:gsub("\\", "/"):gsub("/$", "")
 local testsRoot = root .. "/tests"
-local sourceRoot = root .. "/src"
 local utilityRoot = root .. "/src/utility"
 local defaultCoverageDirectory = "src"
 local coverageRoot = root .. "/coverage"
@@ -94,13 +93,15 @@ local function parseDirectoryArg(default)
             skipNext = false
         elseif arg == "--coverage-threshold" then
             skipNext = true
-        elseif arg:sub(1, 2) == "--" then
-            -- Other options are ignored so future flags do not become paths.
-        elseif positional == nil then
-            positional = arg
-        else
-            warn("Only one coverage directory can be provided.")
-            process.exit(1)
+        elseif arg:sub(1, 2) ~= "--" then
+            -- Anything that is not an option is the one positional coverage directory. Options
+            -- are skipped here rather than matched, so a future flag never becomes a path.
+            if positional == nil then
+                positional = arg
+            else
+                warn("Only one coverage directory can be provided.")
+                process.exit(1)
+            end
         end
     end
 
@@ -317,7 +318,14 @@ local function delimiterDelta(line, lexerState)
 end
 
 local function startsContinuation(text)
-    return text:match("^or%s") or text:match("^and%s") or text:match("^%.%.") or text:match("^[,:%+%*/%%]")
+    -- A leading "-" is a wrapped subtraction, but only when it is not the start of a comment:
+    -- StyLua breaks a long arithmetic expression onto a line that begins with the operator.
+    local wrappedMinus = text:sub(1, 1) == "-" and text:sub(1, 2) ~= "--"
+    return text:match("^or%s")
+        or text:match("^and%s")
+        or text:match("^%.%.")
+        or text:match("^[,:%+%*/%%]") ~= nil
+        or wrappedMinus
 end
 
 local function endsContinuation(text)
@@ -340,6 +348,9 @@ local function endsContinuation(text)
         or text:match("%f[%w]and%s*$")
         or text:match("%f[%w]or%s*$")
         or text:match("%f[%w]not%s*$")
+        -- `for _, name in` with the iterator wrapped onto the next line: a probe between the
+        -- `in` and its iterator is "Expected 'do' when parsing for loop".
+        or text:match("%f[%w]in%s*$")
 end
 
 local function isContinuationOnly(text)
@@ -377,9 +388,14 @@ local function isCoverableLine(line, depth, inBlockComment, previousContinuation
     if isContinuationOnly(text) or startsContinuation(text) then
         return false
     end
+    -- StyLua wraps a long for-loop iterator list by leaving the header's own `do` alone on a
+    -- line, the same shape as a wrapped `then`. A probe above it lands between the iterator and
+    -- the `do`: "Expected 'do' when parsing for loop, got ';'".
     if
         text == "then"
+        or text == "do"
         or text:match("^then%s")
+        or text:match("^do%s")
         or text:match("^else")
         or text:match("^elseif")
         or text:match("^until")
@@ -521,9 +537,16 @@ for _, moduleInfo in sourceModules do
     -- So check the output before trusting it. A file whose instrumented form does not
     -- compile is written through untouched: it reports no coverage, which is visible and
     -- fixable, instead of breaking every spec that happens to require it.
-    if not pcall(luau.compile, instrumented) then
-        table.insert(uninstrumented, moduleInfo.relativePath)
-        instrumented = source
+    local compiles, compileError = pcall(luau.compile, instrumented)
+    if not compiles then
+        -- Report WHERE it stopped parsing, not just that it did. The line is in the instrumented
+        -- output, but the probe that broke it sits right above the source line of the same name.
+        table.insert(uninstrumented, ("%s (%s)"):format(moduleInfo.relativePath, tostring(compileError)))
+        -- The prelude stays: instrumentSource opens every file with the script binding src/
+        -- navigates by (script.Parent.group and friends), and handing back the bare source
+        -- without it leaves script nil - which surfaces far away as "attempt to index nil with
+        -- Parent" inside whichever module the file requires.
+        instrumented = "local script = _G.__RAYFIELD_CURRENT_SCRIPT\n" .. source
         coverage.files[moduleInfo.relativePath] = nil
     end
 
@@ -694,6 +717,13 @@ TweenInfo = {
     end,
 }
 
+-- Threads started by task.spawn/delay/defer below. Weak-keyed so a finished thread does not
+-- pin itself here for the rest of the run.
+local backgroundThreads = setmetatable({}, { __mode = "k" })
+local waitBudget = setmetatable({}, { __mode = "k" })
+-- Generous: a staged window reveal waits a few dozen times at most, while a runaway animation
+-- loop burns through this in microseconds and then parks for good.
+local maxWaitsPerThread = 200
 local function makeSignal()
     local signal = {
         _connections = {},
@@ -724,7 +754,19 @@ local function makeSignal()
         end
     end
 
+    -- Counts against the same per-thread budget task.wait uses, and for the same reason: a
+    -- background loop can spin entirely on `tween.Completed:Wait()` and never reach a
+    -- task.wait at all (scrollhint's arrow bounce is exactly that), so without this it runs
+    -- forever the moment it is spawned. Returns immediately on the main thread, as before.
     function signal:Wait()
+        local current = coroutine.running()
+        if current and backgroundThreads[current] and coroutine.isyieldable() then
+            local used = (waitBudget[current] or 0) + 1
+            waitBudget[current] = used
+            if used > maxWaitsPerThread then
+                coroutine.yield()
+            end
+        end
         if self._lastArgs then
             return table.unpack(self._lastArgs, 1, self._lastArgs.n)
         end
@@ -733,14 +775,6 @@ local function makeSignal()
 
     return signal
 end
-
--- Threads started by task.spawn/delay/defer below. Weak-keyed so a finished thread does not
--- pin itself here for the rest of the run.
-local backgroundThreads = setmetatable({}, { __mode = "k" })
-local waitBudget = setmetatable({}, { __mode = "k" })
--- Generous: a staged window reveal waits a few dozen times at most, while a runaway animation
--- loop burns through this in microseconds and then parks for good.
-local maxWaitsPerThread = 200
 
 task = {
     -- Returns immediately on the main thread, but YIELDS inside a task.spawn'd one.
