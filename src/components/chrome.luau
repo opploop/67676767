@@ -96,11 +96,13 @@ local function wireCollapsedDrag(window)
         end
         dragging = false
         if dragged then
-            -- the pill actually moved: Show() grows the window back from here, not from
-            -- wherever it sat before it was ever collapsed (see Window:Hide's own
-            -- _restorePosition capture) - otherwise reopening would visibly teleport the window
-            -- away from the pill the player just moved it to.
-            window._restorePosition = window.main.Position
+            -- Remember where the PILL was put, not where the window should reopen. Those are two
+            -- different memories and this used to write both into _restorePosition, so dragging
+            -- the pill moved the window's reopen spot with it, and reopening + dragging the
+            -- window then wiped the pill's spot back to the default corner. Show() still grows
+            -- the window out from wherever the pill happens to be - that leg is just a tween, so
+            -- it reads as the window travelling back to its own place rather than teleporting.
+            window._collapsedPosition = window.main.Position
             window:_syncDragBar()
         else
             hapticEngine.click()

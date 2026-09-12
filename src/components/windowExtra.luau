@@ -1676,6 +1676,27 @@ function Window:_collapsedRect()
         collapsedTop.Y.Scale,
         collapsedTop.Y.Offset + size.Y.Offset / 2
     )
+
+    -- A pill the player has dragged stays where they put it, so minimising again returns it
+    -- there instead of snapping back to the default corner. Deliberately a separate field from
+    -- _restorePosition (the OPEN window's spot): one field for both meant dragging either one
+    -- silently overwrote the other's memory, which is exactly how this was reported.
+    local dragged = self._collapsedPosition
+    if dragged and dragged.X.Scale == 0 and dragged.Y.Scale == 0 then
+        if self.settings and self.settings.keepOnScreen then
+            -- re-clamp against the PILL's size, not the window's: the screen can have changed
+            -- while the window was open, and _clampedPosition measures the open window
+            local screen = self.screenGui.AbsoluteSize
+            local margin = 8
+            local halfX, halfY = size.X.Offset / 2, size.Y.Offset / 2
+            dragged = UDim2.fromOffset(
+                math.clamp(dragged.X.Offset, halfX + margin, math.max(halfX + margin, screen.X - halfX - margin)),
+                math.clamp(dragged.Y.Offset, halfY + margin, math.max(halfY + margin, screen.Y - halfY - margin))
+            )
+        end
+        home = dragged
+    end
+
     return home, size
 end
 

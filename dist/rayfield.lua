@@ -1376,11 +1376,13 @@ local function wireCollapsedDrag(window)
         end
         dragging = false
         if dragged then
-            -- the pill actually moved: Show() grows the window back from here, not from
-            -- wherever it sat before it was ever collapsed (see Window:Hide's own
-            -- _restorePosition capture) - otherwise reopening would visibly teleport the window
-            -- away from the pill the player just moved it to.
-            window._restorePosition = window.main.Position
+            -- Remember where the PILL was put, not where the window should reopen. Those are two
+            -- different memories and this used to write both into _restorePosition, so dragging
+            -- the pill moved the window's reopen spot with it, and reopening + dragging the
+            -- window then wiped the pill's spot back to the default corner. Show() still grows
+            -- the window out from wherever the pill happens to be - that leg is just a tween, so
+            -- it reads as the window travelling back to its own place rather than teleporting.
+            window._collapsedPosition = window.main.Position
             window:_syncDragBar()
         else
             hapticEngine.click()
@@ -23878,6 +23880,27 @@ function Window:_collapsedRect()
         collapsedTop.Y.Scale,
         collapsedTop.Y.Offset + size.Y.Offset / 2
     )
+
+    -- A pill the player has dragged stays where they put it, so minimising again returns it
+    -- there instead of snapping back to the default corner. Deliberately a separate field from
+    -- _restorePosition (the OPEN window's spot): one field for both meant dragging either one
+    -- silently overwrote the other's memory, which is exactly how this was reported.
+    local dragged = self._collapsedPosition
+    if dragged and dragged.X.Scale == 0 and dragged.Y.Scale == 0 then
+        if self.settings and self.settings.keepOnScreen then
+            -- re-clamp against the PILL's size, not the window's: the screen can have changed
+            -- while the window was open, and _clampedPosition measures the open window
+            local screen = self.screenGui.AbsoluteSize
+            local margin = 8
+            local halfX, halfY = size.X.Offset / 2, size.Y.Offset / 2
+            dragged = UDim2.fromOffset(
+                math.clamp(dragged.X.Offset, halfX + margin, math.max(halfX + margin, screen.X - halfX - margin)),
+                math.clamp(dragged.Y.Offset, halfY + margin, math.max(halfY + margin, screen.Y - halfY - margin))
+            )
+        end
+        home = dragged
+    end
+
     return home, size
 end
 
