@@ -116,6 +116,11 @@ function Toggle:_startLoop()
     self._loopGeneration = (self._loopGeneration or 0) + 1
     local generation = self._loopGeneration
     task.spawn(function()
+        -- A tick is the feature doing its work, never a config restore - not even the first one,
+        -- which task.spawn runs inline while the restore pass that turned this toggle on is still
+        -- going. Saying so outright is what keeps tick 1 and tick 2 answering the same thing.
+        self.window:_setThreadRestoring(false)
+
         while self._loopRunning and self._loopGeneration == generation do
             local ok, result = pcall(self._loopFn, self)
             if not ok then

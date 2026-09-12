@@ -439,6 +439,31 @@ return function()
                 expect(grid.counter.Text).to.equal("2 / 2")
             end)
 
+            it("counts a hidden-but-ticked card against the cap", function()
+                local grid = makeTab():CreateItemGrid({
+                    items = rarityItems(),
+                    maxSelected = 2,
+                    forgetState = true,
+                })
+
+                grid:Toggle("b") -- EPIC, ticked while everything is visible
+                grid:SetScope(function(entry)
+                    return entry.tag == "RARE"
+                end)
+
+                -- b is off screen and stays ticked (a scope change must not rewrite the player's
+                -- saved value), so it still occupies one of the two slots. "Select all" over the
+                -- two visible RARE cards therefore adds only one.
+                grid.selectAllButton.MouseButton1Click:Fire()
+
+                expect(#grid:Get()).to.equal(2)
+                expect(grid.counter.Text).to.equal("2 / 2")
+                -- deliberate: never exceeding the cap is the only reading that cannot lose a
+                -- pick the player already made. The alternative - counting only what is visible -
+                -- would let the total run past the cap as the scope moves.
+                expect(table.find(grid:Get(), "b")).to.be.ok()
+            end)
+
             it("does nothing while the element is locked", function()
                 local grid = makeTab():CreateItemGrid({ items = rarityItems(), forgetState = true })
 

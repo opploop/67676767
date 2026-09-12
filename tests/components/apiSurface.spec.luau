@@ -213,10 +213,26 @@ return function()
     describe("ConfigurationSaving as an alias for configuration", function()
         afterEach(cleanup)
 
+        -- Every window it builds, not just the last one: assigning to the shared `window`
+        -- upvalue orphaned the earlier window in any test that called this twice, and an
+        -- un-unloaded window stays wired to the camera. That leak read as a failure in an
+        -- unrelated viewport-rebinding spec, which counts the old camera's connections.
+        local extras = {}
+
         local function configOf(properties)
-            window = Window.new(properties)
-            return window.configuration
+            local built = Window.new(properties)
+            table.insert(extras, built)
+            return built.configuration
         end
+
+        afterEach(function()
+            for _, built in extras do
+                if built and not built.unloaded then
+                    built:Unload()
+                end
+            end
+            table.clear(extras)
+        end)
 
         it("maps Enabled onto both halves, since upstream has no separate switch", function()
             local config = configOf({
@@ -249,6 +265,21 @@ return function()
             expect(config.fileName).to.equal("canonical")
             -- and the legacy block still fills in what the canonical one left out
             expect(config.autoLoad).to.equal(true)
+        end)
+
+        it("keeps an explicit scopeByPlace = false as false, not as absent", function()
+            -- read by presence like the rest of the block: an `or` chain here turned a declared
+            -- false into nil, which only ever looked harmless because the one consumer also does
+            -- a truthiness check
+            local config = configOf({
+                name = "Scoped off",
+                configuration = { scopeByPlace = false },
+            })
+
+            expect(config.scopeByPlace).to.equal(false)
+            expect(configOf({ name = "Scoped on", configuration = { ScopeByPlace = true } }).scopeByPlace).to.equal(
+                true
+            )
         end)
 
         it("leaves a window with neither block with an empty configuration", function()

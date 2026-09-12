@@ -982,6 +982,42 @@ return function()
             expect(w2:IsRestoringConfig()).to.equal(false)
         end)
 
+        it("never reports a restore to a Toggle:Loop tick, first tick included", function()
+            local w1 = newWindow(false)
+            w1:CreateTab({ name = "Main" })
+                :CreateToggle({ name = "Auto Farm", flag = "autoFarm", value = false })
+                :Set(true)
+
+            local w2 = newWindow(true)
+            local toggle = w2:CreateTab({ name = "Main" }):CreateToggle({
+                name = "Auto Farm",
+                flag = "autoFarm",
+                value = false,
+            })
+            local ticks = {}
+            toggle:Loop(function()
+                if #ticks < 3 then
+                    table.insert(ticks, w2:IsRestoringConfig())
+                end
+            end, 0.05)
+
+            w2:Show()
+
+            -- _startLoop is called from inside Set, a sibling of the guarded dispatch rather than
+            -- a descendant, and task.spawn runs the first tick inline while the restore pass is
+            -- still going. On a live executor that made tick 1 answer true and every later tick
+            -- answer false, for one unbroken loop. A tick is the feature working, never a restore.
+            expect(#ticks > 0).to.equal(true)
+            for _, wasRestoring in ticks do
+                expect(wasRestoring).to.equal(false)
+            end
+
+            -- stop it before the test ends: an endless loop thread left running leaks into
+            -- whatever runs next (it took out an unrelated camera-rebinding spec once)
+            toggle:Set(false)
+            expect(toggle._loopRunning).to.equal(false)
+        end)
+
         it("fires OnConfigLoaded after the restore has applied, so a Set in it is the last word", function()
             local w1 = newWindow(false)
             w1:CreateTab({ name = "Main" })

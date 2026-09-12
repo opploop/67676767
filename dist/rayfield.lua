@@ -20599,6 +20599,11 @@ function Toggle:_startLoop()
     self._loopGeneration = (self._loopGeneration or 0) + 1
     local generation = self._loopGeneration
     task.spawn(function()
+        -- A tick is the feature doing its work, never a config restore - not even the first one,
+        -- which task.spawn runs inline while the restore pass that turned this toggle on is still
+        -- going. Saying so outright is what keeps tick 1 and tick 2 answering the same thing.
+        self.window:_setThreadRestoring(false)
+
         while self._loopRunning and self._loopGeneration == generation do
             local ok, result = pcall(self._loopFn, self)
             if not ok then
@@ -21807,7 +21812,7 @@ function Window.new(properties)
                 fileName = readFirst(cfg.fileName, cfg.FileName, legacy.FileName, legacy.fileName),
                 customFolder = readFirst(cfg.customFolder, cfg.CustomFolder, legacy.FolderName, legacy.folderName),
                 ignoreFlags = cfg.ignoreFlags or cfg.IgnoreFlags,
-                scopeByPlace = cfg.scopeByPlace or cfg.ScopeByPlace,
+                scopeByPlace = readFirst(cfg.scopeByPlace, cfg.ScopeByPlace),
             }
         end)(),
     }, Window)
@@ -24406,29 +24411,15 @@ function Window:_runGuarded(element, fn, ...)
     -- answer true for the whole callback, yields included.
     local restoring = self._loading == true
     task.spawn(function()
-        local thread = coroutine.running()
-        local threads = nil
-        local previous = nil
-        if thread then
-            threads = self._restoringThreads
-            if not threads then
-                -- weak keys: a thread that finishes must not be pinned alive by this table
-                threads = setmetatable({}, { __mode = "k" })
-                self._restoringThreads = threads
-            end
-            -- save and put back, not clear: task.spawn runs inline until the callback yields, so
-            -- a guarded callback that triggers another one shares this thread with it
-            previous = threads[thread]
-            threads[thread] = restoring or nil
-        end
+        -- save and put back, not clear: task.spawn runs inline until the callback yields, so a
+        -- guarded callback that triggers another one shares this thread with it
+        local previous = self:_setThreadRestoring(restoring)
 
         local ok, err = pcall(function()
             return fn(table.unpack(args, 1, args.n))
         end)
 
-        if threads and thread then
-            threads[thread] = previous
-        end
+        self:_setThreadRestoring(previous)
 
         if ok or element._errored then
             return
@@ -25692,19 +25683,47 @@ end
 --         if window:IsRestoringConfig() then return end -- don't re-notify on a restore
 --         ...
 --     end
--- Accurate after a yield too: the restore's own boolean is cleared as soon as its synchronous
--- pass ends, so a callback that waits before asking would otherwise be told it is not a restore.
--- _runGuarded records the answer per callback thread (see windowExtra.luau) for that case.
-function Window:IsRestoringConfig(): boolean
-    if self._loading == true then
-        return true
+-- Record, for the thread running right now, whether the work on it belongs to a config
+-- restore. Returns the previous recording so the caller can put it back; nil means "nothing
+-- recorded, fall back to the window's own flag". Weak keys, so a finished thread is not pinned
+-- alive by this table.
+function Window:_setThreadRestoring(value: boolean?): boolean?
+    local thread = coroutine.running()
+    if not thread then
+        return nil
     end
     local threads = self._restoringThreads
     if not threads then
-        return false
+        threads = setmetatable({}, { __mode = "k" })
+        self._restoringThreads = threads
     end
-    local thread = coroutine.running()
-    return thread ~= nil and threads[thread] == true
+    local previous = threads[thread]
+    threads[thread] = value
+    return previous
+end
+
+-- A thread's own recording wins over the window-level flag, in BOTH directions.
+--
+-- `true` past the flag: the restore clears its boolean as soon as its synchronous pass ends, so a
+-- callback that yields before asking would otherwise be told it is not a restore (see
+-- _runGuarded).
+--
+-- `false` despite the flag: work that merely STARTED during the restore is not itself a restore.
+-- Toggle:_startLoop is the case that matters - it is called from inside Set, as a sibling of the
+-- guarded dispatch rather than a descendant of it, and task.spawn runs its first tick inline
+-- while the restore pass is still running. Measured on a live executor: tick 1 answered true and
+-- every later tick answered false, for one unbroken loop. Nobody designed that split, and a loop
+-- tick is not a restore in either case - the loop is the feature doing its work.
+function Window:IsRestoringConfig(): boolean
+    local threads = self._restoringThreads
+    if threads then
+        local thread = coroutine.running()
+        local recorded = if thread ~= nil then threads[thread] else nil
+        if recorded ~= nil then
+            return recorded == true
+        end
+    end
+    return self._loading == true
 end
 
 function Window:_restoreLate(element)

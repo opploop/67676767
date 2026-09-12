@@ -625,19 +625,47 @@ end
 --         if window:IsRestoringConfig() then return end -- don't re-notify on a restore
 --         ...
 --     end
--- Accurate after a yield too: the restore's own boolean is cleared as soon as its synchronous
--- pass ends, so a callback that waits before asking would otherwise be told it is not a restore.
--- _runGuarded records the answer per callback thread (see windowExtra.luau) for that case.
-function Window:IsRestoringConfig(): boolean
-    if self._loading == true then
-        return true
+-- Record, for the thread running right now, whether the work on it belongs to a config
+-- restore. Returns the previous recording so the caller can put it back; nil means "nothing
+-- recorded, fall back to the window's own flag". Weak keys, so a finished thread is not pinned
+-- alive by this table.
+function Window:_setThreadRestoring(value: boolean?): boolean?
+    local thread = coroutine.running()
+    if not thread then
+        return nil
     end
     local threads = self._restoringThreads
     if not threads then
-        return false
+        threads = setmetatable({}, { __mode = "k" })
+        self._restoringThreads = threads
     end
-    local thread = coroutine.running()
-    return thread ~= nil and threads[thread] == true
+    local previous = threads[thread]
+    threads[thread] = value
+    return previous
+end
+
+-- A thread's own recording wins over the window-level flag, in BOTH directions.
+--
+-- `true` past the flag: the restore clears its boolean as soon as its synchronous pass ends, so a
+-- callback that yields before asking would otherwise be told it is not a restore (see
+-- _runGuarded).
+--
+-- `false` despite the flag: work that merely STARTED during the restore is not itself a restore.
+-- Toggle:_startLoop is the case that matters - it is called from inside Set, as a sibling of the
+-- guarded dispatch rather than a descendant of it, and task.spawn runs its first tick inline
+-- while the restore pass is still running. Measured on a live executor: tick 1 answered true and
+-- every later tick answered false, for one unbroken loop. Nobody designed that split, and a loop
+-- tick is not a restore in either case - the loop is the feature doing its work.
+function Window:IsRestoringConfig(): boolean
+    local threads = self._restoringThreads
+    if threads then
+        local thread = coroutine.running()
+        local recorded = if thread ~= nil then threads[thread] else nil
+        if recorded ~= nil then
+            return recorded == true
+        end
+    end
+    return self._loading == true
 end
 
 function Window:_restoreLate(element)

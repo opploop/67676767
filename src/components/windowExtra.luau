@@ -1248,29 +1248,15 @@ function Window:_runGuarded(element, fn, ...)
     -- answer true for the whole callback, yields included.
     local restoring = self._loading == true
     task.spawn(function()
-        local thread = coroutine.running()
-        local threads = nil
-        local previous = nil
-        if thread then
-            threads = self._restoringThreads
-            if not threads then
-                -- weak keys: a thread that finishes must not be pinned alive by this table
-                threads = setmetatable({}, { __mode = "k" })
-                self._restoringThreads = threads
-            end
-            -- save and put back, not clear: task.spawn runs inline until the callback yields, so
-            -- a guarded callback that triggers another one shares this thread with it
-            previous = threads[thread]
-            threads[thread] = restoring or nil
-        end
+        -- save and put back, not clear: task.spawn runs inline until the callback yields, so a
+        -- guarded callback that triggers another one shares this thread with it
+        local previous = self:_setThreadRestoring(restoring)
 
         local ok, err = pcall(function()
             return fn(table.unpack(args, 1, args.n))
         end)
 
-        if threads and thread then
-            threads[thread] = previous
-        end
+        self:_setThreadRestoring(previous)
 
         if ok or element._errored then
             return

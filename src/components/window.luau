@@ -172,7 +172,7 @@ function Window.new(properties)
                 fileName = readFirst(cfg.fileName, cfg.FileName, legacy.FileName, legacy.fileName),
                 customFolder = readFirst(cfg.customFolder, cfg.CustomFolder, legacy.FolderName, legacy.folderName),
                 ignoreFlags = cfg.ignoreFlags or cfg.IgnoreFlags,
-                scopeByPlace = cfg.scopeByPlace or cfg.ScopeByPlace,
+                scopeByPlace = readFirst(cfg.scopeByPlace, cfg.ScopeByPlace),
             }
         end)(),
     }, Window)
