@@ -625,8 +625,19 @@ end
 --         if window:IsRestoringConfig() then return end -- don't re-notify on a restore
 --         ...
 --     end
+-- Accurate after a yield too: the restore's own boolean is cleared as soon as its synchronous
+-- pass ends, so a callback that waits before asking would otherwise be told it is not a restore.
+-- _runGuarded records the answer per callback thread (see windowExtra.luau) for that case.
 function Window:IsRestoringConfig(): boolean
-    return self._loading == true
+    if self._loading == true then
+        return true
+    end
+    local threads = self._restoringThreads
+    if not threads then
+        return false
+    end
+    local thread = coroutine.running()
+    return thread ~= nil and threads[thread] == true
 end
 
 function Window:_restoreLate(element)

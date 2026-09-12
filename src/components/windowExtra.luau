@@ -1239,10 +1239,39 @@ function Window:_runGuarded(element, fn, ...)
     end
 
     local args = table.pack(...)
+    -- Whether a config restore is what dispatched this callback, decided HERE rather than read
+    -- later. window._loading is a single boolean that the restore loop clears the moment its
+    -- synchronous pass finishes - but the callback below runs in its own thread, so the first
+    -- time it yields (a task.wait, an HTTP call) the loop moves on and clears the flag. Anything
+    -- after that yield would then see Window:IsRestoringConfig() answer false inside a callback
+    -- the restore itself started. Capturing it at dispatch and keying it to the thread keeps the
+    -- answer true for the whole callback, yields included.
+    local restoring = self._loading == true
     task.spawn(function()
+        local thread = coroutine.running()
+        local threads = nil
+        local previous = nil
+        if thread then
+            threads = self._restoringThreads
+            if not threads then
+                -- weak keys: a thread that finishes must not be pinned alive by this table
+                threads = setmetatable({}, { __mode = "k" })
+                self._restoringThreads = threads
+            end
+            -- save and put back, not clear: task.spawn runs inline until the callback yields, so
+            -- a guarded callback that triggers another one shares this thread with it
+            previous = threads[thread]
+            threads[thread] = restoring or nil
+        end
+
         local ok, err = pcall(function()
             return fn(table.unpack(args, 1, args.n))
         end)
+
+        if threads and thread then
+            threads[thread] = previous
+        end
+
         if ok or element._errored then
             return
         end

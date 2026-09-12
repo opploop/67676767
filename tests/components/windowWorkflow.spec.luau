@@ -925,6 +925,126 @@ return function()
             expect(#d.value).to.equal(1)
             expect(d.value[1]).to.equal("B")
         end)
+
+        -- Window:OnConfigLoaded and Window:IsRestoringConfig shipped with no spec at all. They
+        -- exist to answer "has the restore finished" and "is this a restore or a real click",
+        -- which is exactly the question a hub gets wrong when a Default fights a saved value.
+        it("tells a restore apart from an ordinary change", function()
+            local w1 = newWindow(false)
+            w1:CreateTab({ name = "Main" })
+                :CreateToggle({ name = "Auto Farm", flag = "autoFarm", value = false })
+                :Set(true)
+
+            local w2 = newWindow(true)
+            local duringRestore
+            w2:CreateTab({ name = "Main" }):CreateToggle({
+                name = "Auto Farm",
+                flag = "autoFarm",
+                value = false,
+                callback = function()
+                    duringRestore = w2:IsRestoringConfig()
+                end,
+            })
+
+            expect(w2:IsRestoringConfig()).to.equal(false)
+            w2:Show()
+
+            expect(duringRestore).to.equal(true)
+            -- and it stops being true the moment the restore is over
+            expect(w2:IsRestoringConfig()).to.equal(false)
+        end)
+
+        it("still reports a restore to a callback that outlives the restore pass", function()
+            local w1 = newWindow(false)
+            w1:CreateTab({ name = "Main" })
+                :CreateToggle({ name = "Auto Farm", flag = "autoFarm", value = false })
+                :Set(true)
+
+            local w2 = newWindow(true)
+            local afterPass
+            w2:CreateTab({ name = "Main" }):CreateToggle({
+                name = "Auto Farm",
+                flag = "autoFarm",
+                value = false,
+                callback = function()
+                    -- A real callback reaches this state by yielding: it runs in its own thread,
+                    -- so the restore loop finishes and clears its flag while the callback is
+                    -- parked. The shim's task.spawn is synchronous and cannot yield here, so
+                    -- clearing the flag by hand is how the same state is reached - and the
+                    -- thread-keyed answer recorded at dispatch is what must still hold.
+                    w2._loading = false
+                    afterPass = w2:IsRestoringConfig()
+                end,
+            })
+            w2:Show()
+
+            expect(afterPass).to.equal(true)
+            expect(w2:IsRestoringConfig()).to.equal(false)
+        end)
+
+        it("fires OnConfigLoaded after the restore has applied, so a Set in it is the last word", function()
+            local w1 = newWindow(false)
+            w1:CreateTab({ name = "Main" })
+                :CreateToggle({ name = "Auto Farm", flag = "autoFarm", value = false })
+                :Set(true)
+
+            -- session 2 declares false; the file says true; the hook wants false to win
+            local w2 = newWindow(true)
+            local toggle = w2:CreateTab({ name = "Main" }):CreateToggle({
+                name = "Auto Farm",
+                flag = "autoFarm",
+                value = false,
+            })
+            local valueWhenFired
+            w2:OnConfigLoaded(function()
+                valueWhenFired = toggle.value
+                toggle:Set(false)
+            end)
+
+            w2:Show()
+
+            expect(valueWhenFired).to.equal(true)
+            expect(toggle.value).to.equal(false)
+        end)
+
+        it("fires OnConfigLoaded even with nothing to load, and only once", function()
+            -- the whole point of firing unconditionally: "the state has settled" must be a
+            -- signal a hub can rely on, not one that goes missing when there is no save file
+            local w = newWindow(false)
+            local fired = 0
+            w:OnConfigLoaded(function()
+                fired += 1
+            end)
+
+            w:Show()
+            expect(fired).to.equal(1)
+
+            w:Hide()
+            w:Show()
+            expect(fired).to.equal(1)
+        end)
+
+        it("runs a handler registered after it already fired", function()
+            local w = newWindow(false)
+            w:Show()
+
+            local ran = false
+            w:OnConfigLoaded(function()
+                ran = true
+            end)
+
+            -- nobody can lose the event by registering late
+            expect(ran).to.equal(true)
+        end)
+
+        it("ignores a non-function handler instead of erroring later", function()
+            local w = newWindow(false)
+            w:OnConfigLoaded("not a function" :: any)
+
+            -- were it stored and called, Show would throw and this test would fail on the spot
+            w:Show()
+            expect(w._configLoadedFired).to.equal(true)
+        end)
     end)
 
     describe("component window viewport fitting", function()
