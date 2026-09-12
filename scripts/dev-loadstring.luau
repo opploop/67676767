@@ -31,9 +31,20 @@ local REPO_RAW = ("https://raw.githubusercontent.com/%s/%s/%s/"):format(owner, r
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+-- Retire any previous tree instead of destroying it. `:Destroy()` sets Parent = nil on every
+-- DESCENDANT recursively and locks it, so a window built by an earlier load - still on screen,
+-- still being clicked - loses `script.Parent` inside its own modules. Every lazy
+-- `require(script.Parent.x)` in the library then fails with "attempt to index nil with
+-- 'notification'" the moment the player presses a button, while the window itself looks fine.
+-- Live-confirmed: a second hub loading (or the same hub reloading) turned the first window into
+-- exactly that zombie.
+--
+-- Unparenting the folder alone takes it out of ReplicatedStorage so the new tree owns the name,
+-- but leaves the modules inside it parented to it, so the old window keeps working until it is
+-- unloaded and the whole detached tree is collected.
 local existing = ReplicatedStorage:FindFirstChild("Rayfield")
 if existing then
-    existing:Destroy()
+    existing.Parent = nil
 end
 
 local function fetch(path)
