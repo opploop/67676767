@@ -304,6 +304,9 @@ local function buildRow(tab)
 end
 
 function tabSelector.build(tab, isSidebar: boolean)
+    -- Which shape this tab wears. setRowCollapsed needs to tell them apart and cannot do it by
+    -- probing fields: a pill carries topbarItem and topbarItemContainer exactly like a row does.
+    tab.topbarIsRow = isSidebar
     if isSidebar then
         buildRow(tab)
     else
@@ -315,8 +318,13 @@ end
 -- tweens: this follows a window resize, which snaps too, so animating it would only ever trail
 -- the edge it is meant to sit inside. Ported from upstream Rayfield Gen2 1.2.
 function tabSelector.setRowCollapsed(tab, collapsed: boolean)
-    if not tab.topbarItem or not tab.topbarItemContainer then
-        return -- a pill (top strip) or a tab with no selector row at all
+    -- Only a rail row collapses. The old guard here said "a pill or a tab with no selector" but
+    -- only ever caught the second: a pill has topbarItem and topbarItemContainer too, so asking
+    -- a top-strip tab to collapse used to hide its label and try to show an initial it never
+    -- built. Nothing hit it in practice (only the sidebar's own resize calls this), but the
+    -- guard did not mean what it said.
+    if not tab.topbarIsRow or not tab.topbarItem or not tab.topbarItemContainer then
+        return
     end
 
     local layout = tabSelector.layout

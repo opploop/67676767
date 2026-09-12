@@ -29,7 +29,7 @@ return function()
             local w = makeWindow("Sidebar")
             local section = w:CreateSection({ name = "Combat" })
 
-            expect(section.inert).to.never.be.ok()
+            expect(section.inert).never.to.be.ok()
             expect(section.name).to.equal("Combat")
             expect(section.main).to.be.ok()
             expect(section.title.Text).to.equal("Combat")

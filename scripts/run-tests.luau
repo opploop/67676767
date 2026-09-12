@@ -410,7 +410,11 @@ local function instrumentSource(relativePath, source)
 
         if coverable then
             fileCoverage.coverable[lineNumber] = true
-            table.insert(output, string.format("_G.__RAYFIELD_COVERAGE.hit(%q, %d)", relativePath, lineNumber))
+            -- Trailing semicolon, always. Without it a probe sitting above a statement that
+            -- opens with "(" - e.g. `(main :: any).Active = true` in windowExtra.luau - parses as
+            -- a call of the probe s own return value: "Ambiguous syntax: this looks like an
+            -- argument list for a function call". That broke every spec that builds a Window.
+            table.insert(output, string.format("_G.__RAYFIELD_COVERAGE.hit(%q, %d);", relativePath, lineNumber))
         end
 
         table.insert(output, line)
@@ -633,6 +637,10 @@ Font = {
         }
     end,
 }
+-- squircle.luau builds its shape table with Rect.new at module load, so every Window
+-- construction needs this - without it the whole suite dies on "attempt to index nil with new"
+-- before a single assertion runs.
+Rect = roblox.Rect
 NumberSequence = roblox.NumberSequence
 NumberSequenceKeypoint = roblox.NumberSequenceKeypoint
 UDim = roblox.UDim
@@ -686,8 +694,45 @@ local function makeSignal()
     return signal
 end
 
+-- Threads started by task.spawn/delay/defer below. Weak-keyed so a finished thread does not
+-- pin itself here for the rest of the run.
+local backgroundThreads = setmetatable({}, { __mode = "k" })
+local waitBudget = setmetatable({}, { __mode = "k" })
+-- Generous: a staged window reveal waits a few dozen times at most, while a runaway animation
+-- loop burns through this in microseconds and then parks for good.
+local maxWaitsPerThread = 200
+
 task = {
+    -- Returns immediately on the main thread, but YIELDS inside a task.spawn'd one.
+    --
+    -- src/ is full of animation loops shaped like
+    --     task.spawn(function() while thing.Parent do ...; tween.Completed:Wait(); task.wait(n) end end)
+    -- Shimming spawn synchronously with a non-yielding wait turns every one of those into an
+    -- infinite tight loop the instant it is spawned - the suite used to hang on the loading
+    -- splash's shimmer before a single window finished building. Yielding parks the spawned
+    -- thread at its first wait, and nothing ever resumes it, which is exactly what a unit test
+    -- wants from a background animation.
+    --
+    -- It must NOT yield on the main thread: lune runs the script in a coroutine of its own, so
+    -- an unconditional yield there hands control back to the runtime mid-suite and the process
+    -- exits quietly with most specs unrun (caught exactly that way - 80 of 277 tests, no summary
+    -- line, exit 0).
+    --
+    -- Nor can it yield on a spawned thread's FIRST wait: plenty of spawned work is a finite
+    -- sequence that has to run to completion for the spec to see its result - init.luau's own
+    -- auto-Show is one, and parking it left every window hidden. So each spawned thread gets a
+    -- budget of instant waits and is only parked once it blows through it, which separates "a
+    -- staged reveal" from "an endless animation loop" without either one needing to know it is
+    -- under test.
     wait = function()
+        local current = coroutine.running()
+        if current and backgroundThreads[current] and coroutine.isyieldable() then
+            local used = (waitBudget[current] or 0) + 1
+            waitBudget[current] = used
+            if used > maxWaitsPerThread then
+                coroutine.yield()
+            end
+        end
         return 1
     end,
     delay = function(_, callback, ...)
@@ -695,6 +740,7 @@ task = {
         local thread = coroutine.create(function()
             callback(table.unpack(args, 1, args.n))
         end)
+        backgroundThreads[thread] = true
         local ok, err = coroutine.resume(thread)
         if not ok then
             error(err, 0)
@@ -706,6 +752,7 @@ task = {
         local thread = coroutine.create(function()
             callback(table.unpack(args, 1, args.n))
         end)
+        backgroundThreads[thread] = true
         local ok, err = coroutine.resume(thread)
         if not ok then
             error(err, 0)
@@ -747,6 +794,17 @@ end
 
 function instanceMethods:WaitForChild(name)
     return self:FindFirstChild(name)
+end
+
+function instanceMethods:FindFirstAncestorWhichIsA(className)
+    local parent = self.Parent
+    while parent do
+        if type(parent.IsA) == "function" and parent:IsA(className) then
+            return parent
+        end
+        parent = parent.Parent
+    end
+    return nil
 end
 
 function instanceMethods:IsA(className)
@@ -887,6 +945,11 @@ local function makeInstance(className)
         AbsolutePosition = Vector2.new(0, 0),
         AbsoluteSize = Vector2.new(420, 120),
         AbsoluteWindowSize = Vector2.new(420, 120),
+        -- Console:_pin reads this to jump to the newest line; without it a console built with
+        -- follow = true dies on "attempt to index nil with Y"
+        AbsoluteCanvasSize = Vector2.new(420, 120),
+        -- Dropdown:_scrollIntoView reads and writes this to bring an opened list into view
+        CanvasPosition = Vector2.new(0, 0),
         AnchorPoint = Vector2.new(0, 0),
         Position = UDim2.new(),
         Size = UDim2.new(),
@@ -996,14 +1059,26 @@ local services = {
             return true
         end,
     },
-    Players = {
-        LocalPlayer = {
+    -- A roster, not just a LocalPlayer: components that build from the player list (see
+    -- playerdropdown.luau) need GetPlayers plus the join/leave signals to be testable at all.
+    -- helpers.addPlayer/removePlayer below drive it.
+    Players = (function()
+        local localPlayer = {
             DisplayName = "Spec User",
             Name = "SpecUser",
             UserId = 12345,
             PlayerGui = makeFolder("PlayerGui"),
-        },
-    },
+        }
+        return {
+            LocalPlayer = localPlayer,
+            PlayerAdded = makeSignal(),
+            PlayerRemoving = makeSignal(),
+            _roster = { localPlayer },
+            GetPlayers = function(self)
+                return table.clone(self._roster)
+            end,
+        }
+    end)(),
     HttpService = {
         GenerateGUID = function()
             return "00000000-0000-4000-8000-000000000000"
@@ -1064,8 +1139,41 @@ local function instrumentSourceForTest(relativePath, source)
     return instrumented, fileCoverage
 end
 
+-- Add/remove a player in the shim roster and fire the matching signal, so a spec can exercise
+-- a component that follows the player list without standing up its own fake service.
+local function addPlayer(name: string, displayName: string?, userId: number?)
+    local player = {
+        Name = name,
+        DisplayName = displayName or name,
+        UserId = userId or (#services.Players._roster + 1000),
+        Parent = services.Players,
+    }
+    table.insert(services.Players._roster, player)
+    services.Players.PlayerAdded:Fire(player)
+    return player
+end
+
+local function removePlayer(name: string)
+    for index, player in services.Players._roster do
+        if player.Name == name then
+            table.remove(services.Players._roster, index)
+            player.Parent = nil
+            services.Players.PlayerRemoving:Fire(player)
+            return player
+        end
+    end
+    return nil
+end
+
+local function resetPlayers()
+    services.Players._roster = { services.Players.LocalPlayer }
+end
+
 _G.__RAYFIELD_TEST_HELPERS = {
     requireUtility = _G.__RAYFIELD_TEST_REQUIRE_UTILITY,
+    addPlayer = addPlayer,
+    removePlayer = removePlayer,
+    resetPlayers = resetPlayers,
     requireComponent = requireComponent,
     requireTheme = requireTheme,
     requireRayfield = requireRayfield,

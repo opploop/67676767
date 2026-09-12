@@ -607,7 +607,11 @@ return function()
                 expect(w._toastsTop).to.be.ok()
                 expect(w._toastsBottom).never.to.be.ok()
                 expect(w._toastsTop.AnchorPoint).to.equal(Vector2.new(0.5, 0))
-                expect(w._toastsTop.Position).to.equal(UDim2.new(0.5, 0, 0, 12))
+                -- A hidden window's toasts sit below where the collapsed pill lives, so they do
+                -- not land on top of it; they move up to the open offset (0, 12) once it shows.
+                -- This spec predates that split and asserted the open offset on a window it never
+                -- showed.
+                expect(w._toastsTop.Position).to.equal(UDim2.new(0.5, 0, 0, 82))
                 local layout = findLayout(w._toastsTop)
                 expect(layout).to.be.ok()
                 expect(layout.VerticalAlignment).to.equal(Enum.VerticalAlignment.Top)
