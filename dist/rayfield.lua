@@ -8670,6 +8670,7 @@ local searchHeight = 32
 local chipHeight = 26
 local chipRowHeight = 30 -- chipHeight plus the padding that gives its strokes room
 local chipGap = 6
+local quickRowHeight = 16 -- the bare text buttons have no fill, so this is just the line box
 local chipPadding = 12
 local cellGap = 10
 -- A UIStroke is drawn OUTSIDE its frame's bounds, so a cell flush against the scrolling frame's
@@ -8764,6 +8765,10 @@ function ItemGrid.new(tab, properties)
         height = math.max(tonumber(properties.height or properties.Height) or defaultHeight, 80),
         imageLayout = imageLayout,
         multiSelect = functions.readBool(properties, "multiSelect", true),
+        -- The "Select all / Clear" line above the grid. On by default, because a multi-select
+        -- grid of any size wants it, but it does cost a row of height in a small grid that does
+        -- not - unlike Dropdown's, this element is always on the page rather than in a panel.
+        quickActions = functions.readBool(properties, "quickActions", true),
         -- A cap on a multi-select grid: "pick up to 3 of these 40". nil means no cap, and it is
         -- meaningless on a single-select grid (multiSelect = false is already a cap of one).
         maxSelected = (function()
@@ -8856,6 +8861,9 @@ function ItemGrid:_gridTop(): number
     if #self.filters > 0 then
         top += chipRowHeight + rowGap
     end
+    if self.quickActions then
+        top += quickRowHeight + rowGap
+    end
     return top
 end
 
@@ -8928,6 +8936,14 @@ function ItemGrid:_build()
     if #self.filters > 0 then
         self:_buildChips(nextTop)
         nextTop += chipRowHeight + rowGap
+    end
+    if self.quickActions then
+        -- last in the stack, immediately above the grid: both buttons act on what is currently
+        -- VISIBLE, which is the result of the search box AND the chips together, so sitting
+        -- directly on top of that result is what makes the relationship readable. With no chips
+        -- (the common case) that is the row straight under the search box.
+        self:_buildQuickActions(nextTop)
+        nextTop += quickRowHeight + rowGap
     end
 
     self.scroll = window:Create("ScrollingFrame", {
@@ -9205,6 +9221,80 @@ end
 
 function ItemGrid:_cellConnect(cell, signal, handler)
     table.insert(cell.connections, self.window:ConnectFor(self, signal, handler))
+end
+
+-- Bare text buttons rather than filled ones, matching Dropdown's own quick-action row (see
+-- dropdown.luau's _buildQuickActions) so the two pickers read the same. "Select all" is
+-- multi-select only; "Clear" is useful either way, as a one-tap way to empty the selection
+-- without hunting for whichever card is ticked.
+function ItemGrid:_buildQuickActions(top)
+    local window = self.window
+
+    self.quickRow = window:Create("Frame", {
+        Name = "QuickActions",
+        Size = UDim2.new(1, -(sidePadding * 2), 0, quickRowHeight),
+        Position = UDim2.new(0, sidePadding, 0, top),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+
+        Parent = self.main,
+    })
+
+    window:Create("UIListLayout", {
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        FillDirection = Enum.FillDirection.Horizontal,
+        Padding = UDim.new(0, 14),
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+
+        Parent = self.quickRow,
+    })
+
+    local function buildAction(text, order, onClick)
+        local button = window:Create("TextButton", {
+            Text = locale.t(text),
+            Size = UDim2.fromOffset(0, quickRowHeight),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            TextSize = 13,
+            Font = Enum.Font.GothamBold,
+            AutoButtonColor = false,
+            LayoutOrder = order,
+
+            TextTransparency = 1, -- In = 0.35
+
+            Parent = self.quickRow,
+        }, { TextColor3 = "PlaceholderColor" })
+
+        local hover = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+        window:ConnectFor(self, button.MouseEnter, function()
+            if self.locked or not window:_interactive() then
+                return
+            end
+            variables.tweenService:Create(button, hover, { TextColor3 = window.theme.ElementTextHoverColor }):Play()
+        end)
+        window:ConnectFor(self, button.MouseLeave, function()
+            variables.tweenService:Create(button, hover, { TextColor3 = window.theme.PlaceholderColor }):Play()
+        end)
+        window:ConnectFor(self, button.MouseButton1Click, function()
+            if self.locked then
+                return
+            end
+            hapticEngine.click()
+            soundEngine.click()
+            onClick()
+        end)
+
+        return button
+    end
+
+    if self.multiSelect then
+        self.selectAllButton = buildAction("Select all", 1, function()
+            self:SelectAll()
+        end)
+    end
+    self.clearButton = buildAction("Clear", 2, function()
+        self:Clear()
+    end)
 end
 
 function ItemGrid:_buildCell(entry, order)
@@ -9695,6 +9785,9 @@ function ItemGrid:SelectAll(skipCallback)
     end
     for _, entry in self.entries do
         if self:_matches(entry) then
+            if self.maxSelected and self:_selectedCount() >= self.maxSelected then
+                break -- "all" means "as many as the cap allows", not a way around the cap
+            end
             self.selected[entry.id] = true
         end
     end
@@ -9821,6 +9914,12 @@ function ItemGrid:_setShown(shown, animate)
             w:_reveal(self.searchIcon, { ImageTransparency = 0.5 }, animate)
             w:_reveal(self.searchInput, { TextTransparency = 0.15 }, animate)
         end
+        if self.selectAllButton then
+            w:_reveal(self.selectAllButton, { TextTransparency = 0.35 }, animate)
+        end
+        if self.clearButton then
+            w:_reveal(self.clearButton, { TextTransparency = 0.35 }, animate)
+        end
         for _, chip in self.chips do
             local active = self.activeTags[chip.descriptor.tag] == true
             w:_reveal(chip.frame, { BackgroundTransparency = if active then 0.75 else 1 }, animate)
@@ -9855,6 +9954,12 @@ function ItemGrid:_setShown(shown, animate)
             w:_reveal(self.searchBox, { BackgroundTransparency = 1 }, animate)
             w:_reveal(self.searchIcon, { ImageTransparency = 1 }, animate)
             w:_reveal(self.searchInput, { TextTransparency = 1 }, animate)
+        end
+        if self.selectAllButton then
+            w:_reveal(self.selectAllButton, { TextTransparency = 1 }, animate)
+        end
+        if self.clearButton then
+            w:_reveal(self.clearButton, { TextTransparency = 1 }, animate)
         end
         for _, chip in self.chips do
             w:_reveal(chip.frame, { BackgroundTransparency = 1 }, animate)

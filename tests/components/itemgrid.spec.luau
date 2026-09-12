@@ -366,5 +366,108 @@ return function()
                 expect(selected(grid)).to.equal("b")
             end)
         end)
+
+        describe("the Select all / Clear row", function()
+            local function actions(grid)
+                return grid.selectAllButton, grid.clearButton
+            end
+
+            it("builds both on a multi-select grid, and only Clear on a single-select one", function()
+                local tab = makeTab()
+                local multi = tab:CreateItemGrid({ items = rarityItems(), forgetState = true })
+                local single = tab:CreateItemGrid({
+                    items = rarityItems(),
+                    multiSelect = false,
+                    forgetState = true,
+                })
+
+                expect(multi.selectAllButton).to.be.ok()
+                expect(multi.clearButton).to.be.ok()
+                -- "Select all" on a grid that can hold one thing is a button with no meaning
+                expect(single.selectAllButton).to.equal(nil)
+                expect(single.clearButton).to.be.ok()
+            end)
+
+            it("is opt-out, and then takes no height", function()
+                local tab = makeTab()
+                local withRow = tab:CreateItemGrid({ items = rarityItems(), forgetState = true })
+                local without = tab:CreateItemGrid({
+                    items = rarityItems(),
+                    quickActions = false,
+                    forgetState = true,
+                })
+
+                expect(without.selectAllButton).to.equal(nil)
+                expect(without.clearButton).to.equal(nil)
+                expect(without.quickRow).to.equal(nil)
+                -- the row is part of the element's own height, so dropping it moves the grid up
+                expect(without:_gridTop() < withRow:_gridTop()).to.equal(true)
+            end)
+
+            it("ticks and empties the selection on a real click", function()
+                local grid = makeTab():CreateItemGrid({ items = rarityItems(), forgetState = true })
+                local selectAll, clear = actions(grid)
+
+                selectAll.MouseButton1Click:Fire()
+                expect(selected(grid)).to.equal("a,b,c")
+
+                clear.MouseButton1Click:Fire()
+                expect(selected(grid)).to.equal("")
+            end)
+
+            it("acts on what the filter shows, not the whole catalogue", function()
+                local grid = makeTab():CreateItemGrid({ items = rarityItems(), forgetState = true })
+
+                grid:Filter({ tags = { "RARE" } })
+                grid.selectAllButton.MouseButton1Click:Fire()
+
+                -- selecting the hidden EPIC card from a filtered view would be a nasty surprise
+                expect(selected(grid)).to.equal("a,c")
+            end)
+
+            it("stops Select all at the cap instead of walking past it", function()
+                local grid = makeTab():CreateItemGrid({
+                    items = rarityItems(),
+                    maxSelected = 2,
+                    forgetState = true,
+                })
+
+                grid.selectAllButton.MouseButton1Click:Fire()
+
+                -- "all" has to mean "as many as the cap allows", or the button is a way around it
+                expect(#grid:Get()).to.equal(2)
+                expect(grid.counter.Text).to.equal("2 / 2")
+            end)
+
+            it("does nothing while the element is locked", function()
+                local grid = makeTab():CreateItemGrid({ items = rarityItems(), forgetState = true })
+
+                grid:Lock()
+                grid.selectAllButton.MouseButton1Click:Fire()
+
+                -- the guard has to sit in the button handler, not only at the callback funnel:
+                -- _runGuarded refuses a locked element callback, but SelectAll mutates the
+                -- selection before it ever gets there
+                expect(selected(grid)).to.equal("")
+                expect(grid:IsLocked()).to.equal(true)
+            end)
+
+            it("reports the change through the callback, once", function()
+                local calls = 0
+                local grid = makeTab():CreateItemGrid({
+                    items = rarityItems(),
+                    forgetState = true,
+                    callback = function()
+                        calls += 1
+                    end,
+                })
+
+                grid.selectAllButton.MouseButton1Click:Fire()
+                expect(calls).to.equal(1)
+
+                grid.clearButton.MouseButton1Click:Fire()
+                expect(calls).to.equal(2)
+            end)
+        end)
     end)
 end
