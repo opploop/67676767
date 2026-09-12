@@ -585,6 +585,64 @@ end
 -- default and the next autosave writes that default over the saved value.
 -- Called from the CreateX tails once the element is fully built, since _registerControl runs
 -- mid-construction and :Set would touch instances that dont exist yet.
+-- Runs `callback` once the saved configuration has been applied (or once first show has decided
+-- there is nothing to apply). Registered after that has already happened, it runs immediately, so
+-- a late caller can't miss the event.
+--
+-- This exists because a restored config **overrides the value a control was declared with, and it
+-- does so through that control's own callback** - autoLoad restoring a toggle to `true` has to
+-- actually start the feature, so the callback has to fire. The consequence is that a control
+-- declared `value = true` whose saved value is `false` switches itself off shortly after boot,
+-- which reads as the feature "turning itself off for no reason". If your code has to win that
+-- argument, do it here rather than guessing at a `task.wait`:
+--
+--     window:OnConfigLoaded(function()
+--         myToggle:Set(true) -- now genuinely the last word
+--     end)
+--
+-- See also Window:IsRestoringConfig, for a callback that wants to tell a restore apart from a
+-- real click without overriding anything.
+function Window:OnConfigLoaded(callback: () -> ())
+    if typeof(callback) ~= "function" then
+        return
+    end
+    if self._configLoadedFired then
+        self:_runGuarded(self, callback)
+        return
+    end
+    self._configLoadedHandlers = self._configLoadedHandlers or {}
+    table.insert(self._configLoadedHandlers, callback)
+end
+
+function Window:_fireConfigLoaded()
+    if self._configLoadedFired then
+        return
+    end
+    self._configLoadedFired = true
+
+    local handlers = self._configLoadedHandlers
+    self._configLoadedHandlers = nil
+    if not handlers then
+        return
+    end
+    for _, callback in handlers do
+        -- _runGuarded, not a bare call: one consumer's broken handler must not strand the rest
+        -- of them, nor the reveal sequence this is called from
+        self:_runGuarded(self, callback)
+    end
+end
+
+-- True while a saved configuration is being applied to this window's controls. A control's own
+-- callback can read it to tell "the player clicked this" apart from "the config restored this":
+--
+--     callback = function(state)
+--         if window:IsRestoringConfig() then return end -- don't re-notify on a restore
+--         ...
+--     end
+function Window:IsRestoringConfig(): boolean
+    return self._loading == true
+end
+
 function Window:_restoreLate(element)
     if not self._loadedConfig or not element.flag or element.forgetState then
         return

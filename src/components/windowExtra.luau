@@ -141,6 +141,12 @@ function Window:Show()
         end
     end
 
+    -- Restore is done (or there was none to do): anything that has to have the last word over a
+    -- saved value runs now. Fired unconditionally, including when autoLoad is off or the file is
+    -- missing, so a consumer can treat it as "the window's state has settled" rather than having
+    -- to know whether a config existed - see Window:OnConfigLoaded.
+    self:_fireConfigLoaded()
+
     self.hidden = false
     self.minimised = false
 

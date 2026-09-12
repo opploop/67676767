@@ -1031,6 +1031,9 @@ export type Window = {
     ListConfigs: (self: Window) -> { string },
     DeleteConfig: (self: Window, name: string) -> boolean,
     Unload: (self: Window) -> (),
+    -- runs once the saved config has been applied, or immediately if it already has
+    OnConfigLoaded: (self: Window, callback: () -> ()) -> (),
+    IsRestoringConfig: (self: Window) -> boolean,
     OnUnload: (self: Window, callback: () -> ()) -> (),
     -- pcalls fn(...) and logs a warning on failure instead of letting it fail silently - returns
     -- exactly what pcall returns (ok, result...).
