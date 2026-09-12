@@ -49,12 +49,17 @@ local boxSize = 18
 local dotSize = 7
 local defaultColumns = 4
 local defaultHeight = 210
-local defaultCellHeight = 52
+local defaultCellHeight = 56
 local stackedCellHeight = 128 -- room for a thumbnail plus its name underneath
 
 -- Below this a card can't hold a two-word name, so the grid drops a column instead of letting
 -- every label truncate. Checked against the real width, so a collapsed window reflows.
-local minCellWidth = 132
+--
+-- Sized off what's actually left for the name, not the card: the tick, the rarity dot and the
+-- padding eat ~60px before a letter is drawn, so a 132px card left 73px of text and broke
+-- "Evil Beastmaster" across three crammed lines. Readable beats dense - a narrow window gets
+-- two proper columns rather than three unreadable ones.
+local minCellWidth = 148
 
 local stateInfo = TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
@@ -628,7 +633,7 @@ function ItemGrid:_buildCell(entry, order)
         Text = locale.t(entry.name),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        TextSize = 14,
+        TextSize = 13,
         TextWrapped = true,
         TextXAlignment = Enum.TextXAlignment.Left,
 
@@ -716,10 +721,10 @@ function ItemGrid:_layoutCell(cell)
         return
     end
 
-    cell.box.Position = UDim2.new(0, 12, 0.5, 0)
+    cell.box.Position = UDim2.new(0, 11, 0.5, 0)
     cell.box.AnchorPoint = Vector2.new(0, 0.5)
 
-    local left = 12 + boxSize + 10
+    local left = 11 + boxSize + 9
 
     if cell.image then
         local thumb = math.max(self.cellHeight - 18, 16)
@@ -735,10 +740,10 @@ function ItemGrid:_layoutCell(cell)
     if cell.dot.Visible then
         cell.dot.Position = UDim2.new(0, left, 0.5, 0)
         cell.dot.AnchorPoint = Vector2.new(0, 0.5)
-        left += dotSize + 7
+        left += dotSize + 6
     end
 
-    cell.title.Size = UDim2.new(1, -(left + 12), 1, -8)
+    cell.title.Size = UDim2.new(1, -(left + 11), 1, -8)
     cell.title.Position = UDim2.new(0, left, 0.5, 0)
     cell.title.AnchorPoint = Vector2.new(0, 0.5)
 end
