@@ -379,6 +379,11 @@ function Tab:CreatePlayerDropdown(properties)
     return self:_register(require(script.Parent.playerdropdown).new(self, properties))
 end
 
+-- Drag-to-reorder list: the order is the value, and it persists
+function Tab:CreateReorderList(properties)
+    return self:_register(require(script.Parent.reorderlist).new(self, properties))
+end
+
 -- Progress bar: read-only gradient fill + readout, animates on Set
 function Tab:CreateProgressBar(properties)
     return self:_register(require(script.Parent.progressbar).new(self, properties))

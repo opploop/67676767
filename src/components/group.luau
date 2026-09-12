@@ -262,6 +262,9 @@ end
 function Group:CreatePlayerDropdown(properties)
     return self:_add("playerdropdown", properties)
 end
+function Group:CreateReorderList(properties)
+    return self:_add("reorderlist", properties)
+end
 function Group:CreateSection(properties)
     return self:_add("section", properties)
 end

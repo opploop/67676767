@@ -365,6 +365,28 @@ export type PlayerDropdownProps = {
     callback: ((value: any) -> ())?,
 }
 
+export type ReorderItem = {
+    id: string?, -- defaults to `name` when omitted
+    name: string?,
+    icon: (string | number)?,
+    color: Color3?, -- tints the index badge, for a per-item category/rarity
+}
+
+export type ReorderListProps = {
+    name: string?,
+    description: string?,
+    icon: (string | number)?,
+    tooltip: string?,
+    flag: string?, -- persists the ORDER (an array of ids)
+    items: { string | ReorderItem }?,
+    rowHeight: number?, -- default 38, floor 26
+    showIndex: boolean?, -- the 1/2/3 badge, default true
+    removable: boolean?, -- per-row remove button, default false
+    emptyText: string?,
+    onRemove: ((id: string) -> ())?,
+    callback: ((order: { string }) -> ())?,
+}
+
 export type InputProps = {
     name: string?,
     description: string?,
@@ -691,6 +713,20 @@ export type Dropdown = Moveable & {
     IsLocked: (self: Dropdown) -> boolean,
 }
 
+export type ReorderList = Moveable & {
+    value: { string }, -- the current order, as ids
+    locked: boolean,
+    Get: (self: ReorderList) -> { string },
+    Set: (self: ReorderList, order: { string }, skipCallback: boolean?) -> (),
+    Add: (self: ReorderList, item: string | ReorderItem, skipCallback: boolean?) -> boolean,
+    -- RemoveItem, not Remove: Remove() destroys the element, as on every other component
+    RemoveItem: (self: ReorderList, id: string, skipCallback: boolean?) -> boolean,
+    Refresh: (self: ReorderList, items: { string | ReorderItem }, skipCallback: boolean?) -> (),
+    Lock: (self: ReorderList, reason: string?) -> (),
+    Unlock: (self: ReorderList) -> (),
+    IsLocked: (self: ReorderList) -> boolean,
+}
+
 -- A Dropdown built by CreatePlayerDropdown: the same handle with the player wiring on top.
 export type PlayerDropdown = Dropdown & {
     RefreshPlayers: (self: PlayerDropdown) -> { string },
@@ -805,6 +841,7 @@ export type Collapsible = Moveable & {
     CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,
     CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,
     CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,
+    CreateReorderList: (self: Collapsible, props: ReorderListProps) -> ReorderList,
     CreateSection: (self: Collapsible, props: SectionProps) -> Section,
     CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,
     CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,
@@ -843,6 +880,7 @@ export type Group = Moveable & {
     CreateSlider: (self: Group, props: SliderProps) -> Slider,
     CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,
     CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,
+    CreateReorderList: (self: Group, props: ReorderListProps) -> ReorderList,
     CreateSection: (self: Group, props: SectionProps) -> Section,
     CreateLabel: (self: Group, props: LabelProps?) -> Label,
     CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,
@@ -861,6 +899,7 @@ export type Tab = {
     CreateSlider: (self: Tab, props: SliderProps) -> Slider,
     CreateDropdown: (self: Tab, props: DropdownProps) -> Dropdown,
     CreatePlayerDropdown: (self: Tab, props: PlayerDropdownProps) -> PlayerDropdown,
+    CreateReorderList: (self: Tab, props: ReorderListProps) -> ReorderList,
     CreateInput: (self: Tab, props: InputProps) -> Input,
     CreateKeybind: (self: Tab, props: KeybindProps) -> Keybind,
     CreateColorPicker: (self: Tab, props: ColorPickerProps) -> ColorPicker,
