@@ -183,9 +183,7 @@ function GradientPicker.new(tab, properties)
             else true,
     }, GradientPicker)
 
-    self.stops = normalizeStops(
-        properties.gradient or properties.Gradient or properties.value or properties.Value or properties.colors
-    )
+    self.stops = normalizeStops(functions.readValue(properties, { "gradient", "Gradient", "value", "Value", "colors" }))
     self.selected = self.stops[1]
     self.value = buildSequence(self.stops)
 

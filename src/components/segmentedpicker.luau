@@ -121,7 +121,7 @@ function SegmentedPicker.new(tab, properties)
 
     -- resolve the initial value: a leaf's own text (nested or not), defaulting to the first
     -- top-level option's first available leaf
-    local initial = properties.value or properties.Value
+    local initial = functions.readValue(properties, { "value", "Value" })
     local index, childIndex = self:_find(initial)
     if not index then
         index, childIndex = 1, (options[1] and options[1].options) and 1 or nil

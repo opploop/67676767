@@ -26,6 +26,8 @@ local defaultLoopInterval = 0.5
 function Toggle.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
 
+    local declared = functions.readValue(properties, { "value", "Value" })
+
     local self = setmetatable({
         tab = assert(tab, "Missing argument #1 (Tab expected)"),
         window = tab.window,
@@ -47,7 +49,7 @@ function Toggle.new(tab, properties)
 
         callback = properties.callback or properties.Callback or function() end,
 
-        value = if (properties.value or properties.Value) ~= nil then (properties.value or properties.Value) else false,
+        value = if declared ~= nil then declared else false,
     }, Toggle)
 
     -- register as a saveable control if flagged (works in a row too)

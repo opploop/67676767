@@ -137,6 +137,75 @@ return function()
         end)
     end)
 
+    -- `value` is this fork's canonical name for a control's starting state. Upstream Rayfield
+    -- called it `Default`, so that is what a hub script carried over from it reaches for - and
+    -- for a long time only keybind and colorpicker happened to read it, so on every other
+    -- control a declared Default was accepted and silently dropped. These pin the alias down on
+    -- one control per value type, so a future constructor that forgets it fails here.
+    describe("default as an alias for value", function()
+        afterEach(cleanup)
+
+        it("starts a Toggle on", function()
+            local tab = makeTab()
+
+            expect(tab:CreateToggle({ name = "A", default = true, forgetState = true }).value).to.equal(true)
+            expect(tab:CreateToggle({ name = "B", Default = true, forgetState = true }).value).to.equal(true)
+        end)
+
+        it("starts a Checkbox ticked", function()
+            expect(makeTab():CreateCheckbox({ name = "A", default = true, forgetState = true }).value).to.equal(true)
+        end)
+
+        it("carries a number into Slider, Stat and ProgressBar", function()
+            local tab = makeTab()
+
+            expect(tab:CreateSlider({ name = "S", default = 25, forgetState = true }).value).to.equal(25)
+            expect(tab:CreateStat({ name = "T", default = 5 }).value).to.equal(5)
+            expect(tab:CreateProgressBar({ name = "P", default = 4, max = 10 }).value).to.equal(4)
+        end)
+
+        it("picks a Dropdown option and fills an Input", function()
+            local tab = makeTab()
+            local dropdown = tab:CreateDropdown({
+                name = "D",
+                options = { "Alpha", "Beta" },
+                default = "Beta",
+                forgetState = true,
+            })
+
+            -- a Dropdown normalises to a list even single-select, so the selection is value[1]
+            expect(dropdown.value[1]).to.equal("Beta")
+            expect(tab:CreateInput({ name = "I", default = "typed", forgetState = true }).value).to.equal("typed")
+        end)
+
+        it("selects a SegmentedPicker leaf", function()
+            local picker = makeTab():CreateSegmentedPicker({
+                name = "M",
+                options = { "Basic", "Advanced", "Expert" },
+                default = "Expert",
+                forgetState = true,
+            })
+
+            expect(picker.value).to.equal("Expert")
+        end)
+
+        it("keeps working where it already did, on Keybind and ColorPicker", function()
+            local tab = makeTab()
+            local keybind = tab:CreateKeybind({ name = "K", default = Enum.KeyCode.H })
+            local picker = tab:CreateColorPicker({ name = "C", default = Color3.fromRGB(20, 40, 60) })
+
+            expect(keybind.value).to.equal(Enum.KeyCode.H)
+            expect(picker.value).to.equal(Color3.fromRGB(20, 40, 60))
+        end)
+
+        it("loses to value when both are declared", function()
+            local toggle = makeTab():CreateToggle({ name = "A", value = false, default = true, forgetState = true })
+
+            -- `value` is the documented name, so it is the one that wins
+            expect(toggle.value).to.equal(false)
+        end)
+    end)
+
     describe("CreateHoverOverlay", function()
         afterEach(cleanup)
 

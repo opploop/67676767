@@ -156,7 +156,7 @@ function Dropdown.new(tab, properties)
         multiSelect = multiSelect,
         placeholderText = locale.resolve(properties.placeholder or properties.Placeholder or "None"),
         value = normalizeValue(
-            properties.value or properties.Value or properties.currentOption or properties.CurrentOption,
+            functions.readValue(properties, { "value", "Value", "currentOption", "CurrentOption" }),
             multiSelect
         ),
 

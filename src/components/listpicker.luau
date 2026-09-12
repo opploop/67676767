@@ -118,7 +118,7 @@ function ListPicker.new(tab, properties)
 
     -- default to the first option rather than nothing: a category rail with no category chosen
     -- shows a panel with no reason to be showing anything
-    local initial = properties.value or properties.Value
+    local initial = functions.readValue(properties, { "value", "Value" })
     if initial == nil and self.entries[1] then
         initial = self.entries[1].id
     end

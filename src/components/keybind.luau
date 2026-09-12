@@ -93,7 +93,7 @@ function Keybind.new(tab, properties)
         recording = false,
     }, Keybind)
 
-    self.value = coerceKey(properties.value or properties.Value or properties.default or properties.Default)
+    self.value = coerceKey(functions.readValue(properties, { "value", "Value" }))
 
     self.flag = properties.flag
         or properties.Flag

@@ -830,6 +830,8 @@ local boxSize = 22
 function Checkbox.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
 
+    local declared = functions.readValue(properties, { "value", "Value" })
+
     local self = setmetatable({
         tab = assert(tab, "Missing argument #1 (Tab expected)"),
         window = tab.window,
@@ -850,7 +852,7 @@ function Checkbox.new(tab, properties)
 
         callback = properties.callback or properties.Callback or function() end,
 
-        value = if (properties.value or properties.Value) ~= nil then (properties.value or properties.Value) else false,
+        value = if declared ~= nil then declared else false,
     }, Checkbox)
 
     self.window:_registerControl(self)
@@ -2066,7 +2068,7 @@ function ColorPicker.new(tab, properties)
     }, ColorPicker)
 
     self.value = coerceColor(
-        properties.color or properties.Color or properties.value or properties.Value or properties.default,
+        functions.readValue(properties, { "color", "Color", "value", "Value" }),
         Color3.fromRGB(255, 255, 255)
     )
     self.hue, self.sat, self.val = self.value:ToHSV()
@@ -4324,7 +4326,7 @@ function Dropdown.new(tab, properties)
         multiSelect = multiSelect,
         placeholderText = locale.resolve(properties.placeholder or properties.Placeholder or "None"),
         value = normalizeValue(
-            properties.value or properties.Value or properties.currentOption or properties.CurrentOption,
+            functions.readValue(properties, { "value", "Value", "currentOption", "CurrentOption" }),
             multiSelect
         ),
 
@@ -6279,9 +6281,7 @@ function GradientPicker.new(tab, properties)
             else true,
     }, GradientPicker)
 
-    self.stops = normalizeStops(
-        properties.gradient or properties.Gradient or properties.value or properties.Value or properties.colors
-    )
+    self.stops = normalizeStops(functions.readValue(properties, { "gradient", "Gradient", "value", "Value", "colors" }))
     self.selected = self.stops[1]
     self.value = buildSequence(self.stops)
 
@@ -8378,8 +8378,7 @@ function Input.new(tab, properties)
         callback = properties.callback or properties.Callback or function() end,
     }, Input)
 
-    self.value =
-        tostring(properties.value or properties.Value or properties.currentValue or properties.CurrentValue or "")
+    self.value = tostring(functions.readValue(properties, { "value", "Value", "currentValue", "CurrentValue" }) or "")
 
     self.flag = properties.flag
         or properties.Flag
@@ -8820,7 +8819,7 @@ function ItemGrid.new(tab, properties)
     self:_build()
     self:_rebuildCells()
 
-    local initial = properties.value or properties.Value
+    local initial = functions.readValue(properties, { "value", "Value" })
     if initial ~= nil then
         self:Set(initial, true)
     end
@@ -9956,7 +9955,7 @@ function Keybind.new(tab, properties)
         recording = false,
     }, Keybind)
 
-    self.value = coerceKey(properties.value or properties.Value or properties.default or properties.Default)
+    self.value = coerceKey(functions.readValue(properties, { "value", "Value" }))
 
     self.flag = properties.flag
         or properties.Flag
@@ -10658,7 +10657,7 @@ function ListPicker.new(tab, properties)
 
     -- default to the first option rather than nothing: a category rail with no category chosen
     -- shows a panel with no reason to be showing anything
-    local initial = properties.value or properties.Value
+    local initial = functions.readValue(properties, { "value", "Value" })
     if initial == nil and self.entries[1] then
         initial = self.entries[1].id
     end
@@ -13002,9 +13001,8 @@ function ProgressBar.new(tab, properties)
         self.max = 100
     end
 
-    local initialValue = if (properties.value or properties.Value) ~= nil
-        then (properties.value or properties.Value)
-        else 0
+    local declared = functions.readValue(properties, { "value", "Value" })
+    local initialValue = if declared ~= nil then declared else 0
     self.value = math.clamp(initialValue, 0, self.max)
     self._lastValue = self.value
 
@@ -15701,7 +15699,7 @@ function SegmentedPicker.new(tab, properties)
 
     -- resolve the initial value: a leaf's own text (nested or not), defaulting to the first
     -- top-level option's first available leaf
-    local initial = properties.value or properties.Value
+    local initial = functions.readValue(properties, { "value", "Value" })
     local index, childIndex = self:_find(initial)
     if not index then
         index, childIndex = 1, (options[1] and options[1].options) and 1 or nil
@@ -16428,8 +16426,9 @@ function Slider.new(tab, properties)
         self.increment = 1
     end
 
-    self.value = if (properties.value or properties.Value) ~= nil
-        then (properties.value or properties.Value)
+    local declared = functions.readValue(properties, { "value", "Value" })
+    self.value = if declared ~= nil
+        then declared
         elseif (properties.currentValue or properties.CurrentValue) ~= nil then (
             properties.currentValue or properties.CurrentValue
         )
@@ -17142,6 +17141,8 @@ end
 function Statistic.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
 
+    local declared = functions.readValue(properties, { "value", "Value" })
+
     local self = setmetatable({
         tab = assert(tab, "Missing argument #1 (Tab expected)"),
         window = tab.window,
@@ -17150,10 +17151,10 @@ function Statistic.new(tab, properties)
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
 
-        value = if (properties.value or properties.Value) ~= nil then (properties.value or properties.Value) else 0,
+        value = if declared ~= nil then declared else 0,
         -- did we start with a real value, or is the displayed number just a placeholder?
         -- the first Set on a placeholder establishes the baseline instead of showing a change
-        _hasValue = (properties.value or properties.Value) ~= nil,
+        _hasValue = declared ~= nil,
 
         numberEasing = if (properties.numberEasing ~= nil)
             then properties.numberEasing
@@ -17171,9 +17172,7 @@ function Statistic.new(tab, properties)
         compact = properties.compact or properties.Compact or tab.compact or false,
         display = (properties.display or properties.Display or "value"), -- "value" | "change"
 
-        _initialValue = if (properties.value or properties.Value) ~= nil
-            then (properties.value or properties.Value)
-            else nil,
+        _initialValue = declared,
         _lastChange = 0,
     }, Statistic)
 
@@ -20360,6 +20359,8 @@ local defaultLoopInterval = 0.5
 function Toggle.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
 
+    local declared = functions.readValue(properties, { "value", "Value" })
+
     local self = setmetatable({
         tab = assert(tab, "Missing argument #1 (Tab expected)"),
         window = tab.window,
@@ -20381,7 +20382,7 @@ function Toggle.new(tab, properties)
 
         callback = properties.callback or properties.Callback or function() end,
 
-        value = if (properties.value or properties.Value) ~= nil then (properties.value or properties.Value) else false,
+        value = if declared ~= nil then declared else false,
     }, Toggle)
 
     -- register as a saveable control if flagged (works in a row too)
@@ -31023,6 +31024,29 @@ function functions.readBool(properties: { [string]: any }, name: string, default
         return default
     end
     return value ~= false
+end
+
+-- Read a control's starting value from the first of `names` that is actually PRESENT, then
+-- from `default`/`Default` as a last resort.
+--
+-- Two things this fixes at once. Presence, not truthiness: `properties.value or properties.Value`
+-- evaluates `false or nil` to nil, so a declared `value = false` is indistinguishable from not
+-- declaring one at all - the same trap readBool exists for. And the alias: `value` is this
+-- fork's canonical name for a starting state, but upstream Rayfield called it `Default`, so that
+-- is what hub scripts carried over from it (and anything generated against upstream's docs)
+-- reach for. Accepting it costs nothing and silently ignoring it was a real reported confusion.
+-- Each caller spells out its own `names` order because a few controls put a
+-- domain-specific spelling first (colorpicker's `color`, gradientpicker's `gradient`).
+function functions.readValue(properties: { [string]: any }, names: { string }): any
+    for _, name in names do
+        if properties[name] ~= nil then
+            return properties[name]
+        end
+    end
+    if properties.default ~= nil then
+        return properties.default
+    end
+    return properties.Default
 end
 
 functions.textWidth = textMetrics.textWidth

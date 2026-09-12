@@ -193,7 +193,7 @@ function ItemGrid.new(tab, properties)
     self:_build()
     self:_rebuildCells()
 
-    local initial = properties.value or properties.Value
+    local initial = functions.readValue(properties, { "value", "Value" })
     if initial ~= nil then
         self:Set(initial, true)
     end

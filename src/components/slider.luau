@@ -85,8 +85,9 @@ function Slider.new(tab, properties)
         self.increment = 1
     end
 
-    self.value = if (properties.value or properties.Value) ~= nil
-        then (properties.value or properties.Value)
+    local declared = functions.readValue(properties, { "value", "Value" })
+    self.value = if declared ~= nil
+        then declared
         elseif (properties.currentValue or properties.CurrentValue) ~= nil then (
             properties.currentValue or properties.CurrentValue
         )

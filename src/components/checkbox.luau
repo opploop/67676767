@@ -31,6 +31,8 @@ local boxSize = 22
 function Checkbox.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
 
+    local declared = functions.readValue(properties, { "value", "Value" })
+
     local self = setmetatable({
         tab = assert(tab, "Missing argument #1 (Tab expected)"),
         window = tab.window,
@@ -51,7 +53,7 @@ function Checkbox.new(tab, properties)
 
         callback = properties.callback or properties.Callback or function() end,
 
-        value = if (properties.value or properties.Value) ~= nil then (properties.value or properties.Value) else false,
+        value = if declared ~= nil then declared else false,
     }, Checkbox)
 
     self.window:_registerControl(self)

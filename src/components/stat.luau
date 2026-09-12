@@ -89,6 +89,8 @@ end
 function Statistic.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
 
+    local declared = functions.readValue(properties, { "value", "Value" })
+
     local self = setmetatable({
         tab = assert(tab, "Missing argument #1 (Tab expected)"),
         window = tab.window,
@@ -97,10 +99,10 @@ function Statistic.new(tab, properties)
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
 
-        value = if (properties.value or properties.Value) ~= nil then (properties.value or properties.Value) else 0,
+        value = if declared ~= nil then declared else 0,
         -- did we start with a real value, or is the displayed number just a placeholder?
         -- the first Set on a placeholder establishes the baseline instead of showing a change
-        _hasValue = (properties.value or properties.Value) ~= nil,
+        _hasValue = declared ~= nil,
 
         numberEasing = if (properties.numberEasing ~= nil)
             then properties.numberEasing
@@ -118,9 +120,7 @@ function Statistic.new(tab, properties)
         compact = properties.compact or properties.Compact or tab.compact or false,
         display = (properties.display or properties.Display or "value"), -- "value" | "change"
 
-        _initialValue = if (properties.value or properties.Value) ~= nil
-            then (properties.value or properties.Value)
-            else nil,
+        _initialValue = declared,
         _lastChange = 0,
     }, Statistic)
 

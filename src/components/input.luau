@@ -57,8 +57,7 @@ function Input.new(tab, properties)
         callback = properties.callback or properties.Callback or function() end,
     }, Input)
 
-    self.value =
-        tostring(properties.value or properties.Value or properties.currentValue or properties.CurrentValue or "")
+    self.value = tostring(functions.readValue(properties, { "value", "Value", "currentValue", "CurrentValue" }) or "")
 
     self.flag = properties.flag
         or properties.Flag

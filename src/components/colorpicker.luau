@@ -172,7 +172,7 @@ function ColorPicker.new(tab, properties)
     }, ColorPicker)
 
     self.value = coerceColor(
-        properties.color or properties.Color or properties.value or properties.Value or properties.default,
+        functions.readValue(properties, { "color", "Color", "value", "Value" }),
         Color3.fromRGB(255, 255, 255)
     )
     self.hue, self.sat, self.val = self.value:ToHSV()

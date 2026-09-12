@@ -44,9 +44,8 @@ function ProgressBar.new(tab, properties)
         self.max = 100
     end
 
-    local initialValue = if (properties.value or properties.Value) ~= nil
-        then (properties.value or properties.Value)
-        else 0
+    local declared = functions.readValue(properties, { "value", "Value" })
+    local initialValue = if declared ~= nil then declared else 0
     self.value = math.clamp(initialValue, 0, self.max)
     self._lastValue = self.value
 
