@@ -193,6 +193,11 @@ export type Tabbox = Moveable & {
 
 export type GroupProps = {
     direction: string?, -- "row" | "column" (default row); "horizontal"/"vertical" also work
+    -- Only meaningful for a column nested in a row, where the default is an equal split:
+    -- `width` pins this column and lets the rest of the row absorb what is left, `weight`
+    -- splits proportionally instead.
+    width: number?,
+    weight: number?,
     -- Dependency group: hides/shows every child together based on another control's value -
     -- Fluent's own DependencyGroupbox. dependsOn is whatever CreateToggle/CreateDropdown/etc
     -- itself returned; condition defaults to a plain truthy check (built for a toggle) - pass
@@ -390,15 +395,6 @@ export type GridFilterChip = string | {
     tag: string?,
     name: string?, -- the chip's label; defaults to the tag
     color: Color3?,
-}
-
--- Options a Group takes. `width`/`weight` only mean anything for a column nested in a row.
-export type GroupProps = {
-    direction: ("row" | "column")?,
-    width: number?, -- pin this column's width; the rest of the row absorbs what's left
-    weight: number?, -- proportional share of the row instead of an equal split
-    dependsOn: any?,
-    condition: ((value: any) -> boolean)?,
 }
 
 export type ListOption = string | {
