@@ -15596,6 +15596,12 @@ function SegmentedPicker.new(tab, properties)
         self.segments[index].activeChild = childIndex
         self.segments[index].collapsedLabel.Text = locale.resolve(self:_childText(index, childIndex))
     end
+    -- Populate .value here, not just the visual selection. Every other control carries its
+    -- current value from the moment it is built; this one left it nil until the first click or
+    -- Set, so an untouched picker persisted nothing (Window:_persist reads control.value) and
+    -- a consumer reading picker.value straight after building got nil for a control that is
+    -- plainly showing a selection. Mirrors what _pick computes for the same pair.
+    self.value = if childIndex then self:_childText(index, childIndex) else options[index].text
     self:_select(index, childIndex, true)
 
     if self.description then

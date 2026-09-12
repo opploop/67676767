@@ -3,8 +3,8 @@
   "measuredDate": "2026-09-12",
   "command": "make coverage-baseline",
   "threshold": 70.00,
-  "lineCoverage": 61.69,
-  "coveredLines": 6266,
+  "lineCoverage": 71.25,
+  "coveredLines": 7238,
   "coverableLines": 10158,
   "notes": [
     "Generated reports are written to coverage/coverage.txt and coverage/coverage-summary.json.",
@@ -33,8 +33,8 @@
     },
     {
       "path": "src/components/checkbox.luau",
-      "lineCoverage": 0.00,
-      "coveredLines": 0,
+      "lineCoverage": 74.81,
+      "coveredLines": 98,
       "coverableLines": 131
     },
     {
@@ -63,8 +63,8 @@
     },
     {
       "path": "src/components/copybutton.luau",
-      "lineCoverage": 0.00,
-      "coveredLines": 0,
+      "lineCoverage": 58.18,
+      "coveredLines": 64,
       "coverableLines": 110
     },
     {
@@ -93,26 +93,26 @@
     },
     {
       "path": "src/components/flipbutton.luau",
-      "lineCoverage": 0.00,
-      "coveredLines": 0,
+      "lineCoverage": 66.67,
+      "coveredLines": 68,
       "coverableLines": 102
     },
     {
       "path": "src/components/gradientpicker.luau",
-      "lineCoverage": 0.00,
-      "coveredLines": 0,
+      "lineCoverage": 56.67,
+      "coveredLines": 238,
       "coverableLines": 420
     },
     {
       "path": "src/components/group.luau",
-      "lineCoverage": 63.43,
-      "coveredLines": 111,
+      "lineCoverage": 65.14,
+      "coveredLines": 114,
       "coverableLines": 175
     },
     {
       "path": "src/components/holdbutton.luau",
-      "lineCoverage": 0.00,
-      "coveredLines": 0,
+      "lineCoverage": 57.39,
+      "coveredLines": 66,
       "coverableLines": 115
     },
     {
@@ -177,8 +177,8 @@
     },
     {
       "path": "src/components/progressbar.luau",
-      "lineCoverage": 0.00,
-      "coveredLines": 0,
+      "lineCoverage": 75.86,
+      "coveredLines": 66,
       "coverableLines": 87
     },
     {
@@ -195,8 +195,8 @@
     },
     {
       "path": "src/components/ripplebutton.luau",
-      "lineCoverage": 0.00,
-      "coveredLines": 0,
+      "lineCoverage": 78.75,
+      "coveredLines": 63,
       "coverableLines": 80
     },
     {
@@ -219,8 +219,8 @@
     },
     {
       "path": "src/components/segmentedpicker.luau",
-      "lineCoverage": 0.00,
-      "coveredLines": 0,
+      "lineCoverage": 78.82,
+      "coveredLines": 160,
       "coverableLines": 203
     },
     {
@@ -249,14 +249,14 @@
     },
     {
       "path": "src/components/statuscard.luau",
-      "lineCoverage": 0.00,
-      "coveredLines": 0,
+      "lineCoverage": 77.12,
+      "coveredLines": 118,
       "coverableLines": 153
     },
     {
       "path": "src/components/tab.luau",
-      "lineCoverage": 77.78,
-      "coveredLines": 154,
+      "lineCoverage": 82.32,
+      "coveredLines": 163,
       "coverableLines": 198
     },
     {
@@ -315,14 +315,14 @@
     },
     {
       "path": "src/components/windowExtra.luau",
-      "lineCoverage": 72.17,
-      "coveredLines": 433,
+      "lineCoverage": 72.33,
+      "coveredLines": 434,
       "coverableLines": 600
     },
     {
       "path": "src/components/windowMethods.luau",
-      "lineCoverage": 66.52,
-      "coveredLines": 469,
+      "lineCoverage": 69.08,
+      "coveredLines": 487,
       "coverableLines": 705
     },
     {
