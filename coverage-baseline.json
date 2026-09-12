@@ -4,8 +4,8 @@
   "command": "make coverage-baseline",
   "threshold": 70.00,
   "lineCoverage": 72.10,
-  "coveredLines": 6884,
-  "coverableLines": 9548,
+  "coveredLines": 6888,
+  "coverableLines": 9554,
   "notes": [
     "Generated reports are written to coverage/coverage.txt and coverage/coverage-summary.json.",
     "The enforced Lune coverage scope is discovered dynamically from src by default.",
@@ -249,9 +249,9 @@
     },
     {
       "path": "src/components/statuscard.luau",
-      "lineCoverage": 76.97,
-      "coveredLines": 117,
-      "coverableLines": 152
+      "lineCoverage": 76.43,
+      "coveredLines": 120,
+      "coverableLines": 157
     },
     {
       "path": "src/components/tab.luau",
@@ -327,9 +327,9 @@
     },
     {
       "path": "src/init.luau",
-      "lineCoverage": 90.38,
-      "coveredLines": 47,
-      "coverableLines": 52
+      "lineCoverage": 90.57,
+      "coveredLines": 48,
+      "coverableLines": 53
     },
     {
       "path": "src/themes/amethyst.luau",
