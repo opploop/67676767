@@ -1831,7 +1831,7 @@ for _, name in {
     "CreateGroup", "CreateProgressBar",
     "CreateScrollHint", "CreateSegmentedPicker", "CreateShimmerLabel", "CreateInput", "CreateKeybind",
     "CreateColorPicker", "CreateGradientPicker", "CreateHoldButton", "CreateChangelog", "CreateSpacer",
-    "CreateTabbox", "CreateConsole",
+    "CreateTabbox", "CreateConsole", "CreateCollapsible",
 } do
     Collapsible[name] = function(self, properties)
         return self._group[name](self._group, properties)
@@ -28203,6 +28203,17 @@ export type DividerProps = {
     height: number?, -- gap height in px when line = false (default 24)
 }
 
+export type TabboxProps = {
+    name: string?,
+}
+
+export type TabboxPage = Group -- a Tabbox page is a column Group; every CreateX works on it
+
+export type Tabbox = Moveable & {
+    -- returns the page, which hosts elements exactly like a Group does
+    CreateTab: (self: Tabbox, props: { name: string? }) -> TabboxPage,
+}
+
 export type GroupProps = {
     direction: string?, -- "row" | "column" (default row); "horizontal"/"vertical" also work
     -- Dependency group: hides/shows every child together based on another control's value -
@@ -28973,6 +28984,7 @@ export type Collapsible = Moveable & {
     CreateReorderList: (self: Collapsible, props: ReorderListProps) -> ReorderList,
     CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,
     CreateListPicker: (self: Collapsible, props: ListPickerProps) -> ListPicker,
+    CreateTabbox: (self: Collapsible, props: TabboxProps) -> Tabbox,
     CreateSection: (self: Collapsible, props: SectionProps) -> Section,
     CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,
     CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,
@@ -29014,6 +29026,7 @@ export type Group = Moveable & {
     CreateReorderList: (self: Group, props: ReorderListProps) -> ReorderList,
     CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,
     CreateListPicker: (self: Group, props: ListPickerProps) -> ListPicker,
+    CreateTabbox: (self: Group, props: TabboxProps) -> Tabbox,
     CreateSection: (self: Group, props: SectionProps) -> Section,
     CreateLabel: (self: Group, props: LabelProps?) -> Label,
     CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,
@@ -29035,6 +29048,7 @@ export type Tab = {
     CreateReorderList: (self: Tab, props: ReorderListProps) -> ReorderList,
     CreateItemGrid: (self: Tab, props: ItemGridProps) -> ItemGrid,
     CreateListPicker: (self: Tab, props: ListPickerProps) -> ListPicker,
+    CreateTabbox: (self: Tab, props: TabboxProps) -> Tabbox,
     CreateInput: (self: Tab, props: InputProps) -> Input,
     CreateKeybind: (self: Tab, props: KeybindProps) -> Keybind,
     CreateColorPicker: (self: Tab, props: ColorPickerProps) -> ColorPicker,

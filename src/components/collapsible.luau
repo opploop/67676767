@@ -278,7 +278,7 @@ for _, name in {
     "CreateGroup", "CreateProgressBar",
     "CreateScrollHint", "CreateSegmentedPicker", "CreateShimmerLabel", "CreateInput", "CreateKeybind",
     "CreateColorPicker", "CreateGradientPicker", "CreateHoldButton", "CreateChangelog", "CreateSpacer",
-    "CreateTabbox", "CreateConsole",
+    "CreateTabbox", "CreateConsole", "CreateCollapsible",
 } do
     Collapsible[name] = function(self, properties)
         return self._group[name](self._group, properties)
