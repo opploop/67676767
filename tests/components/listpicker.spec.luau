@@ -153,12 +153,16 @@ return function()
                 expect(picker.list.Size.Y.Offset).to.equal(picker:_rowsHeight(3))
             end)
 
-            it("stops growing at seven rows by default and scrolls past that", function()
-                local picker = makeTab():CreateListPicker({ options = many(40), forgetState = true })
+            it("stops growing at the same ceiling ItemGrid uses, and scrolls past it", function()
+                local tab = makeTab()
+                local picker = tab:CreateListPicker({ options = many(40), forgetState = true })
+                local grid = tab:CreateItemGrid({ items = many(80), forgetState = true })
 
                 -- forty options used to mean a rail forty rows tall, pushing the page away
                 expect(picker.list:IsA("ScrollingFrame")).to.equal(true)
-                expect(picker.list.Size.Y.Offset).to.equal(picker:_rowsHeight(7))
+                expect(picker.list.Size.Y.Offset).to.equal(210)
+                -- one shared value, so a rail and the grid beside it stop at the same line
+                expect(picker.height).to.equal(grid.height)
                 expect(#picker.rows).to.equal(40)
             end)
 
@@ -171,12 +175,27 @@ return function()
                 expect(long.list.Size.Y.Offset).to.equal(120)
             end)
 
+            it("takes the ceiling as maxHeight, and changes it later with SetMaxHeight", function()
+                local picker = makeTab():CreateListPicker({ options = many(20), maxHeight = 150, forgetState = true })
+                expect(picker.list.Size.Y.Offset).to.equal(150)
+
+                picker:SetMaxHeight(100)
+                expect(picker.list.Size.Y.Offset).to.equal(100)
+            end)
+
+            it("never lets the ceiling fall below one row", function()
+                local picker = makeTab():CreateListPicker({ options = many(5), maxHeight = 4, forgetState = true })
+
+                -- a 4px ceiling would cut the only visible row in half
+                expect(picker.list.Size.Y.Offset).to.equal(picker:_rowsHeight(1))
+            end)
+
             it("puts the default ceiling back when SetHeight is given nil", function()
                 local picker = makeTab():CreateListPicker({ options = many(20), height = 80, forgetState = true })
 
                 picker:SetHeight(nil)
 
-                expect(picker.list.Size.Y.Offset).to.equal(picker:_rowsHeight(7))
+                expect(picker.list.Size.Y.Offset).to.equal(210)
             end)
         end)
 

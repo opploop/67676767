@@ -18,7 +18,7 @@
 -- Positions are computed here rather than left to AutomaticSize: the list knows its own row count
 -- and writes its own height, so it never negotiates size with a parent layout (see this repo's
 -- history of AutomaticSize-inside-a-list-layout growth loops). That height is capped - see
--- defaultVisibleRows - so a long list scrolls inside the element instead of pushing the page.
+-- defaultMaxHeight - so a long list scrolls inside the element instead of pushing the page.
 
 local ListPicker = {}
 ListPicker.__index = ListPicker
@@ -33,6 +33,7 @@ local functions = require(utility.functions)
 local moveable = require(utility.moveable)
 local lockable = require(utility.lockable)
 local locale = require(utility.locale)
+local constants = require(utility.constants)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
 
@@ -47,10 +48,10 @@ local rowCorner = 9
 local iconSize = 16
 local iconGap = 9
 
--- How many rows show before the list starts scrolling, when no `height` is given. The list used to
--- grow with every option, so forty options meant a rail forty rows tall shoving everything below
--- it off the page. Seven is enough for a normal category rail to never scroll at all.
-local defaultVisibleRows = 7
+-- The list's default height ceiling when no `height` is given. It used to grow with every option,
+-- so forty options meant a rail forty rows tall shoving everything below it off the page. Shared
+-- with ItemGrid (constants.listMaxHeight) so a rail and the grid beside it stop at the same line.
+local defaultMaxHeight = constants.listMaxHeight
 
 -- A UIStroke draws outside its frame, so a row flush against a scrolling edge loses that side of
 -- its outline. Same inset the item grid uses, for the same reason.
@@ -93,9 +94,9 @@ function ListPicker.new(tab, properties)
 
         rowHeight = math.max(tonumber(properties.rowHeight or properties.RowHeight) or defaultRowHeight, 24),
         -- A CEILING, not a reservation: a list shorter than this takes only the rows it has, a
-        -- longer one scrolls inside it. Defaults to defaultVisibleRows' worth (filled in below,
-        -- once rowHeight is known) - the same "height is a cap" rule ItemGrid follows.
-        height = tonumber(properties.height or properties.Height),
+        -- longer one scrolls inside it. Defaults to the same ceiling ItemGrid uses (filled in
+        -- below) - and the same "height is a cap" rule it follows.
+        height = tonumber(properties.maxHeight or properties.MaxHeight or properties.height or properties.Height),
         multiSelect = functions.readBool(properties, "multiSelect", false),
         showHeader = functions.readBool(properties, "showHeader", true),
         emptyText = properties.emptyText or properties.EmptyText or "Nothing to pick.",
@@ -119,9 +120,7 @@ function ListPicker.new(tab, properties)
         selected = {}, -- multi-select only: the ticked ids as a set
     }, ListPicker)
 
-    if not self.height then
-        self.height = self:_rowsHeight(defaultVisibleRows)
-    end
+    self.height = self:_clampCeiling(self.height)
 
     for _, entry in (properties.options or properties.Options or properties.items or properties.Items or {}) do
         local normalised = normalise(entry)
@@ -674,10 +673,22 @@ function ListPicker:Refresh(options, skipCallback)
     end
 end
 
--- The ceiling, not a fixed height. nil puts back the default of defaultVisibleRows rows.
+-- A ceiling below one row would cut the only row in half, so one row is the floor. nil (or
+-- anything that is not a number) means the shared default.
+function ListPicker:_clampCeiling(height): number
+    local ceiling = tonumber(height) or defaultMaxHeight
+    return math.max(ceiling, self:_rowsHeight(1))
+end
+
+-- The ceiling, not a fixed height. nil puts back the shared default.
 function ListPicker:SetHeight(height)
-    self.height = tonumber(height) or self:_rowsHeight(defaultVisibleRows)
+    self.height = self:_clampCeiling(height)
     self:_syncHeight()
+end
+
+-- Same as SetHeight, under the name that says it sets a ceiling rather than a fixed height.
+function ListPicker:SetMaxHeight(height)
+    self:SetHeight(height)
 end
 
 function ListPicker:_setShown(shown, animate)

@@ -8680,7 +8680,7 @@ local strokeInset = 3
 local boxSize = 18
 local dotSize = 7
 local defaultColumns = 4
-local defaultHeight = 210
+local defaultHeight = constants.listMaxHeight -- shared with ListPicker
 local emptyRoom = 28 -- the panel a grid keeps when it has nothing to show, for the empty label
 local defaultCellHeight = 56
 local stackedCellHeight = 128 -- room for a thumbnail plus its name underneath
@@ -8762,7 +8762,13 @@ function ItemGrid.new(tab, properties)
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
 
         columns = math.clamp(tonumber(properties.columns or properties.Columns) or defaultColumns, 1, 8),
-        height = math.max(tonumber(properties.height or properties.Height) or defaultHeight, 80),
+        -- The ceiling. `maxHeight` is the name that says what it does; `height` is the original
+        -- spelling and still works, since a ceiling is what it always meant here.
+        height = math.max(
+            tonumber(properties.maxHeight or properties.MaxHeight or properties.height or properties.Height)
+                or defaultHeight,
+            80
+        ),
         imageLayout = imageLayout,
         multiSelect = functions.readBool(properties, "multiSelect", true),
         -- The "Select all / Clear" line above the grid. On by default, because a multi-select
@@ -8899,7 +8905,8 @@ function ItemGrid:_build()
 
     self.title = window:Create("TextLabel", {
         Text = locale.t(self.name),
-        Size = UDim2.new(1, -(sidePadding * 2 + 70), 0, headerHeight),
+        Size = UDim2.new(1, -(sidePadding * 2 + 70), 0, headerHeight), -- re-fit by _fitHeader
+        TextTruncate = Enum.TextTruncate.AtEnd,
         Position = UDim2.new(0, sidePadding + (if self.icon then 21 else 0), 0, headerTop),
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
@@ -9577,12 +9584,44 @@ function ItemGrid:_syncValue()
     end
     self.value = ids
 
-    -- selected / TOTAL, never selected / currently-shown: filtering to two cards while two hidden
-    -- ones are ticked read as "2 / 2", which says every visible card is selected and is flatly
-    -- untrue. The total is the only denominator that doesn't lie as the filter moves.
-    -- against the cap when there is one: "2 / 3" is the number a capped player is watching,
-    -- where "2 / 40" tells them nothing about how many picks they have left
-    self.counter.Text = `{#ids} / {self.maxSelected or #self.entries}`
+    -- The counter describes what is ON SCREEN, and separately says how many ticks are off it.
+    --
+    -- It used to read selected / TOTAL always, to avoid one lie: a filter down to two cards while
+    -- two hidden ones were ticked rendering "2 / 2", as if every visible card were picked. But
+    -- the total reads wrong in the other direction - narrow a 24-item grid to three categories
+    -- and it kept saying "24 / 24", describing cards the player can no longer see. Reported live.
+    --
+    -- So: ticked-and-visible / visible, which is always true of the screen, plus "· N hidden"
+    -- whenever ticks exist that the current filter or scope is hiding - that suffix is what
+    -- stops the old "2 / 2" lie coming back, because hidden ticks are named instead of counted.
+    -- With a cap the denominator is the cap and the numerator is EVERY tick, since every tick
+    -- uses a slot; the suffix then explains why a player at "2 / 2" sees only one ticked card.
+    local visible, visibleTicked = 0, 0
+    for _, entry in self.entries do
+        if self:_matches(entry) then
+            visible += 1
+            if self.selected[entry.id] then
+                visibleTicked += 1
+            end
+        end
+    end
+    local hidden = #ids - visibleTicked
+
+    local text = if self.maxSelected then `{#ids} / {self.maxSelected}` else `{visibleTicked} / {visible}`
+    if hidden > 0 then
+        text ..= ` · {hidden} {locale.resolve("hidden")}`
+    end
+    self.counter.Text = text
+    self:_fitHeader()
+end
+
+-- The counter grows when it gains its "· N hidden" suffix, so the title gives way to it rather
+-- than the two overlapping; a long title truncates instead.
+function ItemGrid:_fitHeader()
+    local counterWidth = math.max(70, functions.textWidth(self.window.theme.Font, 14, self.counter.Text) + 6)
+    self.counter.Size = UDim2.fromOffset(counterWidth, headerHeight)
+    local iconOffset = if self.icon then 21 else 0
+    self.title.Size = UDim2.new(1, -(sidePadding * 2 + counterWidth + 8 + iconOffset), 0, headerHeight)
 end
 
 -- Does this entry survive the current filter?
@@ -9895,6 +9934,11 @@ end
 function ItemGrid:SetHeight(height)
     self.height = math.max(tonumber(height) or defaultHeight, 80)
     self:_syncHeight()
+end
+
+-- Same as SetHeight, under the name that says it sets a ceiling rather than a fixed height.
+function ItemGrid:SetMaxHeight(height)
+    self:SetHeight(height)
 end
 
 function ItemGrid:SetColumns(columns)
@@ -10707,7 +10751,7 @@ sources["components/listpicker"] = [=====[
 -- Positions are computed here rather than left to AutomaticSize: the list knows its own row count
 -- and writes its own height, so it never negotiates size with a parent layout (see this repo's
 -- history of AutomaticSize-inside-a-list-layout growth loops). That height is capped - see
--- defaultVisibleRows - so a long list scrolls inside the element instead of pushing the page.
+-- defaultMaxHeight - so a long list scrolls inside the element instead of pushing the page.
 
 local ListPicker = {}
 ListPicker.__index = ListPicker
@@ -10722,6 +10766,7 @@ local functions = require(utility.functions)
 local moveable = require(utility.moveable)
 local lockable = require(utility.lockable)
 local locale = require(utility.locale)
+local constants = require(utility.constants)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
 
@@ -10736,10 +10781,10 @@ local rowCorner = 9
 local iconSize = 16
 local iconGap = 9
 
--- How many rows show before the list starts scrolling, when no `height` is given. The list used to
--- grow with every option, so forty options meant a rail forty rows tall shoving everything below
--- it off the page. Seven is enough for a normal category rail to never scroll at all.
-local defaultVisibleRows = 7
+-- The list's default height ceiling when no `height` is given. It used to grow with every option,
+-- so forty options meant a rail forty rows tall shoving everything below it off the page. Shared
+-- with ItemGrid (constants.listMaxHeight) so a rail and the grid beside it stop at the same line.
+local defaultMaxHeight = constants.listMaxHeight
 
 -- A UIStroke draws outside its frame, so a row flush against a scrolling edge loses that side of
 -- its outline. Same inset the item grid uses, for the same reason.
@@ -10782,9 +10827,9 @@ function ListPicker.new(tab, properties)
 
         rowHeight = math.max(tonumber(properties.rowHeight or properties.RowHeight) or defaultRowHeight, 24),
         -- A CEILING, not a reservation: a list shorter than this takes only the rows it has, a
-        -- longer one scrolls inside it. Defaults to defaultVisibleRows' worth (filled in below,
-        -- once rowHeight is known) - the same "height is a cap" rule ItemGrid follows.
-        height = tonumber(properties.height or properties.Height),
+        -- longer one scrolls inside it. Defaults to the same ceiling ItemGrid uses (filled in
+        -- below) - and the same "height is a cap" rule it follows.
+        height = tonumber(properties.maxHeight or properties.MaxHeight or properties.height or properties.Height),
         multiSelect = functions.readBool(properties, "multiSelect", false),
         showHeader = functions.readBool(properties, "showHeader", true),
         emptyText = properties.emptyText or properties.EmptyText or "Nothing to pick.",
@@ -10808,9 +10853,7 @@ function ListPicker.new(tab, properties)
         selected = {}, -- multi-select only: the ticked ids as a set
     }, ListPicker)
 
-    if not self.height then
-        self.height = self:_rowsHeight(defaultVisibleRows)
-    end
+    self.height = self:_clampCeiling(self.height)
 
     for _, entry in (properties.options or properties.Options or properties.items or properties.Items or {}) do
         local normalised = normalise(entry)
@@ -11363,10 +11406,22 @@ function ListPicker:Refresh(options, skipCallback)
     end
 end
 
--- The ceiling, not a fixed height. nil puts back the default of defaultVisibleRows rows.
+-- A ceiling below one row would cut the only row in half, so one row is the floor. nil (or
+-- anything that is not a number) means the shared default.
+function ListPicker:_clampCeiling(height): number
+    local ceiling = tonumber(height) or defaultMaxHeight
+    return math.max(ceiling, self:_rowsHeight(1))
+end
+
+-- The ceiling, not a fixed height. nil puts back the shared default.
 function ListPicker:SetHeight(height)
-    self.height = tonumber(height) or self:_rowsHeight(defaultVisibleRows)
+    self.height = self:_clampCeiling(height)
     self:_syncHeight()
+end
+
+-- Same as SetHeight, under the name that says it sets a ceiling rather than a fixed height.
+function ListPicker:SetMaxHeight(height)
+    self:SetHeight(height)
 end
 
 function ListPicker:_setShown(shown, animate)
@@ -28969,7 +29024,8 @@ export type ListPickerProps = {
     multiSelect: boolean?, -- default false; true ticks any number of rows
     value: (string | { string })?, -- single-select defaults to the first option, multi to none
     rowHeight: number?, -- default 34, floor 24
-    height: number?, -- a CEILING: shorter lists take only their rows, longer ones scroll; default 7 rows
+    maxHeight: number?, -- the CEILING: shorter lists take only their rows, longer ones scroll; default 210, same as ItemGrid
+    height: number?, -- original spelling of maxHeight, still accepted
     showHeader: boolean?, -- default true
     emptyText: string?,
     callback: ((value: any) -> ())?, -- the id, or the array of ticked ids when multiSelect
@@ -28984,7 +29040,8 @@ export type ItemGridProps = {
     items: { string | GridItem }?,
     value: (string | { string })?,
     columns: number?, -- ceiling, default 4; a narrow window drops below it on its own
-    height: number?, -- the scrolling viewport, default 210
+    maxHeight: number?, -- the CEILING on the card area: fewer cards take only their rows, more scroll; default 210
+    height: number?, -- original spelling of maxHeight, still accepted
     cellHeight: number?, -- default 46
     multiSelect: boolean?, -- default true
     emptyText: string?,
@@ -29360,6 +29417,7 @@ export type ListPicker = Moveable & {
     Clear: (self: ListPicker, skipCallback: boolean?) -> (),
     Refresh: (self: ListPicker, options: { ListOption }, skipCallback: boolean?) -> (),
     SetHeight: (self: ListPicker, height: number?) -> (),
+    SetMaxHeight: (self: ListPicker, height: number?) -> (),
     Lock: (self: ListPicker, reason: string?) -> (),
     Unlock: (self: ListPicker) -> (),
     IsLocked: (self: ListPicker) -> boolean,
@@ -29379,7 +29437,8 @@ export type ItemGrid = Moveable & {
     ToggleTag: (self: ItemGrid, tag: string) -> (), -- the programmatic half of clicking a chip
     GetFilter: (self: ItemGrid) -> { text: string, tags: { string } },
     Refresh: (self: ItemGrid, items: { string | GridItem }, skipCallback: boolean?) -> (),
-    SetHeight: (self: ItemGrid, height: number) -> (),
+    SetHeight: (self: ItemGrid, height: number?) -> (),
+    SetMaxHeight: (self: ItemGrid, height: number?) -> (),
     SetColumns: (self: ItemGrid, columns: number) -> (),
     Lock: (self: ItemGrid, reason: string?) -> (),
     Unlock: (self: ItemGrid) -> (),
@@ -30509,6 +30568,11 @@ constants.icons = {
     config = 125823673784681, -- saved-configurations picker
     rayfield = 80387863064905, -- default show icon on the sign-in toast
 }
+
+-- The default height ceiling for a scrolling list inside an element - ItemGrid's card area and
+-- ListPicker's rows both stop growing here and scroll past it. One value so two pickers placed
+-- side by side (a category rail beside the grid it drives) stop at the same line.
+constants.listMaxHeight = 210
 
 -- Accent used by the toggle switch + slider glow when active.
 constants.accent = {

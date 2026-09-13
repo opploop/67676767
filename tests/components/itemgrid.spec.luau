@@ -51,13 +51,41 @@ return function()
             expect(grid.counter.Text).to.equal("0 / 2")
         end)
 
-        it("counts against the total, not the filtered view", function()
+        it("counts what is on screen, and names the ticks a filter hides", function()
             local grid = makeTab():CreateItemGrid({ items = rarityItems(), forgetState = true })
             grid:Set({ "b" }, true)
 
             grid:Filter("alp") -- hides b, which is the one that is ticked
-            -- "1 / 2" here would claim half the visible cards are selected, which is untrue
-            expect(grid.counter.Text).to.equal("1 / 3")
+            -- none of the two visible cards is ticked, and the hidden tick is named rather than
+            -- counted - "1 / 2" would claim a visible card is picked, "1 / 3" describes cards the
+            -- player cannot see
+            expect(grid.counter.Text).to.equal("0 / 2 · 1 hidden")
+        end)
+
+        it("follows a scope the way a player reads it", function()
+            local grid = makeTab():CreateItemGrid({ items = rarityItems(), forgetState = true })
+            grid:SelectAll()
+            expect(grid.counter.Text).to.equal("3 / 3")
+
+            -- reported live: narrowing a fully ticked grid kept reading as the whole catalogue
+            grid:SetScope(function(entry)
+                return entry.tag == "RARE"
+            end)
+            expect(grid.counter.Text).to.equal("2 / 2 · 1 hidden")
+
+            grid:SetScope(nil)
+            expect(grid.counter.Text).to.equal("3 / 3")
+        end)
+
+        it("widens the counter for its suffix and gives the title the rest", function()
+            local grid = makeTab():CreateItemGrid({ items = rarityItems(), forgetState = true })
+            local plain = grid.counter.Size.X.Offset
+
+            grid:Set({ "b" }, true)
+            grid:Filter("alp")
+
+            expect(grid.counter.Size.X.Offset >= plain).to.equal(true)
+            expect(grid.title.Size.X.Offset).to.equal(-(15 * 2 + grid.counter.Size.X.Offset + 8))
         end)
 
         it("returns ids in item order, not click order", function()
@@ -225,6 +253,22 @@ return function()
 
             -- two items are one row, not 400px of empty panel
             expect(few:_contentHeight() < 400).to.equal(true)
+        end)
+
+        it("takes its ceiling as maxHeight too, and SetMaxHeight changes it", function()
+            local items = {}
+            for index = 1, 60 do
+                table.insert(items, "Item " .. index)
+            end
+            local grid = makeTab():CreateItemGrid({ items = items, columns = 2, maxHeight = 140, forgetState = true })
+            grid.columns = 2 -- pin it: the shim has no real width to measure
+            grid:_syncHeight()
+
+            expect(grid.height).to.equal(140)
+            expect(grid.scroll.Size.Y.Offset).to.equal(140)
+
+            grid:SetMaxHeight(120)
+            expect(grid.scroll.Size.Y.Offset).to.equal(120)
         end)
 
         describe("maxSelected", function()
@@ -457,7 +501,9 @@ return function()
                 grid.selectAllButton.MouseButton1Click:Fire()
 
                 expect(#grid:Get()).to.equal(2)
-                expect(grid.counter.Text).to.equal("2 / 2")
+                -- every tick uses a slot, so the numerator counts b; the suffix is what tells a
+                -- player seeing one ticked card why they are already at the cap
+                expect(grid.counter.Text).to.equal("2 / 2 · 1 hidden")
                 -- deliberate: never exceeding the cap is the only reading that cannot lose a
                 -- pick the player already made. The alternative - counting only what is visible -
                 -- would let the total run past the cap as the scope moves.

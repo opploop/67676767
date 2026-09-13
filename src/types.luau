@@ -414,7 +414,8 @@ export type ListPickerProps = {
     multiSelect: boolean?, -- default false; true ticks any number of rows
     value: (string | { string })?, -- single-select defaults to the first option, multi to none
     rowHeight: number?, -- default 34, floor 24
-    height: number?, -- a CEILING: shorter lists take only their rows, longer ones scroll; default 7 rows
+    maxHeight: number?, -- the CEILING: shorter lists take only their rows, longer ones scroll; default 210, same as ItemGrid
+    height: number?, -- original spelling of maxHeight, still accepted
     showHeader: boolean?, -- default true
     emptyText: string?,
     callback: ((value: any) -> ())?, -- the id, or the array of ticked ids when multiSelect
@@ -429,7 +430,8 @@ export type ItemGridProps = {
     items: { string | GridItem }?,
     value: (string | { string })?,
     columns: number?, -- ceiling, default 4; a narrow window drops below it on its own
-    height: number?, -- the scrolling viewport, default 210
+    maxHeight: number?, -- the CEILING on the card area: fewer cards take only their rows, more scroll; default 210
+    height: number?, -- original spelling of maxHeight, still accepted
     cellHeight: number?, -- default 46
     multiSelect: boolean?, -- default true
     emptyText: string?,
@@ -805,6 +807,7 @@ export type ListPicker = Moveable & {
     Clear: (self: ListPicker, skipCallback: boolean?) -> (),
     Refresh: (self: ListPicker, options: { ListOption }, skipCallback: boolean?) -> (),
     SetHeight: (self: ListPicker, height: number?) -> (),
+    SetMaxHeight: (self: ListPicker, height: number?) -> (),
     Lock: (self: ListPicker, reason: string?) -> (),
     Unlock: (self: ListPicker) -> (),
     IsLocked: (self: ListPicker) -> boolean,
@@ -824,7 +827,8 @@ export type ItemGrid = Moveable & {
     ToggleTag: (self: ItemGrid, tag: string) -> (), -- the programmatic half of clicking a chip
     GetFilter: (self: ItemGrid) -> { text: string, tags: { string } },
     Refresh: (self: ItemGrid, items: { string | GridItem }, skipCallback: boolean?) -> (),
-    SetHeight: (self: ItemGrid, height: number) -> (),
+    SetHeight: (self: ItemGrid, height: number?) -> (),
+    SetMaxHeight: (self: ItemGrid, height: number?) -> (),
     SetColumns: (self: ItemGrid, columns: number) -> (),
     Lock: (self: ItemGrid, reason: string?) -> (),
     Unlock: (self: ItemGrid) -> (),

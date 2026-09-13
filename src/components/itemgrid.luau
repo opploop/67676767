@@ -54,7 +54,7 @@ local strokeInset = 3
 local boxSize = 18
 local dotSize = 7
 local defaultColumns = 4
-local defaultHeight = 210
+local defaultHeight = constants.listMaxHeight -- shared with ListPicker
 local emptyRoom = 28 -- the panel a grid keeps when it has nothing to show, for the empty label
 local defaultCellHeight = 56
 local stackedCellHeight = 128 -- room for a thumbnail plus its name underneath
@@ -136,7 +136,13 @@ function ItemGrid.new(tab, properties)
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
 
         columns = math.clamp(tonumber(properties.columns or properties.Columns) or defaultColumns, 1, 8),
-        height = math.max(tonumber(properties.height or properties.Height) or defaultHeight, 80),
+        -- The ceiling. `maxHeight` is the name that says what it does; `height` is the original
+        -- spelling and still works, since a ceiling is what it always meant here.
+        height = math.max(
+            tonumber(properties.maxHeight or properties.MaxHeight or properties.height or properties.Height)
+                or defaultHeight,
+            80
+        ),
         imageLayout = imageLayout,
         multiSelect = functions.readBool(properties, "multiSelect", true),
         -- The "Select all / Clear" line above the grid. On by default, because a multi-select
@@ -273,7 +279,8 @@ function ItemGrid:_build()
 
     self.title = window:Create("TextLabel", {
         Text = locale.t(self.name),
-        Size = UDim2.new(1, -(sidePadding * 2 + 70), 0, headerHeight),
+        Size = UDim2.new(1, -(sidePadding * 2 + 70), 0, headerHeight), -- re-fit by _fitHeader
+        TextTruncate = Enum.TextTruncate.AtEnd,
         Position = UDim2.new(0, sidePadding + (if self.icon then 21 else 0), 0, headerTop),
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
@@ -951,12 +958,44 @@ function ItemGrid:_syncValue()
     end
     self.value = ids
 
-    -- selected / TOTAL, never selected / currently-shown: filtering to two cards while two hidden
-    -- ones are ticked read as "2 / 2", which says every visible card is selected and is flatly
-    -- untrue. The total is the only denominator that doesn't lie as the filter moves.
-    -- against the cap when there is one: "2 / 3" is the number a capped player is watching,
-    -- where "2 / 40" tells them nothing about how many picks they have left
-    self.counter.Text = `{#ids} / {self.maxSelected or #self.entries}`
+    -- The counter describes what is ON SCREEN, and separately says how many ticks are off it.
+    --
+    -- It used to read selected / TOTAL always, to avoid one lie: a filter down to two cards while
+    -- two hidden ones were ticked rendering "2 / 2", as if every visible card were picked. But
+    -- the total reads wrong in the other direction - narrow a 24-item grid to three categories
+    -- and it kept saying "24 / 24", describing cards the player can no longer see. Reported live.
+    --
+    -- So: ticked-and-visible / visible, which is always true of the screen, plus "· N hidden"
+    -- whenever ticks exist that the current filter or scope is hiding - that suffix is what
+    -- stops the old "2 / 2" lie coming back, because hidden ticks are named instead of counted.
+    -- With a cap the denominator is the cap and the numerator is EVERY tick, since every tick
+    -- uses a slot; the suffix then explains why a player at "2 / 2" sees only one ticked card.
+    local visible, visibleTicked = 0, 0
+    for _, entry in self.entries do
+        if self:_matches(entry) then
+            visible += 1
+            if self.selected[entry.id] then
+                visibleTicked += 1
+            end
+        end
+    end
+    local hidden = #ids - visibleTicked
+
+    local text = if self.maxSelected then `{#ids} / {self.maxSelected}` else `{visibleTicked} / {visible}`
+    if hidden > 0 then
+        text ..= ` · {hidden} {locale.resolve("hidden")}`
+    end
+    self.counter.Text = text
+    self:_fitHeader()
+end
+
+-- The counter grows when it gains its "· N hidden" suffix, so the title gives way to it rather
+-- than the two overlapping; a long title truncates instead.
+function ItemGrid:_fitHeader()
+    local counterWidth = math.max(70, functions.textWidth(self.window.theme.Font, 14, self.counter.Text) + 6)
+    self.counter.Size = UDim2.fromOffset(counterWidth, headerHeight)
+    local iconOffset = if self.icon then 21 else 0
+    self.title.Size = UDim2.new(1, -(sidePadding * 2 + counterWidth + 8 + iconOffset), 0, headerHeight)
 end
 
 -- Does this entry survive the current filter?
@@ -1269,6 +1308,11 @@ end
 function ItemGrid:SetHeight(height)
     self.height = math.max(tonumber(height) or defaultHeight, 80)
     self:_syncHeight()
+end
+
+-- Same as SetHeight, under the name that says it sets a ceiling rather than a fixed height.
+function ItemGrid:SetMaxHeight(height)
+    self:SetHeight(height)
 end
 
 function ItemGrid:SetColumns(columns)

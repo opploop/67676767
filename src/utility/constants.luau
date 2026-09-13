@@ -33,6 +33,11 @@ constants.icons = {
     rayfield = 80387863064905, -- default show icon on the sign-in toast
 }
 
+-- The default height ceiling for a scrolling list inside an element - ItemGrid's card area and
+-- ListPicker's rows both stop growing here and scroll past it. One value so two pickers placed
+-- side by side (a category rail beside the grid it drives) stop at the same line.
+constants.listMaxHeight = 210
+
 -- Accent used by the toggle switch + slider glow when active.
 constants.accent = {
     on = Color3.fromRGB(23, 153, 110),
