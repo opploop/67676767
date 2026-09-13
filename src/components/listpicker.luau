@@ -50,7 +50,9 @@ local iconGap = 9
 
 -- The list's default height ceiling when no `height` is given. It used to grow with every option,
 -- so forty options meant a rail forty rows tall shoving everything below it off the page. Shared
--- with ItemGrid (constants.listMaxHeight) so a rail and the grid beside it stop at the same line.
+-- with ItemGrid (constants.listMaxHeight): the two scrolling areas share one ceiling. The cards
+-- themselves still end at different heights beside each other - the grid carries a search box and
+-- a Select all / Clear row above its area that the rail does not have.
 local defaultMaxHeight = constants.listMaxHeight
 
 -- A UIStroke draws outside its frame, so a row flush against a scrolling edge loses that side of

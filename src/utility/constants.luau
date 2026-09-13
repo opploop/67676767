@@ -35,7 +35,8 @@ constants.icons = {
 
 -- The default height ceiling for a scrolling list inside an element - ItemGrid's card area and
 -- ListPicker's rows both stop growing here and scroll past it. One value so two pickers placed
--- side by side (a category rail beside the grid it drives) stop at the same line.
+-- side by side share a ceiling on the part that scrolls. The cards around them can still end at
+-- different heights, since ItemGrid stacks a search box and quick actions above its area.
 constants.listMaxHeight = 210
 
 -- Accent used by the toggle switch + slider glow when active.
