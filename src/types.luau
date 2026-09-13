@@ -194,7 +194,6 @@ export type Tabbox = Moveable & {
 export type PanelProps = {
     name: string?, -- the card's instance name; the header shows the CURRENT page, not this
     onPageChanged: ((page: string) -> ())?, -- a page change the player (or SelectPage) made
-    flatRows: boolean?, -- default true: toggles/buttons/dropdowns on a page are plain rows, not cards
 }
 
 export type PanelPage = Group -- a Panel page is a column Group; every CreateX works on it

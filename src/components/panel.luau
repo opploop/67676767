@@ -90,8 +90,6 @@ function Panel.new(host, properties)
         name = properties.name or properties.Name or "Panel",
         forgetState = host.forgetState,
         onPageChanged = properties.onPageChanged or properties.OnPageChanged,
-        -- the controls on a page lie flat on the panel as plain rows, instead of each being a card
-        flatRows = functions.readBool(properties, "flatRows", true),
 
         pages = {},
         selectedIndex = nil,
@@ -317,7 +315,6 @@ function Panel:CreatePage(properties)
     -- A Label has no card, so its text sits on the card edge (10px in) while every row title starts
     -- 30px in. label.luau reads this off its host to start its text on the same line.
     page.labelInset = textLeft - cardInset
-    page.flat = self.flatRows
 
     table.insert(self.pages, page)
     assignOrder(page, index * 10)
