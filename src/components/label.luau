@@ -43,13 +43,16 @@ function Label.new(tab, properties)
         Parent = self.tab.tabPage,
     })
 
-    local titleInset = if self.icon then iconSize + iconGap else 0
+    -- a host can ask for its labels to start further in (a Panel page does, so a label's text starts
+    -- on the same line as the row titles beside it rather than on the card edge)
+    local hostInset = tonumber(self.tab.labelInset) or 0
+    local titleInset = hostInset + (if self.icon then iconSize + iconGap else 0)
 
     if self.icon then
         self.iconLabel = self.window:Create("ImageLabel", {
             Image = self.icon,
             Size = UDim2.fromOffset(iconSize, iconSize),
-            Position = UDim2.fromOffset(0, 1), -- nudged down a hair to sit on the first line's baseline
+            Position = UDim2.fromOffset(hostInset, 1), -- nudged down a hair to sit on the first line's baseline
             BorderSizePixel = 0,
             BackgroundTransparency = 1,
 

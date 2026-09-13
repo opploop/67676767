@@ -40,22 +40,39 @@ local assignOrder = require(utility.ordering)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
 
-local sidePadding = 15
-local headerTop = 12
-local headerHeight = 26
-local headerGap = 8
-local bottomPadding = 10
-local iconSize = 16
+-- One alignment grid, taken from the element cards a page holds: those sit 10px in from the
+-- panel's edges, start their titles 20px inside themselves and end their controls (a switch, a
+-- slider track) 15px inside. So text starts 30px in and controls end 25px in, and the header uses
+-- the same two lines - its title sits over the row titles, its pills end over the switches.
+local cardInset = 10
+local textLeft = 30
+local controlRight = 25
 
-local pillHeight = 24
-local pillPadX = 10
-local pillIconSize = 14
-local pillIconGap = 5
+local headerTop = 14
+local headerHeight = 28
+local dividerGap = 10 -- above and below the rule between the header and the page
+local contentTop = headerTop + headerHeight + dividerGap + 1 + dividerGap
+local bottomPadding = 10
+local iconSize = 17
+local iconGap = 8
+
+local pillHeight = 28
+local pillPadX = 11
+local pillIconSize = 15
+local pillIconGap = 6
 local pillGap = 6
-local pillTextSize = 13
+local pillTextSize = 14
 local pillCorner = 8
 
-local titleTextSize = 16
+local titleTextSize = 17
+local dividerRest = 0.92
+local pillStrokeRest = 0.9
+local pillStrokeHover = 0.78
+
+-- A page switch: the card eases to the new page's height while the new page rises a few pixels into
+-- place and the header's name fades up, instead of the content and the card both jumping.
+local pageRise = 8
+local switchInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
 local hoverInfo = TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
@@ -76,6 +93,7 @@ function Panel.new(host, properties)
 
         pages = {},
         selectedIndex = nil,
+        _heightTweens = {},
     }, Panel)
 
     local window = self.window
@@ -101,7 +119,7 @@ function Panel.new(host, properties)
     -- the current page's icon: only shown when that page has one
     self.iconLabel = window:Create("ImageLabel", {
         Size = UDim2.fromOffset(iconSize, iconSize),
-        Position = UDim2.fromOffset(sidePadding, headerTop + (headerHeight - iconSize) / 2),
+        Position = UDim2.fromOffset(textLeft, headerTop + (headerHeight - iconSize) / 2),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         Visible = false,
@@ -113,8 +131,8 @@ function Panel.new(host, properties)
 
     self.title = window:Create("TextLabel", {
         Text = "",
-        Size = UDim2.new(1, -(sidePadding * 2), 0, headerHeight),
-        Position = UDim2.fromOffset(sidePadding, headerTop),
+        Size = UDim2.new(1, -(textLeft + controlRight), 0, headerHeight),
+        Position = UDim2.fromOffset(textLeft, headerTop),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         TextSize = titleTextSize,
@@ -124,12 +142,26 @@ function Panel.new(host, properties)
         TextTransparency = 1, -- In = 0
 
         Parent = self.main,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+
+    -- a hairline between the header and the page, spanning the cards' own width, so the header
+    -- reads as a header rather than as the first row
+    self.divider = window:Create("Frame", {
+        Name = "Divider",
+        Size = UDim2.new(1, -cardInset * 2, 0, 1),
+        Position = UDim2.fromOffset(cardInset, headerTop + headerHeight + dividerGap),
+        BorderSizePixel = 0,
+        Visible = false,
+
+        BackgroundTransparency = 1, -- In = dividerRest
+
+        Parent = self.main,
+    }, { BackgroundColor3 = "ContentColor" })
 
     self.pageContainer = window:Create("Frame", {
         Name = "Pages",
         Size = UDim2.new(1, 0, 0, 0),
-        Position = UDim2.fromOffset(0, headerTop + headerHeight + headerGap),
+        Position = UDim2.fromOffset(0, contentTop),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
 
@@ -162,6 +194,11 @@ function Panel:_buildPill(page)
         Parent = self.main,
     }, { BackgroundColor3 = "FieldBackground" })
     window:Create("UICorner", { CornerRadius = UDim.new(0, pillCorner), Parent = pill.frame })
+    pill.stroke = window:Create("UIStroke", {
+        Transparency = 1, -- In = pillStrokeRest
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = pill.frame,
+    }, { Color = "ContentColor" })
 
     local left = pillPadX
     if page.pageIcon then
@@ -210,12 +247,24 @@ function Panel:_buildPill(page)
             return
         end
         variables.tweenService:Create(pill.label, hoverInfo, { TextTransparency = pillHoverText }):Play()
+        variables.tweenService:Create(pill.stroke, hoverInfo, { Transparency = pillStrokeHover }):Play()
+        variables.tweenService
+            :Create(
+                pill.frame,
+                hoverInfo,
+                { BackgroundTransparency = math.max(window.theme.FieldTransparency - 0.04, 0) }
+            )
+            :Play()
         if pill.icon then
             variables.tweenService:Create(pill.icon, hoverInfo, { ImageTransparency = pillHoverIcon }):Play()
         end
     end)
     window:ConnectFor(self, pill.interact.MouseLeave, function()
         variables.tweenService:Create(pill.label, hoverInfo, { TextTransparency = pillRestText }):Play()
+        variables.tweenService:Create(pill.stroke, hoverInfo, { Transparency = pillStrokeRest }):Play()
+        variables.tweenService
+            :Create(pill.frame, hoverInfo, { BackgroundTransparency = window.theme.FieldTransparency })
+            :Play()
         if pill.icon then
             variables.tweenService:Create(pill.icon, hoverInfo, { ImageTransparency = pillRestIcon }):Play()
         end
@@ -263,6 +312,9 @@ function Panel:CreatePage(properties)
     page.pageName = properties.name or properties.Name or ("Page " .. index)
     page.pageIcon = properties.icon or properties.Icon
     page.panel = self
+    -- A Label has no card, so its text sits on the card edge (10px in) while every row title starts
+    -- 30px in. label.luau reads this off its host to start its text on the same line.
+    page.labelInset = textLeft - cardInset
 
     table.insert(self.pages, page)
     assignOrder(page, index * 10)
@@ -313,6 +365,9 @@ function Panel:SelectPage(target, skipCallback)
         return false
     end
     local changed = self.selectedIndex ~= index
+    -- only a switch the player can see animates: not the page a panel opens on, not one made while
+    -- the window is hidden
+    local animate = changed and self.selectedIndex ~= nil and self._shown == true and not self.window.hidden
     self.selectedIndex = index
 
     for i, page in self.pages do
@@ -320,6 +375,18 @@ function Panel:SelectPage(target, skipCallback)
     end
 
     local page = self.pages[index]
+    if animate then
+        page.frame.Position = UDim2.fromOffset(0, pageRise)
+        variables.tweenService:Create(page.frame, switchInfo, { Position = UDim2.fromOffset(0, 0) }):Play()
+        self.title.TextTransparency = 0.6
+        variables.tweenService:Create(self.title, switchInfo, { TextTransparency = 0 }):Play()
+        if page.pageIcon then
+            self.iconLabel.ImageTransparency = 0.6
+            variables.tweenService:Create(self.iconLabel, switchInfo, { ImageTransparency = 0 }):Play()
+        end
+    else
+        page.frame.Position = UDim2.fromOffset(0, 0)
+    end
     self.title.Text = locale.resolve(page.pageName)
     self.iconLabel.Visible = page.pageIcon ~= nil
     if page.pageIcon then
@@ -329,7 +396,7 @@ function Panel:SelectPage(target, skipCallback)
     end
 
     self:_layoutHeader()
-    self:_syncHeight()
+    self:_syncHeight(animate)
 
     if changed and not skipCallback and self.onPageChanged then
         self.window:_runGuarded(self, self.onPageChanged, page.pageName)
@@ -346,7 +413,7 @@ end
 -- Pills for every page but the current one, packed against the right edge in creation order; the
 -- title takes whatever width they leave.
 function Panel:_layoutHeader()
-    local right = sidePadding
+    local right = controlRight
     for i = #self.pages, 1, -1 do
         local page = self.pages[i]
         local pill = page.pill
@@ -361,23 +428,44 @@ function Panel:_layoutHeader()
     end
 
     local current = self.pages[self.selectedIndex]
-    local iconOffset = if current and current.pageIcon then iconSize + 7 else 0
-    self.title.Position = UDim2.fromOffset(sidePadding + iconOffset, headerTop)
-    self.title.Size = UDim2.new(1, -(sidePadding + iconOffset + right + 4), 0, headerHeight)
+    local iconOffset = if current and current.pageIcon then iconSize + iconGap else 0
+    self.title.Position = UDim2.fromOffset(textLeft + iconOffset, headerTop)
+    self.title.Size = UDim2.new(1, -(textLeft + iconOffset + right + 4), 0, headerHeight)
 end
 
-function Panel:_syncHeight()
+-- The card is the header plus the current page. animate eases it there (a page switch); every other
+-- caller - a page's own contents growing, say - sets it outright so it keeps in lockstep.
+function Panel:_syncHeight(animate)
     local page = self.pages[self.selectedIndex]
     local content = if page then page.main.AbsoluteSize.Y else 0
-    local contentTop = headerTop + headerHeight + headerGap
+    local hasContent = content > 0
 
-    self.pageContainer.Size = UDim2.new(1, 0, 0, content)
-    self.main.Size = UDim2.new(
+    local containerSize = UDim2.new(1, 0, 0, content)
+    local mainSize = UDim2.new(
         1,
         -20,
         0,
-        if content > 0 then contentTop + content + bottomPadding else headerTop + headerHeight + bottomPadding
+        if hasContent then contentTop + content + bottomPadding else headerTop + headerHeight + bottomPadding
     )
+    self.divider.Visible = hasContent
+
+    -- a size set outright must not be overwritten a frame later by a switch still easing in
+    for _, tween in self._heightTweens do
+        tween:Cancel()
+    end
+    table.clear(self._heightTweens)
+
+    if animate then
+        local toMain = variables.tweenService:Create(self.main, switchInfo, { Size = mainSize })
+        local toContainer = variables.tweenService:Create(self.pageContainer, switchInfo, { Size = containerSize })
+        table.insert(self._heightTweens, toMain)
+        table.insert(self._heightTweens, toContainer)
+        toMain:Play()
+        toContainer:Play()
+    else
+        self.pageContainer.Size = containerSize
+        self.main.Size = mainSize
+    end
 end
 
 function Panel:_setShown(shown, animate)
@@ -391,11 +479,13 @@ function Panel:_setShown(shown, animate)
     w:_reveal(self.stroke, { Transparency = if shown then w.theme.ElementStrokeTransparency else 1 }, animate)
     w:_reveal(self.title, { TextTransparency = if shown then 0 else 1 }, animate)
     w:_reveal(self.iconLabel, { ImageTransparency = if shown then 0 else 1 }, animate)
+    w:_reveal(self.divider, { BackgroundTransparency = if shown then dividerRest else 1 }, animate)
 
     for _, page in self.pages do
         local pill = page.pill
         w:_reveal(pill.frame, { BackgroundTransparency = if shown then w.theme.FieldTransparency else 1 }, animate)
         w:_reveal(pill.label, { TextTransparency = if shown then pillRestText else 1 }, animate)
+        w:_reveal(pill.stroke, { Transparency = if shown then pillStrokeRest else 1 }, animate)
         if pill.icon then
             w:_reveal(pill.icon, { ImageTransparency = if shown then pillRestIcon else 1 }, animate)
         end

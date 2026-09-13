@@ -168,6 +168,122 @@ return function()
             expect(config.pill.frame.BackgroundTransparency).to.equal(1)
         end)
 
+        describe("design", function()
+            it(
+                "puts the header on the rows' grid: title over the row titles, pills ending over the switches",
+                function()
+                    local panel, _, config = trialPanel()
+                    panel:SelectPage("Config") -- no icon here, so the title starts straight on the grid line
+
+                    expect(panel.title.Position.X.Offset).to.equal(30)
+                    -- anchored right: this is the pill's right edge, 25px in, where a toggle's switch ends
+                    expect(panel.pages[1].pill.frame.Position.X.Offset).to.equal(-25)
+                    expect(config.pill.frame.Visible).to.equal(false)
+                end
+            )
+
+            it("moves the title past the current page's icon", function()
+                local panel = trialPanel() -- the Trial page has an icon
+
+                expect(panel.iconLabel.Position.X.Offset).to.equal(30)
+                expect(panel.title.Position.X.Offset > 30).to.equal(true)
+            end)
+
+            it("draws the rule under the header only when the page has something under it", function()
+                local panel, trial = trialPanel()
+
+                -- an empty page: the shim does not start AbsoluteSize at zero, so say it outright
+                trial.main.AbsoluteSize = Vector2.new(0, 0)
+                trial.main:GetPropertyChangedSignal("AbsoluteSize"):Fire()
+                expect(panel.divider.Visible).to.equal(false)
+
+                trial.main.AbsoluteSize = Vector2.new(0, 60)
+                trial.main:GetPropertyChangedSignal("AbsoluteSize"):Fire()
+                expect(panel.divider.Visible).to.equal(true)
+            end)
+
+            it("starts a label's text on the row titles' line inside a page", function()
+                local _, trial = trialPanel()
+                local inside = trial:CreateLabel({ text = "Trial Status: Waiting schedule" })
+                local outside = makeTab():CreateLabel({ text = "On a plain tab" })
+
+                -- 20px further in than its card-edge default, which is where row titles start
+                expect(inside.title.Position.X.Offset).to.equal(20)
+                expect(outside.title.Position.X.Offset).to.equal(0)
+            end)
+
+            it("eases a switch the player can see, and lands exactly on the new page", function()
+                local panel, trial, config = trialPanel()
+                window.hidden = false -- a switch only animates while the player can see it
+                panel:_setShown(true, false)
+
+                trial.main.AbsoluteSize = Vector2.new(0, 120)
+                config.main.AbsoluteSize = Vector2.new(0, 40)
+                trial.main:GetPropertyChangedSignal("AbsoluteSize"):Fire()
+
+                panel:SelectPage("Config")
+
+                -- the shim applies a tween's target at once, so this is where the easing ends up
+                expect(config.frame.Position.Y.Offset).to.equal(0)
+                expect(panel.title.TextTransparency).to.equal(0)
+                expect(panel.pageContainer.Size.Y.Offset).to.equal(40)
+                expect(#panel._heightTweens).to.equal(2)
+            end)
+
+            it("lets a page's own growth override a switch still easing in", function()
+                local panel, trial, config = trialPanel()
+                window.hidden = false
+                panel:_setShown(true, false)
+                panel:SelectPage("Config")
+                expect(#panel._heightTweens).to.equal(2)
+
+                config.main.AbsoluteSize = Vector2.new(0, 90)
+                config.main:GetPropertyChangedSignal("AbsoluteSize"):Fire()
+
+                -- the easing is cancelled rather than left to overwrite the size a frame later
+                expect(#panel._heightTweens).to.equal(0)
+                expect(panel.pageContainer.Size.Y.Offset).to.equal(90)
+                expect(trial.frame.Visible).to.equal(false)
+            end)
+
+            it("does not animate the page a panel opens on", function()
+                local panel = makeTab():CreatePanel({ name = "Trial" })
+                window.hidden = false
+                panel:_setShown(true, false)
+                local first = panel:CreatePage({ name = "Trial" })
+
+                expect(#panel._heightTweens).to.equal(0)
+                expect(first.frame.Position.Y.Offset).to.equal(0)
+            end)
+
+            it("fades the pill outline and the rule with the rest of the card", function()
+                local panel, _, config = trialPanel()
+
+                panel:_setShown(true, false)
+                expect(config.pill.stroke.Transparency).to.equal(0.9)
+                expect(panel.divider.BackgroundTransparency).to.equal(0.92)
+
+                panel:_setShown(false, false)
+                expect(config.pill.stroke.Transparency).to.equal(1)
+                expect(panel.divider.BackgroundTransparency).to.equal(1)
+            end)
+
+            it("lifts a pill on hover and settles it back", function()
+                local panel, _, config = trialPanel()
+                window.hidden = false -- hover is ignored while the window is not interactive
+                panel:_setShown(true, false)
+                local pill = config.pill
+
+                pill.interact.MouseEnter:Fire()
+                expect(pill.label.TextTransparency < 0.35).to.equal(true)
+                expect(pill.stroke.Transparency < 0.9).to.equal(true)
+
+                pill.interact.MouseLeave:Fire()
+                expect(pill.label.TextTransparency).to.equal(0.35)
+                expect(pill.stroke.Transparency).to.equal(0.9)
+            end)
+        end)
+
         it("builds from a Group and from a Collapsible, not just a Tab", function()
             local tab = makeTab()
             local column = tab:CreateGroup({ direction = "column" })
