@@ -7427,6 +7427,10 @@ function Group:_add(componentName, properties)
     end
 
     local element = require(script.Parent[componentName]).new(self, properties)
+    -- a host that lays its controls flat (a Panel page with flatRows) - see Window:_flattenElement
+    if self.flat then
+        self.window:_flattenElement(element)
+    end
     table.insert(self.elements, element)
     assignOrder(element, #self.elements * 10)
     self.window:_restoreLate(element)
@@ -7633,6 +7637,10 @@ function Group:_addGroup(properties)
     end
 
     local group = Group.new(self, properties)
+    -- a row or column nested in a flat page lays its own children flat too, and starts its labels on
+    -- the same line
+    group.flat = self.flat
+    group.labelInset = self.labelInset
     table.insert(self.elements, group)
     group.main.LayoutOrder = #self.elements * 10
     self:_reflowRow()
@@ -12187,6 +12195,8 @@ function Panel.new(host, properties)
         name = properties.name or properties.Name or "Panel",
         forgetState = host.forgetState,
         onPageChanged = properties.onPageChanged or properties.OnPageChanged,
+        -- the controls on a page lie flat on the panel as plain rows, instead of each being a card
+        flatRows = functions.readBool(properties, "flatRows", true),
 
         pages = {},
         selectedIndex = nil,
@@ -12412,6 +12422,7 @@ function Panel:CreatePage(properties)
     -- A Label has no card, so its text sits on the card edge (10px in) while every row title starts
     -- 30px in. label.luau reads this off its host to start its text on the same line.
     page.labelInset = textLeft - cardInset
+    page.flat = self.flatRows
 
     table.insert(self.pages, page)
     assignOrder(page, index * 10)
@@ -25320,6 +25331,50 @@ end
 
 -- Standard element body: white base + gradient fill + rounded corner + flat stroke (hidden until shown).
 -- Returns the stroke; call after creating `main` with a white BackgroundColor3.
+-- Which element types flattenRows turns into plain rows: the single-line controls. Content cards
+-- (Stat, Paragraph, StatusCard, ItemGrid...) keep their card - their fill is part of what they show.
+local flattenable = {
+    Button = true,
+    Toggle = true,
+    Checkbox = true,
+    Slider = true,
+    Dropdown = true,
+    Input = true,
+    Keybind = true,
+    CopyButton = true,
+    FlipButton = true,
+    RippleButton = true,
+    HoldButton = true,
+}
+
+-- Turn a control's card into a plain row: no fill, no outline, so it lies flat on the surface it sits
+-- on (a Panel page) instead of being a card on a card. Its hover overlay still lights the row up.
+--
+-- Deliberately NOT done through BackgroundTransparency: every component's own reveal tweens that
+-- back to the theme's element fill, and ChangeTheme re-applies it. The fill is drawn through the
+-- body's UIGradient and the outline by its UIStroke, and neither the reveal tweens nor the theme
+-- touch UIGradient.Transparency or UIStroke.Enabled - so clearing those two holds through every
+-- show, hide and theme swap without a change to any component. Returns whether it flattened.
+function Window:_flattenElement(element): boolean
+    if not flattenable[element.__type] then
+        return false
+    end
+    local body = element.top or element.main -- Dropdown's card is its top row, not its whole frame
+    if not body then
+        return false
+    end
+    local gradient = body:FindFirstChildWhichIsA("UIGradient")
+    local stroke = body:FindFirstChildWhichIsA("UIStroke")
+    if gradient then
+        gradient.Transparency = NumberSequence.new(1)
+    end
+    if stroke then
+        stroke.Enabled = false
+    end
+    element.flat = true
+    return true
+end
+
 function Window:StyleElementBody(main)
     -- Devlog 7 fix: every card's fill rides ElementTransparency, which SetTransparency now
     -- scales all the way to 1 on purpose (a fully "glass" window) - a plain Frame's default
@@ -29377,6 +29432,7 @@ export type Tabbox = Moveable & {
 export type PanelProps = {
     name: string?, -- the card's instance name; the header shows the CURRENT page, not this
     onPageChanged: ((page: string) -> ())?, -- a page change the player (or SelectPage) made
+    flatRows: boolean?, -- default true: toggles/buttons/dropdowns on a page are plain rows, not cards
 }
 
 export type PanelPage = Group -- a Panel page is a column Group; every CreateX works on it

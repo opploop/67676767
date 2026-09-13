@@ -1349,6 +1349,50 @@ end
 
 -- Standard element body: white base + gradient fill + rounded corner + flat stroke (hidden until shown).
 -- Returns the stroke; call after creating `main` with a white BackgroundColor3.
+-- Which element types flattenRows turns into plain rows: the single-line controls. Content cards
+-- (Stat, Paragraph, StatusCard, ItemGrid...) keep their card - their fill is part of what they show.
+local flattenable = {
+    Button = true,
+    Toggle = true,
+    Checkbox = true,
+    Slider = true,
+    Dropdown = true,
+    Input = true,
+    Keybind = true,
+    CopyButton = true,
+    FlipButton = true,
+    RippleButton = true,
+    HoldButton = true,
+}
+
+-- Turn a control's card into a plain row: no fill, no outline, so it lies flat on the surface it sits
+-- on (a Panel page) instead of being a card on a card. Its hover overlay still lights the row up.
+--
+-- Deliberately NOT done through BackgroundTransparency: every component's own reveal tweens that
+-- back to the theme's element fill, and ChangeTheme re-applies it. The fill is drawn through the
+-- body's UIGradient and the outline by its UIStroke, and neither the reveal tweens nor the theme
+-- touch UIGradient.Transparency or UIStroke.Enabled - so clearing those two holds through every
+-- show, hide and theme swap without a change to any component. Returns whether it flattened.
+function Window:_flattenElement(element): boolean
+    if not flattenable[element.__type] then
+        return false
+    end
+    local body = element.top or element.main -- Dropdown's card is its top row, not its whole frame
+    if not body then
+        return false
+    end
+    local gradient = body:FindFirstChildWhichIsA("UIGradient")
+    local stroke = body:FindFirstChildWhichIsA("UIStroke")
+    if gradient then
+        gradient.Transparency = NumberSequence.new(1)
+    end
+    if stroke then
+        stroke.Enabled = false
+    end
+    element.flat = true
+    return true
+end
+
 function Window:StyleElementBody(main)
     -- Devlog 7 fix: every card's fill rides ElementTransparency, which SetTransparency now
     -- scales all the way to 1 on purpose (a fully "glass" window) - a plain Frame's default

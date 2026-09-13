@@ -167,6 +167,10 @@ function Group:_add(componentName, properties)
     end
 
     local element = require(script.Parent[componentName]).new(self, properties)
+    -- a host that lays its controls flat (a Panel page with flatRows) - see Window:_flattenElement
+    if self.flat then
+        self.window:_flattenElement(element)
+    end
     table.insert(self.elements, element)
     assignOrder(element, #self.elements * 10)
     self.window:_restoreLate(element)
@@ -373,6 +377,10 @@ function Group:_addGroup(properties)
     end
 
     local group = Group.new(self, properties)
+    -- a row or column nested in a flat page lays its own children flat too, and starts its labels on
+    -- the same line
+    group.flat = self.flat
+    group.labelInset = self.labelInset
     table.insert(self.elements, group)
     group.main.LayoutOrder = #self.elements * 10
     self:_reflowRow()

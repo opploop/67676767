@@ -284,6 +284,69 @@ return function()
             end)
         end)
 
+        describe("flat rows", function()
+            it("lays a page's controls flat: no fill, no outline", function()
+                local _, trial = trialPanel()
+                local toggle = trial:CreateToggle({ name = "Auto Trial", forgetState = true })
+
+                expect(toggle.flat).to.equal(true)
+                expect(toggle.main:FindFirstChildWhichIsA("UIStroke").Enabled).to.equal(false)
+                local gradient = toggle.main:FindFirstChildWhichIsA("UIGradient")
+                expect(gradient.Transparency.Keypoints[1].Value).to.equal(1)
+            end)
+
+            it("keeps the row flat through a reveal, which tweens the card's own transparency back", function()
+                local _, trial = trialPanel()
+                local toggle = trial:CreateToggle({ name = "Auto Trial", forgetState = true })
+
+                toggle:_setShown(true, false)
+                toggle:_setShown(false, false)
+                toggle:_setShown(true, false)
+
+                expect(toggle.main:FindFirstChildWhichIsA("UIStroke").Enabled).to.equal(false)
+                expect(toggle.main:FindFirstChildWhichIsA("UIGradient").Transparency.Keypoints[1].Value).to.equal(1)
+            end)
+
+            it("flattens a Dropdown through its top row, where its card actually is", function()
+                local _, trial = trialPanel()
+                local dropdown = trial:CreateDropdown({ name = "Difficulty", options = { "Easy" }, forgetState = true })
+
+                expect(dropdown.flat).to.equal(true)
+                expect(dropdown.top:FindFirstChildWhichIsA("UIStroke").Enabled).to.equal(false)
+            end)
+
+            it("leaves content cards as cards", function()
+                local _, trial = trialPanel()
+                local paragraph = trial:CreateParagraph({ title = "Note", content = "Body" })
+
+                expect(paragraph.flat).to.equal(nil)
+            end)
+
+            it("carries into rows and columns nested in a page", function()
+                local _, trial = trialPanel()
+                local column = trial:CreateGroup({ direction = "column" })
+                local toggle = column:CreateToggle({ name = "Nested", forgetState = true })
+
+                expect(toggle.flat).to.equal(true)
+                expect(column:CreateLabel({ text = "x" }).title.Position.X.Offset).to.equal(20)
+            end)
+
+            it("can be turned off, and then the controls keep their cards", function()
+                local panel = makeTab():CreatePanel({ name = "Carded", flatRows = false })
+                local page = panel:CreatePage({ name = "Main" })
+                local toggle = page:CreateToggle({ name = "Auto", forgetState = true })
+
+                expect(toggle.flat).to.equal(nil)
+                expect(toggle.main:FindFirstChildWhichIsA("UIStroke").Enabled).never.to.equal(false)
+            end)
+
+            it("does not flatten a control on a plain tab", function()
+                local toggle = makeTab():CreateToggle({ name = "Plain", forgetState = true })
+
+                expect(toggle.flat).to.equal(nil)
+            end)
+        end)
+
         it("builds from a Group and from a Collapsible, not just a Tab", function()
             local tab = makeTab()
             local column = tab:CreateGroup({ direction = "column" })
