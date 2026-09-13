@@ -5,9 +5,10 @@
 -- License, v. 2.0. If a copy of the MPL was not distributed with this
 -- file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
--- A vertical single-select list: a category rail beside the thing it filters. The shape a
--- cosmetics screen puts down the left ("Armors / Weapons / Enchants / Titles") to choose what the
--- panel next to it is showing.
+-- A vertical list: a category rail beside the thing it filters. The shape a cosmetics screen
+-- puts down the left ("Armors / Weapons / Enchants / Titles") to choose what the panel next to it
+-- is showing. Single-select by default; `multiSelect = true` turns it into a column of toggleable
+-- rows ("show me Armors AND Weapons").
 --
 -- SegmentedPicker is the horizontal answer to the same question and stays the right one for two
 -- or three short options. This exists for the cases that one handles badly: more options than fit
@@ -16,7 +17,8 @@
 --
 -- Positions are computed here rather than left to AutomaticSize: the list knows its own row count
 -- and writes its own height, so it never negotiates size with a parent layout (see this repo's
--- history of AutomaticSize-inside-a-list-layout growth loops).
+-- history of AutomaticSize-inside-a-list-layout growth loops). That height is capped - see
+-- defaultVisibleRows - so a long list scrolls inside the element instead of pushing the page.
 
 local ListPicker = {}
 ListPicker.__index = ListPicker
@@ -44,6 +46,11 @@ local rowInset = 12
 local rowCorner = 9
 local iconSize = 16
 local iconGap = 9
+
+-- How many rows show before the list starts scrolling, when no `height` is given. The list used to
+-- grow with every option, so forty options meant a rail forty rows tall shoving everything below
+-- it off the page. Seven is enough for a normal category rail to never scroll at all.
+local defaultVisibleRows = 7
 
 -- A UIStroke draws outside its frame, so a row flush against a scrolling edge loses that side of
 -- its outline. Same inset the item grid uses, for the same reason.
@@ -85,8 +92,11 @@ function ListPicker.new(tab, properties)
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
 
         rowHeight = math.max(tonumber(properties.rowHeight or properties.RowHeight) or defaultRowHeight, 24),
-        -- when set the list scrolls inside that height instead of growing with its options
+        -- A CEILING, not a reservation: a list shorter than this takes only the rows it has, a
+        -- longer one scrolls inside it. Defaults to defaultVisibleRows' worth (filled in below,
+        -- once rowHeight is known) - the same "height is a cap" rule ItemGrid follows.
         height = tonumber(properties.height or properties.Height),
+        multiSelect = functions.readBool(properties, "multiSelect", false),
         showHeader = functions.readBool(properties, "showHeader", true),
         emptyText = properties.emptyText or properties.EmptyText or "Nothing to pick.",
 
@@ -102,8 +112,16 @@ function ListPicker.new(tab, properties)
 
         entries = {},
         rows = {},
-        value = nil, -- the selected id; this is what persists
+        -- what persists: the selected id when single-select, an array of ids in option order when
+        -- multi-select (the order the options are listed, not the order they were clicked, so a
+        -- saved selection round-trips to the same array)
+        value = nil,
+        selected = {}, -- multi-select only: the ticked ids as a set
     }, ListPicker)
+
+    if not self.height then
+        self.height = self:_rowsHeight(defaultVisibleRows)
+    end
 
     for _, entry in (properties.options or properties.Options or properties.items or properties.Items or {}) do
         local normalised = normalise(entry)
@@ -116,10 +134,12 @@ function ListPicker.new(tab, properties)
     self:_build()
     self:_rebuildRows()
 
-    -- default to the first option rather than nothing: a category rail with no category chosen
-    -- shows a panel with no reason to be showing anything
+    -- Single-select defaults to the first option rather than nothing: a category rail with no
+    -- category chosen shows a panel with no reason to be showing anything. Multi-select defaults to
+    -- nothing ticked, because "none" is a real, common state there ("no filter applied") and
+    -- pre-ticking the first row would be choosing on the player's behalf.
     local initial = functions.readValue(properties, { "value", "Value" })
-    if initial == nil and self.entries[1] then
+    if initial == nil and not self.multiSelect and self.entries[1] then
         initial = self.entries[1].id
     end
     if initial ~= nil then
@@ -137,6 +157,41 @@ end
 
 function ListPicker:_slot(): number
     return self.rowHeight + rowGap
+end
+
+-- Height of `count` rows stacked, including the inset that gives the outer rows' strokes room.
+function ListPicker:_rowsHeight(count: number): number
+    if count <= 0 then
+        return 0
+    end
+    return count * self.rowHeight + (count - 1) * rowGap + strokeInset * 2
+end
+
+function ListPicker:_known(id): boolean
+    for _, entry in self.entries do
+        if entry.id == id then
+            return true
+        end
+    end
+    return false
+end
+
+function ListPicker:_isSelected(id): boolean
+    if self.multiSelect then
+        return self.selected[id] == true
+    end
+    return self.value == id
+end
+
+-- multi-select: rebuild `value` from the set, in option order
+function ListPicker:_syncValue()
+    local ids = {}
+    for _, entry in self.entries do
+        if self.selected[entry.id] then
+            table.insert(ids, entry.id)
+        end
+    end
+    self.value = ids
 end
 
 function ListPicker:_listTop(): number
@@ -194,32 +249,34 @@ function ListPicker:_build()
         }, { TextColor3 = "ContentColor", FontFace = "Font" })
     end
 
-    local container = if self.height then "ScrollingFrame" else "Frame"
-    self.list = window:Create(container, {
+    -- Always a ScrollingFrame now that the height is capped by default: a Frame could only ever
+    -- grow, which is exactly how a long option list used to push the rest of the page away.
+    self.list = window:Create("ScrollingFrame", {
         Name = "Options",
         Size = UDim2.new(1, -(sidePadding * 2), 0, 0),
         Position = UDim2.new(0, sidePadding, 0, self:_listTop()),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        CanvasSize = UDim2.new(),
+        ScrollBarThickness = 3,
+        ScrollBarImageTransparency = 0.6,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+        -- keep the rows out from under the bar while it shows, rather than letting the right edge
+        -- of a selected row's fill and stroke run beneath it
+        VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
 
         Parent = self.main,
+    }, { ScrollBarImageColor3 = "ContentColor" })
+
+    window:Create("UIPadding", {
+        PaddingLeft = UDim.new(0, strokeInset),
+        PaddingRight = UDim.new(0, strokeInset),
+        PaddingTop = UDim.new(0, strokeInset),
+        PaddingBottom = UDim.new(0, strokeInset),
+
+        Parent = self.list,
     })
-
-    if self.height then
-        self.list.AutomaticCanvasSize = Enum.AutomaticSize.Y
-        self.list.CanvasSize = UDim2.new()
-        self.list.ScrollBarThickness = 3
-        self.list.ScrollBarImageTransparency = 0.6
-        self.list.ScrollingDirection = Enum.ScrollingDirection.Y
-        window:Create("UIPadding", {
-            PaddingLeft = UDim.new(0, strokeInset),
-            PaddingRight = UDim.new(0, strokeInset),
-            PaddingTop = UDim.new(0, strokeInset),
-            PaddingBottom = UDim.new(0, strokeInset),
-
-            Parent = self.list,
-        })
-    end
 
     self.listLayout = window:Create("UIListLayout", {
         FillDirection = Enum.FillDirection.Vertical,
@@ -334,17 +391,21 @@ function ListPicker:_buildRow(entry, order)
         if self.locked then
             return
         end
-        self:Set(entry.id)
+        if self.multiSelect then
+            self:Toggle(entry.id)
+        else
+            self:Set(entry.id)
+        end
     end)
 
     return row
 end
 
--- One place that decides what a row looks like. The selected row is the only filled one, so
--- selection reads at a glance down the column.
+-- One place that decides what a row looks like. Only selected rows are filled, so selection reads
+-- at a glance down the column - one row single-select, however many are ticked multi-select.
 function ListPicker:_applyRow(row, animate)
     local theme = self.window.theme
-    local selected = self.value == row.entry.id
+    local selected = self:_isSelected(row.entry.id)
     local fill = row.entry.color or theme.AccentColor
 
     local goals = {
@@ -391,11 +452,9 @@ end
 
 function ListPicker:_syncHeight()
     local count = #self.rows
-    local content = if count == 0 then 20 else count * self.rowHeight + (count - 1) * rowGap
-    local listHeight = self.height or content
-    if self.height then
-        content = listHeight
-    end
+    -- the rows it has, up to the ceiling; past it the list scrolls. Measured off every option, so the
+    -- element never changes size while the player scrolls it.
+    local listHeight = if count == 0 then 20 else math.min(self.height, self:_rowsHeight(count))
 
     self.list.Size = UDim2.new(1, -(sidePadding * 2), 0, listHeight)
     self.main.Size = UDim2.new(1, -20, 0, self:_listTop() + listHeight + sidePadding)
@@ -432,22 +491,83 @@ end
 moveable(ListPicker)
 lockable(ListPicker)
 
--- The selected id, or nil when the list is empty.
-function ListPicker:Get(): string?
+-- Single-select: the selected id, or nil. Multi-select: a fresh array of ticked ids, in option
+-- order (empty when nothing is ticked).
+function ListPicker:Get()
+    if self.multiSelect then
+        return table.clone(self.value or {})
+    end
     return self.value
 end
 
-function ListPicker:Set(id, skipCallback)
-    id = if id == nil then nil else tostring(id)
+-- multi-select Set: replaces the whole selection. Unknown ids are dropped rather than refusing
+-- the call, since a saved list can legitimately outlive some of its options.
+function ListPicker:_setMany(ids, skipCallback)
+    if ids == nil then
+        ids = {}
+    elseif type(ids) ~= "table" then
+        ids = { ids }
+    end
 
-    local known = false
-    for _, entry in self.entries do
-        if entry.id == id then
-            known = true
-            break
+    local before = table.clone(self.value or {})
+    table.clear(self.selected)
+    for _, candidate in ids do
+        local id = tostring(candidate)
+        if self:_known(id) then
+            self.selected[id] = true
         end
     end
-    if id ~= nil and not known then
+    self:_syncValue()
+
+    for _, row in self.rows do
+        self:_applyRow(row, true)
+    end
+    -- compared element by element: joining both into strings would read ids containing the
+    -- separator ("a|b" against "a", "b") as the same selection
+    local changed = #before ~= #self.value
+    if not changed then
+        for index, id in self.value do
+            if before[index] ~= id then
+                changed = true
+                break
+            end
+        end
+    end
+    if changed then
+        hapticEngine.click()
+        soundEngine.click()
+    end
+
+    if not skipCallback then
+        self.window:_runGuarded(self, self.callback, self:Get())
+        self.window:_persist(self)
+    end
+    return true
+end
+
+function ListPicker:Set(id, skipCallback)
+    if self.multiSelect then
+        return self:_setMany(id, skipCallback)
+    end
+
+    -- A config saved while this rail was multi-select hands back a list. Take its first id that
+    -- still exists rather than refusing the whole restore.
+    if type(id) == "table" then
+        local first = nil
+        for _, candidate in id do
+            if self:_known(tostring(candidate)) then
+                first = tostring(candidate)
+                break
+            end
+        end
+        if first == nil then
+            return false
+        end
+        id = first
+    end
+
+    id = if id == nil then nil else tostring(id)
+    if id ~= nil and not self:_known(id) then
         return false
     end
 
@@ -472,6 +592,46 @@ function ListPicker:Set(id, skipCallback)
     return true
 end
 
+-- Tick or untick one row. On a single-select rail there is nothing to untick, so toggling a row
+-- means picking it.
+function ListPicker:Toggle(id, skipCallback)
+    id = tostring(id)
+    if not self:_known(id) then
+        return false
+    end
+    if not self.multiSelect then
+        return self:Set(id, skipCallback)
+    end
+
+    local ids = table.clone(self.value or {})
+    if self.selected[id] then
+        table.remove(ids, table.find(ids, id))
+    else
+        table.insert(ids, id)
+    end
+    return self:_setMany(ids, skipCallback)
+end
+
+-- Multi-select only; a no-op on a single-select rail, which cannot hold "all".
+function ListPicker:SelectAll(skipCallback)
+    if not self.multiSelect then
+        return
+    end
+    local ids = {}
+    for _, entry in self.entries do
+        table.insert(ids, entry.id)
+    end
+    self:_setMany(ids, skipCallback)
+end
+
+function ListPicker:Clear(skipCallback)
+    if self.multiSelect then
+        self:_setMany({}, skipCallback)
+    else
+        self:Set(nil, skipCallback)
+    end
+end
+
 -- Replace the options, keeping the current pick when it survives - a category rail rebuilding
 -- around a new category should not throw the player back to the first one.
 function ListPicker:Refresh(options, skipCallback)
@@ -485,6 +645,25 @@ function ListPicker:Refresh(options, skipCallback)
     end
 
     self.entries = rebuilt
+
+    if self.multiSelect then
+        -- keep every tick that survives, and never pre-tick a replacement: an empty selection is a
+        -- real state here, unlike on a single-select rail
+        local kept, lost = {}, false
+        for _, id in (self.value or {}) do
+            if seen[id] then
+                table.insert(kept, id)
+            else
+                lost = true
+            end
+        end
+        self:_rebuildRows()
+        -- only report it when a tick actually disappeared; a refresh that kept everything is not a
+        -- change the dev needs to hear about
+        self:_setMany(kept, if lost then skipCallback else true)
+        return
+    end
+
     local previous = self.value
     self:_rebuildRows()
 
@@ -495,8 +674,9 @@ function ListPicker:Refresh(options, skipCallback)
     end
 end
 
+-- The ceiling, not a fixed height. nil puts back the default of defaultVisibleRows rows.
 function ListPicker:SetHeight(height)
-    self.height = tonumber(height)
+    self.height = tonumber(height) or self:_rowsHeight(defaultVisibleRows)
     self:_syncHeight()
 end
 
@@ -517,7 +697,7 @@ function ListPicker:_setShown(shown, animate)
         w:_reveal(self.emptyLabel, { TextTransparency = 0.55 }, animate)
 
         for _, row in self.rows do
-            local selected = self.value == row.entry.id
+            local selected = self:_isSelected(row.entry.id)
             local fill = row.entry.color or w.theme.AccentColor
             w:_reveal(
                 row.frame,

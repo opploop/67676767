@@ -409,14 +409,15 @@ export type ListPickerProps = {
     description: string?,
     icon: (string | number)?,
     tooltip: string?,
-    flag: string?, -- persists the selected id
+    flag: string?, -- persists the selected id, or the array of ticked ids when multiSelect
     options: { ListOption }?,
-    value: string?, -- defaults to the first option
+    multiSelect: boolean?, -- default false; true ticks any number of rows
+    value: (string | { string })?, -- single-select defaults to the first option, multi to none
     rowHeight: number?, -- default 34, floor 24
-    height: number?, -- set it and the list scrolls inside that height instead of growing
+    height: number?, -- a CEILING: shorter lists take only their rows, longer ones scroll; default 7 rows
     showHeader: boolean?, -- default true
     emptyText: string?,
-    callback: ((id: string?) -> ())?,
+    callback: ((value: any) -> ())?, -- the id, or the array of ticked ids when multiSelect
 }
 
 export type ItemGridProps = {
@@ -794,10 +795,14 @@ export type Dropdown = Moveable & {
 }
 
 export type ListPicker = Moveable & {
-    value: string?, -- the selected id
+    value: any, -- the selected id, or the ticked ids in option order when multiSelect
+    multiSelect: boolean,
     locked: boolean,
-    Get: (self: ListPicker) -> string?,
-    Set: (self: ListPicker, id: string?, skipCallback: boolean?) -> boolean,
+    Get: (self: ListPicker) -> any,
+    Set: (self: ListPicker, value: (string | { string })?, skipCallback: boolean?) -> boolean,
+    Toggle: (self: ListPicker, id: string, skipCallback: boolean?) -> boolean,
+    SelectAll: (self: ListPicker, skipCallback: boolean?) -> (), -- multi-select only
+    Clear: (self: ListPicker, skipCallback: boolean?) -> (),
     Refresh: (self: ListPicker, options: { ListOption }, skipCallback: boolean?) -> (),
     SetHeight: (self: ListPicker, height: number?) -> (),
     Lock: (self: ListPicker, reason: string?) -> (),
