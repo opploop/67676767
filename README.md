@@ -57,7 +57,7 @@ local Rayfield = loadstring(game:HttpGet(
 local Window = Rayfield:CreateWindow({
     name = "My Hub",
     subtitle = "v1.0",
-    configuration = { enabled = true, folder = "MyHub" },
+    configuration = { autoSave = true, autoLoad = true, fileName = "MyHub" },
 })
 
 local Main = Window:CreateTab({ name = "Main", icon = "lucide:zap" })
@@ -94,9 +94,8 @@ alias, for scripts carried over from upstream Rayfield). A `flag` is what ties t
 config file — make it unique across the window and derived from something stable, never from a
 position or an index.
 
-Nothing should yield between `CreateWindow` and the window appearing: `CreateWindow` shows a brief
-splash and reveals the real window about a second later on its own. Build every tab and element in
-that gap.
+Nothing should yield between `CreateWindow` and the window appearing: `CreateWindow` reveals the
+window on its own about a quarter of a second later. Build every tab and element in that gap.
 
 ## Working on the library itself
 
@@ -110,7 +109,7 @@ make test      # just the suite, with coverage
 make format    # apply formatting
 ```
 
-`make ci` is what CI runs on every push, and it is the whole bar: 380 tests under Lune with no
+`make ci` is what CI runs on every push, and it is the whole bar: 400+ tests under Lune with no
 Roblox or Studio involved, 75%+ line coverage enforced against a tracked per-file baseline, zero
 lint findings, zero type errors, plus three repo-specific guards — the bundle matches `src/`, the
 loader's file lists match `src/`, and every `UIListLayout` sets an explicit `SortOrder`.
