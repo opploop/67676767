@@ -51,7 +51,7 @@ _G.RayfieldGen3Window = window
 -- Tags: already a real feature (window:CreateTag), just never demoed in this smoke-test file -
 -- the small pills that sit next to the title bar, dev-configured (icon/text/color/order at
 -- creation, Set()/SetColor()/SetText()/SetIcon() at runtime). One here: a version badge.
-window:CreateTag({ text = "v3.0.0", color = Color3.fromRGB(0, 170, 127) })
+window:CreateTag({ text = "v3.0.0", icon = "lucide:rocket", color = Color3.fromRGB(255, 255, 255) })
 
 -- Devlog 1: Checkbox, CopyButton, FlipButton --------------------------------
 local tab = window:CreateTab({ name = "Devlog 1", icon = 93364949241311 })
