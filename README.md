@@ -3,9 +3,9 @@
 A Roblox UI library for script hubs, built on Rayfield Gen2. One `loadstring`, one `CreateWindow`
 call, and you have a themed, draggable, persistent window to hang your features off.
 
-- **34 element types** on every container — buttons, toggles, sliders, dropdowns, color and
+- **35 element types** on every container — buttons, toggles, sliders, dropdowns, color and
   gradient pickers, keybinds, stats, status cards, a drag-to-reorder list, a searchable item grid,
-  collapsibles, nested tab boxes, groups that lay out in rows or columns.
+  collapsibles, paged panels, nested tab boxes, groups that lay out in rows or columns.
 - **Config saving** that survives a rejoin, per-element, keyed by a `flag` you choose.
 - **Ten themes**, live-swappable, plus per-window overrides for accent, corner radius and shadow.
 - **Automatic translation** of every label through the player's own locale.
@@ -29,7 +29,7 @@ It builds a virtual module tree in memory and writes nothing to `ReplicatedStora
 
 If you would rather fetch the source file-by-file (useful when you want the real module tree under
 `ReplicatedStorage.Rayfield` to inspect), use the loader instead. It fetches up to 12 files
-concurrently — about 0.4s for all 102 modules:
+concurrently — about 0.4s for all 103 modules:
 
 ```lua
 local Rayfield = loadstring(game:HttpGet(

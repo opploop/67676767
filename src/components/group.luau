@@ -341,6 +341,9 @@ end
 function Group:CreateTabbox(properties)
     return self:_add("tabbox", properties)
 end
+function Group:CreatePanel(properties)
+    return self:_add("panel", properties)
+end
 
 -- Collapsible reads window/tabPage/forgetState off whatever host it's given (see its own header
 -- comment - same minimal contract Tabbox's fake-host trick relies on), so a Group already

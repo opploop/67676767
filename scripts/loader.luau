@@ -95,6 +95,7 @@ local componentFiles = {
     "label",
     "listpicker",
     "notification",
+    "panel",
     "paragraph",
     "playerdropdown",
     "popup",

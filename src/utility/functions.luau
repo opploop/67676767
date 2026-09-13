@@ -52,6 +52,15 @@ function functions.readValue(properties: { [string]: any }, names: { string }): 
     return properties.Default
 end
 
+-- The fill a CONTAINER card carries - a surface other element cards sit on (Collapsible's open
+-- content, a Panel). The elements inside are cards in the full element fill, so a container in
+-- that same fill turns each of them into a grey rectangle on a grey rectangle, visible only by
+-- its outline. Half the fill sits between the window behind and the elements on top, so they
+-- still read as raised.
+function functions.containerTransparency(elementTransparency: number?): number
+    return 1 - (1 - (elementTransparency or 0)) * 0.5
+end
+
 functions.textWidth = textMetrics.textWidth
 functions.textHeight = textMetrics.textHeight
 functions.deriveFlagFromName = flags.deriveFlagFromName

@@ -45,14 +45,9 @@ local contentPadBottom = 8
 local cardGap = 6
 local strokeRoom = 1
 
--- How much of the element fill the card carries. The children are element cards themselves, so a
--- card in the SAME fill would turn every toggle inside into a grey rectangle on a grey rectangle,
--- visible only by its outline. Half the fill sits between the window behind it and the elements on
--- top of it, so the elements still read as raised.
-local cardFillShare = 0.5
-local function cardTransparency(elementTransparency)
-    return 1 - (1 - (elementTransparency or 0)) * cardFillShare
-end
+-- Half the element fill, so the element cards inside still read as raised - see
+-- functions.containerTransparency, shared with Panel.
+local cardTransparency = functions.containerTransparency
 
 function Collapsible.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
@@ -366,6 +361,7 @@ for _, name in
         "CreateChangelog",
         "CreateSpacer",
         "CreateTabbox",
+        "CreatePanel",
         "CreateConsole",
         "CreateCollapsible",
     }

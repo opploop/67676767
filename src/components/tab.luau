@@ -451,6 +451,11 @@ function Tab:CreateTabbox(properties)
     return self:_register(require(script.Parent.tabbox).new(self, properties))
 end
 
+-- A card with pages, the header naming the current one - see panel.luau's own header comment.
+function Tab:CreatePanel(properties)
+    return self:_register(require(script.Parent.panel).new(self, properties))
+end
+
 -- Hold button: press-and-hold confirm, fill bar completes the callback only at 100%
 function Tab:CreateHoldButton(properties)
     return self:_register(require(script.Parent.holdbutton).new(self, properties))

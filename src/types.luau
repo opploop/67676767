@@ -191,6 +191,21 @@ export type Tabbox = Moveable & {
     CreateTab: (self: Tabbox, props: { name: string? }) -> TabboxPage,
 }
 
+export type PanelProps = {
+    name: string?, -- the card's instance name; the header shows the CURRENT page, not this
+    onPageChanged: ((page: string) -> ())?, -- a page change the player (or SelectPage) made
+}
+
+export type PanelPage = Group -- a Panel page is a column Group; every CreateX works on it
+
+export type Panel = Moveable & {
+    -- the first page created is the one the panel opens on
+    CreatePage: (self: Panel, props: { name: string?, icon: (string | number)? }) -> PanelPage,
+    -- by index, by name, or by the page object; false for a page this panel does not have
+    SelectPage: (self: Panel, page: number | string | PanelPage, skipCallback: boolean?) -> boolean,
+    GetPage: (self: Panel) -> string?,
+}
+
 export type GroupProps = {
     direction: string?, -- "row" | "column" (default row); "horizontal"/"vertical" also work
     -- Only meaningful for a column nested in a row, where the default is an equal split:
@@ -967,6 +982,7 @@ export type Collapsible = Moveable & {
     CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,
     CreateListPicker: (self: Collapsible, props: ListPickerProps) -> ListPicker,
     CreateTabbox: (self: Collapsible, props: TabboxProps) -> Tabbox,
+    CreatePanel: (self: Collapsible, props: PanelProps) -> Panel,
     CreateSection: (self: Collapsible, props: SectionProps) -> Section,
     CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,
     CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,
@@ -1009,6 +1025,7 @@ export type Group = Moveable & {
     CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,
     CreateListPicker: (self: Group, props: ListPickerProps) -> ListPicker,
     CreateTabbox: (self: Group, props: TabboxProps) -> Tabbox,
+    CreatePanel: (self: Group, props: PanelProps) -> Panel,
     CreateSection: (self: Group, props: SectionProps) -> Section,
     CreateLabel: (self: Group, props: LabelProps?) -> Label,
     CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,
@@ -1031,6 +1048,7 @@ export type Tab = {
     CreateItemGrid: (self: Tab, props: ItemGridProps) -> ItemGrid,
     CreateListPicker: (self: Tab, props: ListPickerProps) -> ListPicker,
     CreateTabbox: (self: Tab, props: TabboxProps) -> Tabbox,
+    CreatePanel: (self: Tab, props: PanelProps) -> Panel,
     CreateInput: (self: Tab, props: InputProps) -> Input,
     CreateKeybind: (self: Tab, props: KeybindProps) -> Keybind,
     CreateColorPicker: (self: Tab, props: ColorPickerProps) -> ColorPicker,
