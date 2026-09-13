@@ -3,9 +3,9 @@
   "measuredDate": "2026-09-13",
   "command": "make coverage-baseline",
   "threshold": 70.00,
-  "lineCoverage": 76.07,
-  "coveredLines": 7813,
-  "coverableLines": 10271,
+  "lineCoverage": 76.05,
+  "coveredLines": 7805,
+  "coverableLines": 10263,
   "notes": [
     "Generated reports are written to coverage/coverage.txt and coverage/coverage-summary.json.",
     "The enforced Lune coverage scope is discovered dynamically from src by default.",
@@ -129,9 +129,9 @@
     },
     {
       "path": "src/components/itemgrid.luau",
-      "lineCoverage": 77.50,
-      "coveredLines": 410,
-      "coverableLines": 529
+      "lineCoverage": 77.16,
+      "coveredLines": 402,
+      "coverableLines": 521
     },
     {
       "path": "src/components/keybind.luau",

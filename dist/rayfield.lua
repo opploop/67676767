@@ -8905,7 +8905,7 @@ function ItemGrid:_build()
 
     self.title = window:Create("TextLabel", {
         Text = locale.t(self.name),
-        Size = UDim2.new(1, -(sidePadding * 2 + 70), 0, headerHeight), -- re-fit by _fitHeader
+        Size = UDim2.new(1, -(sidePadding * 2 + 70), 0, headerHeight),
         TextTruncate = Enum.TextTruncate.AtEnd,
         Position = UDim2.new(0, sidePadding + (if self.icon then 21 else 0), 0, headerTop),
         BorderSizePixel = 0,
@@ -9584,18 +9584,19 @@ function ItemGrid:_syncValue()
     end
     self.value = ids
 
-    -- The counter describes what is ON SCREEN, and separately says how many ticks are off it.
+    -- The counter describes what is ON SCREEN: ticked-and-visible / visible.
     --
-    -- It used to read selected / TOTAL always, to avoid one lie: a filter down to two cards while
-    -- two hidden ones were ticked rendering "2 / 2", as if every visible card were picked. But
-    -- the total reads wrong in the other direction - narrow a 24-item grid to three categories
-    -- and it kept saying "24 / 24", describing cards the player can no longer see. Reported live.
+    -- It used to read selected / TOTAL, so narrowing a fully ticked 24-item grid to three
+    -- categories kept saying "24 / 24" - describing cards the player could no longer see. Reported
+    -- live. Counting the screen fixes that and still avoids the lie the total was guarding against
+    -- (a filter down to two cards with two hidden ticks now reads "0 / 2", not "2 / 2").
     --
-    -- So: ticked-and-visible / visible, which is always true of the screen, plus "· N hidden"
-    -- whenever ticks exist that the current filter or scope is hiding - that suffix is what
-    -- stops the old "2 / 2" lie coming back, because hidden ticks are named instead of counted.
+    -- Ticks the filter or scope hides are deliberately not shown in the counter: a "· N hidden"
+    -- suffix was tried and rejected as clutter in the header. They are still kept, still saved,
+    -- and reappear ticked when the filter lifts.
+    --
     -- With a cap the denominator is the cap and the numerator is EVERY tick, since every tick
-    -- uses a slot; the suffix then explains why a player at "2 / 2" sees only one ticked card.
+    -- uses a slot - "how many picks are left" is the number a capped player needs.
     local visible, visibleTicked = 0, 0
     for _, entry in self.entries do
         if self:_matches(entry) then
@@ -9605,23 +9606,8 @@ function ItemGrid:_syncValue()
             end
         end
     end
-    local hidden = #ids - visibleTicked
 
-    local text = if self.maxSelected then `{#ids} / {self.maxSelected}` else `{visibleTicked} / {visible}`
-    if hidden > 0 then
-        text ..= ` · {hidden} {locale.resolve("hidden")}`
-    end
-    self.counter.Text = text
-    self:_fitHeader()
-end
-
--- The counter grows when it gains its "· N hidden" suffix, so the title gives way to it rather
--- than the two overlapping; a long title truncates instead.
-function ItemGrid:_fitHeader()
-    local counterWidth = math.max(70, functions.textWidth(self.window.theme.Font, 14, self.counter.Text) + 6)
-    self.counter.Size = UDim2.fromOffset(counterWidth, headerHeight)
-    local iconOffset = if self.icon then 21 else 0
-    self.title.Size = UDim2.new(1, -(sidePadding * 2 + counterWidth + 8 + iconOffset), 0, headerHeight)
+    self.counter.Text = if self.maxSelected then `{#ids} / {self.maxSelected}` else `{visibleTicked} / {visible}`
 end
 
 -- Does this entry survive the current filter?

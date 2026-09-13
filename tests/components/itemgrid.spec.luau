@@ -51,15 +51,16 @@ return function()
             expect(grid.counter.Text).to.equal("0 / 2")
         end)
 
-        it("counts what is on screen, and names the ticks a filter hides", function()
+        it("counts what is on screen, not the whole catalogue", function()
             local grid = makeTab():CreateItemGrid({ items = rarityItems(), forgetState = true })
             grid:Set({ "b" }, true)
 
             grid:Filter("alp") -- hides b, which is the one that is ticked
-            -- none of the two visible cards is ticked, and the hidden tick is named rather than
-            -- counted - "1 / 2" would claim a visible card is picked, "1 / 3" describes cards the
-            -- player cannot see
-            expect(grid.counter.Text).to.equal("0 / 2 · 1 hidden")
+            -- neither visible card is ticked - "1 / 2" would claim one is, "1 / 3" describes
+            -- cards the player cannot see
+            expect(grid.counter.Text).to.equal("0 / 2")
+            -- the hidden tick is not dropped, only not counted
+            expect(selected(grid)).to.equal("b")
         end)
 
         it("follows a scope the way a player reads it", function()
@@ -71,21 +72,10 @@ return function()
             grid:SetScope(function(entry)
                 return entry.tag == "RARE"
             end)
-            expect(grid.counter.Text).to.equal("2 / 2 · 1 hidden")
+            expect(grid.counter.Text).to.equal("2 / 2")
 
             grid:SetScope(nil)
             expect(grid.counter.Text).to.equal("3 / 3")
-        end)
-
-        it("widens the counter for its suffix and gives the title the rest", function()
-            local grid = makeTab():CreateItemGrid({ items = rarityItems(), forgetState = true })
-            local plain = grid.counter.Size.X.Offset
-
-            grid:Set({ "b" }, true)
-            grid:Filter("alp")
-
-            expect(grid.counter.Size.X.Offset >= plain).to.equal(true)
-            expect(grid.title.Size.X.Offset).to.equal(-(15 * 2 + grid.counter.Size.X.Offset + 8))
         end)
 
         it("returns ids in item order, not click order", function()
@@ -501,9 +491,8 @@ return function()
                 grid.selectAllButton.MouseButton1Click:Fire()
 
                 expect(#grid:Get()).to.equal(2)
-                -- every tick uses a slot, so the numerator counts b; the suffix is what tells a
-                -- player seeing one ticked card why they are already at the cap
-                expect(grid.counter.Text).to.equal("2 / 2 · 1 hidden")
+                -- every tick uses a slot, so the numerator counts the hidden b too
+                expect(grid.counter.Text).to.equal("2 / 2")
                 -- deliberate: never exceeding the cap is the only reading that cannot lose a
                 -- pick the player already made. The alternative - counting only what is visible -
                 -- would let the total run past the cap as the scope moves.
