@@ -133,8 +133,8 @@ export type WindowProps = {
     -- default 1.4. See Window:IsMobile's own comment; also usable from a dev's own script.
     mobileHitScale: number?,
 
-    -- The brief Rayfield-branded splash shown between this call and the window itself finishing
-    -- construction - default true (unchanged). Set false to skip it outright.
+    -- The brief Rayfield-branded logo splash shown before the window appears - default false.
+    -- Set true to bring it back.
     showBanner: boolean?,
 
     -- Adds a "Danger Zone" section to Settings with a hold-to-confirm "Destroy UI" button that

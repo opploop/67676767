@@ -53,6 +53,68 @@ return function()
             expect(window.hasShownOnce).to.equal(true)
         end)
 
+        describe("the logo splash", function()
+            local constants = helpers.requireUtility("constants")
+            local originalResolve
+
+            -- createBanner is the only thing that resolves the banner icon, so counting those
+            -- lookups is how a spec sees the splash: in the shim it is built and destroyed before
+            -- CreateWindow even returns, so there is nothing left on screen to look for.
+            local bannerBuilds
+
+            beforeEach(function()
+                bannerBuilds = 0
+                originalResolve = image.resolve
+                image.resolve = function(icon, ...)
+                    if icon == constants.icons.banner then
+                        bannerBuilds += 1
+                    end
+                    return originalResolve(icon, ...)
+                end
+            end)
+
+            afterEach(function()
+                image.resolve = originalResolve
+            end)
+
+            it("is off by default, so the hub's window is the first thing players see", function()
+                variables.secureMode = false
+
+                window = Rayfield:CreateWindow({
+                    name = "No Splash",
+                    configuration = { autoSave = false, autoLoad = false },
+                })
+
+                expect(bannerBuilds).to.equal(0)
+                expect(window.hasShownOnce).to.equal(true)
+            end)
+
+            it("still comes back when a dev asks for it", function()
+                variables.secureMode = false
+
+                window = Rayfield:CreateWindow({
+                    name = "Splash",
+                    showBanner = true,
+                    configuration = { autoSave = false, autoLoad = false },
+                })
+
+                expect(bannerBuilds).to.equal(1)
+                expect(window.hasShownOnce).to.equal(true)
+            end)
+
+            it("takes the PascalCase spelling too", function()
+                variables.secureMode = false
+
+                window = Rayfield:CreateWindow({
+                    name = "Splash Pascal",
+                    ShowBanner = true,
+                    configuration = { autoSave = false, autoLoad = false },
+                } :: any)
+
+                expect(bannerBuilds).to.equal(1)
+            end)
+        end)
+
         it("runs the secure-mode preload and font-swap branches deterministically", function()
             local preloadCalled = false
             local loadedWeights = {}

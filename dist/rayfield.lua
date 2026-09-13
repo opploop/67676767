@@ -27842,16 +27842,16 @@ local function createBanner()
 end
 
 function rayfield:CreateWindow(properties: types.WindowProps): types.Window
-    -- Opt-out for the brief Rayfield-branded splash that otherwise always flashes for ~0.5s
-    -- between this call and the real window finishing construction - previously had no toggle
-    -- at all. Read directly off the raw properties table (not something Window.new resolves)
-    -- since the banner exists and is destroyed entirely within this function, before any Window
-    -- instance is even built.
+    -- The Rayfield-branded logo splash that flashed for ~0.5s between this call and the window
+    -- appearing is OFF by default now - a hub's own window, not the library's logo, is the
+    -- first thing its players should see. `showBanner = true` still brings it back. Read
+    -- directly off the raw properties table (not something Window.new resolves) since the banner
+    -- exists and is destroyed entirely within this function, before any Window is built.
     -- read through `any`: every component accepts camelCase or PascalCase at runtime, but
     -- WindowProps documents only the camelCase spelling, so the PascalCase probe is a type error
     -- against a type that is deliberately the smaller of the two
     local rawProperties = properties :: any
-    local showBanner = rawProperties.showBanner ~= false and rawProperties.ShowBanner ~= false
+    local showBanner = rawProperties.showBanner == true or rawProperties.ShowBanner == true
     local banner = if showBanner then createBanner() else nil
 
     local window: types.Window? -- forward declared so the settle callback below can reach it
@@ -27925,8 +27925,8 @@ function rayfield:CreateWindow(properties: types.WindowProps): types.Window
     end
 
     task.spawn(function()
-        -- No banner to sit through when the dev opted out of it (showBanner = false) - waiting
-        -- out its lifetime anyway was half a second of nothing before the window could appear.
+        -- No banner to sit through unless the dev asked for one (showBanner = true) - waiting out
+        -- its lifetime anyway would be half a second of nothing before the window could appear.
         if banner then
             task.wait(0.5)
             banner:Destroy()
@@ -28731,8 +28731,8 @@ export type WindowProps = {
     -- default 1.4. See Window:IsMobile's own comment; also usable from a dev's own script.
     mobileHitScale: number?,
 
-    -- The brief Rayfield-branded splash shown between this call and the window itself finishing
-    -- construction - default true (unchanged). Set false to skip it outright.
+    -- The brief Rayfield-branded logo splash shown before the window appears - default false.
+    -- Set true to bring it back.
     showBanner: boolean?,
 
     -- Adds a "Danger Zone" section to Settings with a hold-to-confirm "Destroy UI" button that
