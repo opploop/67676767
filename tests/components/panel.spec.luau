@@ -62,6 +62,27 @@ return function()
             expect(panel.iconLabel.Visible).to.equal(false)
         end)
 
+        it("resolves the current page icon by name, the way every other icon is", function()
+            local image = helpers.requireUtility("image")
+            local original = image.resolve
+            image.resolve = function(value)
+                return "resolved:" .. tostring(value)
+            end
+
+            local ok, err = pcall(function()
+                local panel = makeTab():CreatePanel({ name = "Trial" })
+                panel:CreatePage({ name = "Trial", icon = "lucide:timer" })
+
+                -- live-caught: a raw write of the NAME left the header icon blank, while the pill
+                -- (built through Create) showed its icon fine
+                expect(panel.iconLabel.Image).to.equal("resolved:lucide:timer")
+            end)
+            image.resolve = original
+            if not ok then
+                error(err, 0)
+            end
+        end)
+
         it("selects by index, by name and by the page object, and refuses what it does not have", function()
             local panel, trial, config = trialPanel()
 

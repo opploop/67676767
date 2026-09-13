@@ -35,6 +35,7 @@ local variables = require(utility.variables)
 local functions = require(utility.functions)
 local moveable = require(utility.moveable)
 local locale = require(utility.locale)
+local image = require(utility.image)
 local assignOrder = require(utility.ordering)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
@@ -322,7 +323,9 @@ function Panel:SelectPage(target, skipCallback)
     self.title.Text = locale.resolve(page.pageName)
     self.iconLabel.Visible = page.pageIcon ~= nil
     if page.pageIcon then
-        self.iconLabel.Image = page.pageIcon
+        -- through image.assign, not a raw write: an icon NAME ("lucide:timer") only becomes an asset
+        -- id there, and in secure mode that is also what re-binds it once the icon has cached
+        image.assign(self.iconLabel, "Image", page.pageIcon)
     end
 
     self:_layoutHeader()
