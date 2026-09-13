@@ -22,6 +22,7 @@ local utility = script.Parent.Parent.utility
 -- Variables
 local variables = require(utility.variables)
 local moveable = require(utility.moveable)
+local functions = require(utility.functions)
 local locale = require(utility.locale)
 local constants = require(utility.constants)
 local hapticEngine = require(utility.HapticEngine)
@@ -37,6 +38,22 @@ local headerHeight = 43
 local contentPadTop = 8
 local contentPadBottom = 8
 
+-- The card behind the content when it is open (background = true, the default): a gap below the
+-- header so the two read as separate surfaces, and one pixel of room on each side and the bottom,
+-- because a UIStroke draws OUTSIDE its frame and contentWrapper clips - a card flush with the
+-- wrapper's edges would lose its outline on exactly those sides.
+local cardGap = 6
+local strokeRoom = 1
+
+-- How much of the element fill the card carries. The children are element cards themselves, so a
+-- card in the SAME fill would turn every toggle inside into a grey rectangle on a grey rectangle,
+-- visible only by its outline. Half the fill sits between the window behind it and the elements on
+-- top of it, so the elements still read as raised.
+local cardFillShare = 0.5
+local function cardTransparency(elementTransparency)
+    return 1 - (1 - (elementTransparency or 0)) * cardFillShare
+end
+
 function Collapsible.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
 
@@ -49,6 +66,7 @@ function Collapsible.new(tab, properties)
         compact = false,
         direction = nil,
         elements = {}, -- the inner group's own elements list (Group fills this in)
+        background = functions.readBool(properties, "background", true),
 
         expanded = if properties.expanded ~= nil
             then properties.expanded
@@ -87,24 +105,48 @@ function Collapsible.new(tab, properties)
         Parent = self.main,
     })
 
+    -- What the children are built into: a card of its own when background is on, otherwise the
+    -- wrapper directly, as it always was. Either way the wrapper stays the thing that clips and
+    -- animates, so the collapse itself is unchanged.
+    local contentParent = self.contentWrapper
+    if self.background then
+        self.contentCard = self.window:Create("Frame", {
+            Name = "Content",
+            Position = UDim2.fromOffset(strokeRoom, cardGap),
+            Size = UDim2.new(1, -strokeRoom * 2, 0, 0),
+            BorderSizePixel = 0,
+            BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+
+            BackgroundTransparency = 1, -- In = cardTransparency(ElementTransparency)
+
+            Parent = self.contentWrapper,
+        }, { BackgroundTransparency = { "ElementTransparency", cardTransparency } })
+        self.contentStroke = self.window:StyleElementBody(self.contentCard)
+        contentParent = self.contentCard
+    end
+
     self.window:Create("UIPadding", {
         PaddingTop = UDim.new(0, contentPadTop),
         PaddingBottom = UDim.new(0, contentPadBottom),
 
-        Parent = self.contentWrapper,
+        Parent = contentParent,
     })
 
-    self.tabPage = self.contentWrapper
+    self.tabPage = contentParent
 
     -- children build through here - see file header. Requiring by relative path (not a name
     -- string) since this isn't Group's own _add dispatch table.
     self._group = require(script.Parent.group).new(self, { direction = "column" })
 
     self.window:ConnectFor(self, self._group.main:GetPropertyChangedSignal("AbsoluteSize"), function()
+        -- the card follows its content even while closed, so opening never shows a stale height
+        self:_syncCard()
         if self.expanded then
             self:_setHeight(self:_contentHeight(), true)
         end
     end)
+
+    self:_syncCard()
 
     -- start at the right height instantly - no animating in from 0 on first build
     if self.expanded then
@@ -125,8 +167,25 @@ end
 
 -- the group's own real height plus the breathing room above/below it (UIPadding doesn't count
 -- toward a sibling's AbsoluteSize, so it has to be added back in by hand here)
-function Collapsible:_contentHeight()
+function Collapsible:_cardHeight()
     return self._group.main.AbsoluteSize.Y + contentPadTop + contentPadBottom
+end
+
+-- how tall the clipping wrapper has to be to show everything: with a card that is the gap above
+-- it and the stroke room below it on top of the card itself
+function Collapsible:_contentHeight()
+    if self.contentCard then
+        return cardGap + self:_cardHeight() + strokeRoom
+    end
+    return self:_cardHeight()
+end
+
+-- The card's height is set outright rather than tweened: the wrapper clips it, and it is the
+-- wrapper that animates, so the card only ever needs to be the right size underneath.
+function Collapsible:_syncCard()
+    if self.contentCard then
+        self.contentCard.Size = UDim2.new(1, -strokeRoom * 2, 0, self:_cardHeight())
+    end
 end
 
 -- Drives contentWrapper's height AND main's own height together (see the comment on self.main's
@@ -325,6 +384,14 @@ function Collapsible:_setShown(shown, animate)
     else
         w:_hideCommon(proxy, animate)
         w:_reveal(self.chevron, { ImageTransparency = 1 }, animate)
+    end
+    if self.contentCard then
+        w:_reveal(self.contentCard, {
+            BackgroundTransparency = if shown then cardTransparency(w.theme.ElementTransparency) else 1,
+        }, animate)
+        w:_reveal(self.contentStroke, {
+            Transparency = if shown then w.theme.ElementStrokeTransparency else 1,
+        }, animate)
     end
     self._group:_setShown(shown, animate)
 end

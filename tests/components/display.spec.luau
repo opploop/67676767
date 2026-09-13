@@ -308,4 +308,73 @@ return function()
             expect(collapsible:CreateTabbox({ name = "FromCollapsible" })).to.be.ok()
         end)
     end)
+
+    describe("component collapsible", function()
+        afterEach(cleanup)
+
+        it("builds a card behind its content, and builds the children into it", function()
+            local panel = makeTab():CreateCollapsible({ name = "Misc", expanded = true })
+            local toggle = panel:CreateToggle({ name = "Inside", forgetState = true })
+
+            expect(panel.contentCard).to.be.ok()
+            expect(panel.tabPage).to.equal(panel.contentCard)
+            -- the card sits inside the clipping wrapper, so the collapse still hides it cleanly
+            expect(panel.contentCard.Parent).to.equal(panel.contentWrapper)
+            local node, insideCard = toggle.main.Parent, false
+            while node do
+                if node == panel.contentCard then
+                    insideCard = true
+                    break
+                end
+                node = node.Parent
+            end
+            expect(insideCard).to.equal(true)
+        end)
+
+        it("can be turned off, and then builds straight into the wrapper as before", function()
+            local panel = makeTab():CreateCollapsible({ name = "Plain", background = false, expanded = true })
+
+            expect(panel.contentCard).to.equal(nil)
+            expect(panel.tabPage).to.equal(panel.contentWrapper)
+            expect(panel:_contentHeight()).to.equal(panel:_cardHeight())
+        end)
+
+        it("opens tall enough for the gap above the card and its outline below", function()
+            local panel = makeTab():CreateCollapsible({ name = "Misc", expanded = true })
+
+            expect(panel.contentCard.Size.Y.Offset).to.equal(panel:_cardHeight())
+            -- 6px gap under the header, 1px under the card so its stroke is not clipped away
+            expect(panel.contentWrapper.Size.Y.Offset).to.equal(6 + panel:_cardHeight() + 1)
+            expect(panel.main.Size.Y.Offset).to.equal(43 + panel.contentWrapper.Size.Y.Offset)
+        end)
+
+        it("keeps the card sized to its content while closed, so opening is never stale", function()
+            local panel = makeTab():CreateCollapsible({ name = "Misc", expanded = false })
+
+            panel._group.main.AbsoluteSize = Vector2.new(0, 200)
+            panel._group.main:GetPropertyChangedSignal("AbsoluteSize"):Fire()
+
+            expect(panel.contentCard.Size.Y.Offset).to.equal(200 + 16)
+            -- still closed: the wrapper did not open just because the content grew
+            expect(panel.contentWrapper.Size.Y.Offset).to.equal(0)
+
+            panel:SetExpanded(true, true)
+            expect(panel.contentWrapper.Size.Y.Offset).to.equal(6 + 216 + 1)
+        end)
+
+        it("fades the card in at half the element fill, and back out", function()
+            local panel = makeTab():CreateCollapsible({ name = "Misc", expanded = true })
+            local fill = window.theme.ElementTransparency or 0
+
+            panel:_setShown(true, false)
+            -- half the fill: between the window behind it and the element cards on top of it, so a
+            -- toggle inside still reads as raised instead of grey on the same grey
+            expect(panel.contentCard.BackgroundTransparency).to.equal(1 - (1 - fill) * 0.5)
+            expect(panel.contentStroke.Transparency).to.equal(window.theme.ElementStrokeTransparency)
+
+            panel:_setShown(false, false)
+            expect(panel.contentCard.BackgroundTransparency).to.equal(1)
+            expect(panel.contentStroke.Transparency).to.equal(1)
+        end)
+    end)
 end
