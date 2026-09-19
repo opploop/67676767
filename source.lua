@@ -25938,6 +25938,7 @@ function Tab:Select(noAnimation)
     if not self.neglectSelector and not skipAnimation then
         self:_applyVisual("selected", selectTweenInfo)
     end
+    tabSelector.revealSelected(self.window, not skipAnimation)
 
     for _, tab in self.window.tabs do
         if tab ~= self.window.selectedTab then
@@ -26928,6 +26929,46 @@ function tabSelector.placeIndicator(window, animate: boolean?, transparency: num
         for property, value in goal do
             indicator[property] = value
         end
+    end
+end
+
+-- Scroll the Top track so the selected tab sits wholly in view, a little clear of the track's
+-- edge. With more tabs than the window has room for, the track scrolls - and selecting one past
+-- its edge (from code with Navigate, or a search result) left the selected tab, and the white
+-- pill riding on it, out of sight.
+local revealMargin = 12
+function tabSelector.revealSelected(window, animate: boolean?)
+    local list = window.tabList
+    local tab = window.selectedTab
+    local item = tab and not tab.neglectSelector and tab.topbarItem
+    if window.tabsMode == "Sidebar" or not list or not item then
+        return
+    end
+    local itemPosition, listPosition = item.AbsolutePosition, list.AbsolutePosition
+    local view = list.AbsoluteWindowSize
+    local content = window.tabListLayout and window.tabListLayout.AbsoluteContentSize
+    if not itemPosition or not listPosition or not view or not content or view.X <= 0 then
+        return -- not laid out yet (and never, in a headless run)
+    end
+
+    local scrolled = list.CanvasPosition.X
+    local left = itemPosition.X - listPosition.X + scrolled
+    local right = left + item.AbsoluteSize.X
+    local target = scrolled
+    if left - revealMargin < scrolled then
+        target = left - revealMargin
+    elseif right + revealMargin > scrolled + view.X then
+        target = right + revealMargin - view.X
+    end
+    target = math.clamp(target, 0, math.max(content.X + 8 - view.X, 0))
+    if math.abs(target - scrolled) < 0.5 then
+        return
+    end
+    local goal = { CanvasPosition = Vector2.new(target, list.CanvasPosition.Y) }
+    if animate then
+        variables.tweenService:Create(list, slideInfo, goal):Play()
+    else
+        list.CanvasPosition = goal.CanvasPosition
     end
 end
 
@@ -29521,7 +29562,14 @@ function Tour:_show(index: number)
         switched = true
     end
     local expanded = expandAncestors(self.window, step.target)
-    if switched or expanded then
+    if switched then
+        -- A new tab's page slides in over the page layout's own tween, not in a frame: measured a
+        -- frame later, the target still sat a page per tab away - with sixteen tabs, 7,500px off the
+        -- left of the screen, ring and bubble with it. Wait out the slide before measuring.
+        local layout = self.window.elementsLayout
+        local slide = if layout and typeof(layout.TweenTime) == "number" then layout.TweenTime else 0
+        task.wait(slide + 0.05)
+    elseif expanded then
         task.wait()
     end
 
@@ -30694,6 +30742,14 @@ function Window.new(properties)
             tabSelector.placeIndicator(self, false)
         end)
         self:Connect(self.main:GetPropertyChangedSignal("Size"), fitTabDock)
+        -- The list only gets a size once the window is on screen - a tab selected before that (a
+        -- Navigate during the loading splash, a remembered tab) could not be scrolled to then, so
+        -- it is scrolled to as the list is laid out, and again when the window is resized. A
+        -- player scrolling the track by hand changes neither, so this never fights them.
+        self:Connect(self.tabList:GetPropertyChangedSignal("AbsoluteWindowSize"), function()
+            tabSelector.revealSelected(self, false)
+            tabSelector.placeIndicator(self, false)
+        end)
         -- the pill rides the list when it scrolls, since it lives on the track and not in the list
         self:Connect(self.tabList:GetPropertyChangedSignal("CanvasPosition"), function()
             tabSelector.placeIndicator(self, false)
@@ -31299,6 +31355,7 @@ local clipboard = core.clipboard
 local chrome = core.chrome
 local variables = core.variables
 local richtext = require(script.Parent.Parent.utility.richtext)
+local tabSelector = require(script.Parent.tabSelector)
 
 -- Shared constants/helpers (see windowCore.luau)
 local revealInfo = core.revealInfo
@@ -31998,6 +32055,9 @@ function Window:_firstShow()
 
     self.animating = false
     self._revealing = false
+    -- a tab selected while the window was still opening (a Navigate during the loading splash)
+    -- could not be scrolled to on the track then; now the track has its size, it can
+    tabSelector.revealSelected(self, true)
 
     -- Welcome the user once if this is a new/changed account on this device (unless they've
     -- turned it off in settings). Just a toast now - the profile chip is a toast like any other.
