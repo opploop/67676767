@@ -1003,6 +1003,8 @@ function Chart.new(tab, properties)
         labels = {}, -- a bar's name under it, by index
         dots = {}, -- the white dots on a line's points
         _segments = {}, -- each drawn segment's two ends, for _clipToView
+        _sizes = {}, -- the size each bar and field column should have, for the entrance to grow to
+        _entranceTweens = {}, -- the entrance's grows still running, which a redraw stops
         marks = {}, -- the drawn pieces: segments for a line, bars for a bar chart
         joints = {}, -- the welds where two segments meet
         fills = {}, -- the shading under a line
@@ -1488,6 +1490,7 @@ function Chart:_redrawFill(left: number, right: number, height: number, yAt)
             local x1 = math.floor(left + index * columnWidth + 0.5)
             local y = yAt((x0 + x1) / 2)
             local target = UDim2.fromOffset(math.max(x1 - x0, 1), math.max(height - y, 0))
+            self._sizes[fill] = target
             fill.Position = UDim2.fromOffset(x0, height)
             if self._animatingFill and fill.Visible then
                 variables.tweenService:Create(fill, drawInfo, { Size = target }):Play()
@@ -1704,6 +1707,10 @@ function Chart:_redraw(animate: boolean?)
     -- a redraw takes over from an entrance still playing: its pieces are where they belong now
     self._drawCount = (self._drawCount or 0) + 1
     self._revealX = nil
+    for _, tween in self._entranceTweens do
+        tween:Cancel()
+    end
+    table.clear(self._entranceTweens)
     local width, height = self.plot.AbsoluteSize.X, self.plot.AbsoluteSize.Y
     local count = #self.points
 
@@ -1750,6 +1757,7 @@ function Chart:_redraw(animate: boolean?)
             mark.Position = UDim2.fromOffset(math.floor(slot * (index - 0.5) + 0.5), math.floor(floor + 0.5))
             local target = UDim2.fromOffset(barWidth, math.floor(barHeight + 0.5))
             barTops[index] = floor - barHeight
+            self._sizes[mark] = target
             if isNew then
                 mark.Size = UDim2.fromOffset(barWidth, 1) -- a new bar grows up out of the floor
             end
@@ -2206,6 +2214,7 @@ function Chart:SetMode(mode)
         self.window:DestroySubtree(dot)
     end
     table.clear(self.dots)
+    table.clear(self._sizes)
     self._drawn = false
     self:_resize()
     self:_redraw(false)
@@ -2217,6 +2226,11 @@ end
 
 -- Draw the chart in: see entranceTime. Replayed each time its page comes on screen.
 function Chart:_entrance()
+    -- Drawn again first, against the plot's size now: Roblox does not always report the last
+    -- resize of a page that was off screen at the time, and the chart kept its old width.
+    if self.plot.AbsoluteSize and self.plot.AbsoluteSize.X > 0 then
+        self:_redraw(false)
+    end
     self:_paintMarks(false)
     if not self._shown or #self.points == 0 then
         return
@@ -2229,17 +2243,30 @@ function Chart:_entrance()
     end
     local ts = variables.tweenService
 
+    -- Each piece grows to the size it should have when it starts growing, not the size it had
+    -- when the entrance began: a plot laid out in between (a page often gets its real size just
+    -- after it is shown) redrew its bars and field, and the entrance then put the old sizes
+    -- back - bars and field short of where the data put them. A redraw also stops any grow still
+    -- running (see _redraw).
+    local function sizeOf(part)
+        return self._sizes[part] or part.Size
+    end
+    local function grow(part, info, goal)
+        local tween = ts:Create(part, info, goal)
+        table.insert(self._entranceTweens, tween)
+        tween:Play()
+    end
+
     if self.mode == "bar" then
         local order = 0
         for _, mark in self.marks do
             if mark.Visible then
-                local target = mark.Size
-                mark.Size = UDim2.fromOffset(target.X.Offset, 0)
+                mark.Size = UDim2.fromOffset(sizeOf(mark).X.Offset, 0)
                 task.delay(0.04 + order * barStagger, function()
                     if current() then
-                        ts:Create(mark, barGrowInfo, { Size = target }):Play()
+                        grow(mark, barGrowInfo, { Size = sizeOf(mark) })
                     else
-                        mark.Size = target
+                        mark.Size = sizeOf(mark)
                     end
                 end)
                 order += 1
@@ -2257,42 +2284,41 @@ function Chart:_entrance()
         return math.clamp(x / width, 0, 1) * entranceTime * 0.62
     end
 
+    local pointSize = UDim2.fromOffset(pointDotSize, pointDotSize)
     for _, dot in self.dots do
         if dot.Visible then
-            local size = dot.Size
             dot.Size = UDim2.fromOffset(0, 0)
             task.delay(lagAt(dot.Position.X.Offset), function()
                 if current() then
-                    ts:Create(dot, dotPopInfo, { Size = size }):Play()
+                    grow(dot, dotPopInfo, { Size = pointSize })
                 else
-                    dot.Size = size
+                    dot.Size = pointSize
                 end
             end)
         end
     end
     if self.dot.Visible then
-        local size = self.dot.Size
+        local newestSize = UDim2.fromOffset(dotSize, dotSize)
         self.dot.Size = UDim2.fromOffset(0, 0)
         self.halo.BackgroundTransparency = 1
         task.delay(lagAt(self.dot.Position.X.Offset), function()
             if current() then
-                ts:Create(self.dot, dotPopInfo, { Size = size }):Play()
-                ts:Create(self.halo, dotPopInfo, { BackgroundTransparency = 0.8 }):Play()
+                grow(self.dot, dotPopInfo, { Size = newestSize })
+                grow(self.halo, dotPopInfo, { BackgroundTransparency = 0.8 })
             else
-                self.dot.Size = size
+                self.dot.Size = newestSize
                 self.halo.BackgroundTransparency = 0.8
             end
         end)
     end
     for _, fill in self.fills do
         if fill.Visible then
-            local target = fill.Size
-            fill.Size = UDim2.fromOffset(target.X.Offset, 0)
+            fill.Size = UDim2.fromOffset(sizeOf(fill).X.Offset, 0)
             task.delay(lagAt(fill.Position.X.Offset) + 0.05, function()
                 if current() then
-                    ts:Create(fill, fillRiseInfo, { Size = target }):Play()
+                    grow(fill, fillRiseInfo, { Size = sizeOf(fill) })
                 else
-                    fill.Size = target
+                    fill.Size = sizeOf(fill)
                 end
             end)
         end
@@ -17466,6 +17492,126 @@ moveable(Paragraph)
 return Paragraph
 ]=====]
 
+sources["components/photo"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- Photo: the window on its own, for a script's thumbnail.
+--
+-- Roblox has no way to render a GUI to an image, so the picture is taken outside the game, by
+-- the Rayfield Photo tool on the player's PC. What happens here is the part only the game can
+-- do: for a moment everything that is not the window goes - the game, its GUI, Roblox's own
+-- top bar and chat - behind a backdrop that is pure black, then pure white. The tool watches for
+-- exactly that, grabs the screen on each, and works out from the difference between the two how
+-- see-through every pixel of the window is: a PNG of the window alone, rounded corners and soft
+-- shadow included, on a transparent background, whatever colours the theme uses.
+--
+--   window:TakePhoto()   -- or Settings > "Take a photo", or F8
+
+local photo = {}
+
+-- how long each backdrop holds: long enough for the tool to see it and grab a whole frame
+local holdTime = 0.5
+-- below the window and its shadow (the shadow draws at -1 under the window)
+local backdropZIndex = -100
+
+local function starterGui()
+    local ok, service = pcall(game.GetService, game, "StarterGui")
+    return if ok then service else nil
+end
+
+-- Hide Roblox's own chat, player list, backpack and top bar for the photo; returns what to put back.
+local function hideCoreGui()
+    local gui = starterGui()
+    local restore = {}
+    if not gui then
+        return restore
+    end
+    for _, kind in Enum.CoreGuiType:GetEnumItems() do
+        if kind ~= Enum.CoreGuiType.All then
+            local ok, enabled = pcall(gui.GetCoreGuiEnabled, gui, kind)
+            if ok and enabled then
+                table.insert(restore, kind)
+                pcall(gui.SetCoreGuiEnabled, gui, kind, false)
+            end
+        end
+    end
+    local ok = pcall(gui.SetCore, gui, "TopbarEnabled", false)
+    restore.topbar = ok
+    return restore
+end
+
+local function restoreCoreGui(restore)
+    local gui = starterGui()
+    if not gui then
+        return
+    end
+    for _, kind in ipairs(restore) do
+        pcall(gui.SetCoreGuiEnabled, gui, kind, true)
+    end
+    if restore.topbar then
+        pcall(gui.SetCore, gui, "TopbarEnabled", true)
+    end
+end
+
+-- Run the black-then-white sequence. Yields for about a second; a second call while one is
+-- running does nothing.
+function photo.take(window)
+    if window._photoing or window.unloaded then
+        return false
+    end
+    window._photoing = true
+
+    -- a photo of the Settings page is never what was meant: go back to the tab it was opened from
+    if window.selectedTab == window.rfSettings and window._tabBeforeSettings then
+        window._tabBeforeSettings:Select()
+        task.wait(0.55)
+    end
+
+    -- the window's own furniture that is not part of it: the drag bar under it, the resize grip
+    local hidden = {}
+    local function hide(instance)
+        if instance and instance.Visible then
+            instance.Visible = false
+            table.insert(hidden, instance)
+        end
+    end
+    hide(window.drag and window.drag.drag)
+    hide(window.resize and window.resize.grip)
+    local core = hideCoreGui()
+
+    local backdrop = window:Create("Frame", {
+        Name = "PhotoBackdrop",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.new(0, 0, 0),
+        BorderSizePixel = 0,
+        ZIndex = backdropZIndex,
+        -- nothing under it takes a click while the photo is taken
+        Active = true,
+
+        Parent = window.screenGui,
+    })
+
+    task.wait(holdTime)
+    backdrop.BackgroundColor3 = Color3.new(1, 1, 1)
+    task.wait(holdTime)
+
+    backdrop:Destroy()
+    for _, instance in hidden do
+        instance.Visible = true
+    end
+    restoreCoreGui(core)
+    window._photoing = false
+    return true
+end
+
+return photo
+]=====]
+
 sources["components/playerdropdown"] = [=====[
 --!nonstrict
 
@@ -23571,10 +23717,15 @@ function StackedChart:_segment(part, index: number)
     return segment
 end
 
-function StackedChart:_trackWidth(part): number
-    local width = part.track.AbsoluteSize and part.track.AbsoluteSize.X or 0
+-- How long a full bar is: the rows' own width less the names and the totals. Read off the rows, not
+-- off a track: this runs as the rows are resized, and at that moment Roblox has not yet resized
+-- the tracks inside them - a bar measured against the track's old width (the window still growing
+-- in, say) stopped at that width for good, the longest row filling only part of its track.
+function StackedChart:_trackWidth(_part): number
+    local rows = self.rowsHolder.AbsoluteSize
+    local width = if rows then rows.X - nameWidth - totalWidth else 0
     if width < 10 then
-        -- not laid out yet: the card's own width, less the names and totals, until the next resize
+        -- not laid out yet: the card's own width, less the same, until the next resize
         local main = self.main.AbsoluteSize and self.main.AbsoluteSize.X or 0
         width = if main > 0 then main - sidePadding * 2 - nameWidth - totalWidth else 300
     end
@@ -23601,37 +23752,43 @@ function StackedChart:_redraw(animate: boolean?)
         local part = self.rowParts[index]
         if part then
             part.totalLabel.Text = self:_readable(row.total)
-            local barWidth = math.floor(self:_trackWidth(part) * row.total / largest + 0.5)
-            part.target = UDim2.new(0, barWidth, 1, 0)
+            -- A share of the track, not a number of pixels: Roblox does not always report the
+            -- last resize of a page that is off screen (a tab not yet opened, a window still
+            -- growing in), and a bar measured in pixels kept the width from before it - the
+            -- longest row filling only part of its track. A share is right at any size.
+            part.target = UDim2.new(row.total / largest, 0, 1, 0)
+            -- a grow still running was headed for the old length
+            if part.grow then
+                part.grow:Cancel()
+                part.grow = nil
+            end
             if animate then
-                variables.tweenService:Create(part.bar, growInfo, { Size = part.target }):Play()
-            else
+                part.grow = variables.tweenService:Create(part.bar, growInfo, { Size = part.target })
+                part.grow:Play()
+            elseif not part.growing then
                 part.bar.Size = part.target
             end
 
-            -- the pills share the bar, less a gap between each two that are there
+            -- The pills share the bar, less a gap between each two that are there: each takes its
+            -- share of the bar (scale) and gives up its share of the gaps (offset), and starts
+            -- after the pills and the gaps before it - exact at any width.
             local present = 0
             for _, value in row.values do
                 if value > 0 then
                     present += 1
                 end
             end
-            local room = math.max(barWidth - segmentGap * math.max(present - 1, 0), 0)
-            local x = 0
-            local placed = 0
-            part.spans = {}
+            local gaps = segmentGap * math.max(present - 1, 0)
+            local before, placed = 0, 0
             for valueIndex, value in row.values do
                 local segment = self:_segment(part, valueIndex)
                 if value > 0 then
-                    placed += 1
-                    local width = if placed == present
-                        then math.max(barWidth - x, 0)
-                        else math.floor(value / math.max(row.total, 0.0001) * room + 0.5)
+                    local share = value / math.max(row.total, 0.0001)
                     segment.Visible = true
-                    segment.Position = UDim2.fromOffset(x, 0)
-                    segment.Size = UDim2.new(0, math.max(width, barHeight), 1, 0)
-                    part.spans[valueIndex] = { x, x + width }
-                    x += width + segmentGap
+                    segment.Position = UDim2.new(before, segmentGap * placed - before * gaps, 0, 0)
+                    segment.Size = UDim2.new(share, -share * gaps, 1, 0)
+                    before += share
+                    placed += 1
                 else
                     segment.Visible = false
                 end
@@ -23644,11 +23801,35 @@ function StackedChart:_redraw(animate: boolean?)
 end
 
 -- Which pill the pointer is over, from how far along the row's track it is.
+-- Where each pill of a row sits along its track, in pixels, for the bar's width now: read when
+-- the pointer is over it, so the window is on screen and its sizes are real.
+function StackedChart:_spans(part)
+    local row = self.rows[table.find(self.rowParts, part) or 0]
+    local barWidth = part.bar.AbsoluteSize and part.bar.AbsoluteSize.X or 0
+    if barWidth <= 0 and row then
+        local largest = 0
+        for _, other in self.rows do
+            largest = math.max(largest, other.total or 0)
+        end
+        barWidth = self:_trackWidth(part) * (row.total or 0) / math.max(largest, 0.0001)
+    end
+    local spans = {}
+    for index, segment in part.segments do
+        if segment.Visible then
+            local left = segment.Position.X.Scale * barWidth + segment.Position.X.Offset
+            spans[index] = { left, left + segment.Size.X.Scale * barWidth + segment.Size.X.Offset }
+        end
+    end
+    part.spans = spans
+    return spans
+end
+
 function StackedChart:_hoverAt(rowIndex: number, absoluteX: number)
     local part = self.rowParts[rowIndex]
-    if not part or not self._shown or not part.spans then
+    if not part or not self._shown then
         return
     end
+    self:_spans(part)
     local along = absoluteX - part.track.AbsolutePosition.X
     local best, bestDistance = nil, math.huge
     for valueIndex, span in part.spans do
@@ -23723,7 +23904,7 @@ function StackedChart:_setHover(key)
     )
 
     -- over the middle of the pill, inside the card
-    local span = part.spans[key[2]]
+    local span = (part.spans or self:_spans(part))[key[2]] or { 0, 0 }
     local mainPosition = self.main.AbsolutePosition
     local trackPosition = part.track.AbsolutePosition
     local x = trackPosition.X - mainPosition.X + (span[1] + span[2]) / 2
@@ -23741,14 +23922,28 @@ end
 -- Grow the bars in again, one after another: what a page opening shows.
 function StackedChart:Replay()
     self:_setHover(nil)
+    -- Measured again first: Roblox does not always report the last resize of a page that was off
+    -- screen at the time (a tab not yet opened, a window still growing in), and the bars kept
+    -- the length from the size before it.
+    self:_redraw(false)
     self._entranceToken = (self._entranceToken or 0) + 1
     local token = self._entranceToken
     for index, part in self.rowParts do
-        local target = part.target or part.bar.Size
         part.bar.Size = UDim2.new(0, 0, 1, 0)
+        part.growing = true
+        -- The length is read when each bar starts to grow, not when the entrance begins: a page
+        -- that gets its real size in between (it is often laid out just after it is shown) gave
+        -- the bars a new length that the grow then overwrote with the old one - a bar stopping
+        -- halfway along a row it should have filled.
         task.delay(0.05 + (index - 1) * rowStagger, function()
+            part.growing = false
+            local target = part.target or UDim2.new(0, 0, 1, 0)
             if self._entranceToken == token and self._shown then
-                variables.tweenService:Create(part.bar, growInfo, { Size = target }):Play()
+                if part.grow then
+                    part.grow:Cancel()
+                end
+                part.grow = variables.tweenService:Create(part.bar, growInfo, { Size = target })
+                part.grow:Play()
             else
                 part.bar.Size = target
             end
@@ -25897,6 +26092,10 @@ function Tab:Select(noAnimation)
         search.close(self.window, { showTabs = true, jumpTo = false })
     end
 
+    -- the tab Settings was opened from, for anything that wants to go back to it (a photo)
+    if self == self.window.rfSettings and self.window.selectedTab ~= self then
+        self.window._tabBeforeSettings = self.window.selectedTab
+    end
     self.window.selectedTab = self
     self.window:_jumpTo(self.tabPage)
     if not noAnimation then
@@ -29866,6 +30065,10 @@ function Window.new(properties)
     self._shadowBlur = properties.shadowThickness or properties.ShadowThickness
     self._shadowTransparency = properties.shadowTransparency or properties.ShadowTransparency
     self._rainbowBorder = properties.rainbowBorder or properties.RainbowBorder or false
+    -- The photo tool for thumbnails (see photo.luau): a Settings button and F8. Off unless the dev
+    -- asks - it needs the Rayfield Photo program on the PC, so for a hub's players it would be a
+    -- button that does nothing.
+    self._photoEnabled = properties.photo == true or properties.Photo == true
     self._rainbowBorderSpeed = properties.rainbowBorderSpeed or properties.RainbowBorderSpeed or 0.14
     if self._rainbowBorder then
         self._showBorder = true
@@ -33982,6 +34185,12 @@ function Window:SetAcrylic(enabled, intensity)
     end
 end
 
+-- A photo of the window alone, for a thumbnail: see photo.luau. Needs the Rayfield Photo tool
+-- running on the PC, which saves it as a PNG with a transparent background. Yields about a second.
+function Window:TakePhoto()
+    return require(script.Parent.photo).take(self)
+end
+
 function Window:_refreshElementThemes()
     for _, tab in self.tabs do
         for _, element in tab.elements do
@@ -35488,6 +35697,21 @@ function Window:_bindKeybind()
         end
     end)
 
+    -- F8: a photo of the window (see TakePhoto), for a window created with photo = true - fixed
+    -- like F9 below, one key every window shares.
+    -- Only while the window is open: a photo of the pill, or of nothing, is not a thumbnail.
+    self:Connect(variables.userInputService.InputBegan, function(input, processed)
+        if not self._photoEnabled or processed or self._recordingKeybind or input.KeyCode ~= Enum.KeyCode.F8 then
+            return
+        end
+        if self.hidden or self.minimised then
+            return
+        end
+        task.spawn(function()
+            self:TakePhoto()
+        end)
+    end)
+
     -- F9: flips debug logging on/off from anywhere, not just the Settings toggle - the point is
     -- a player can turn it on the moment a bug happens without hunting through menus first, then
     -- reproduce it and hand the dev script's own console output (see DebugLog below) straight
@@ -35924,6 +36148,17 @@ function Window:_buildSettingsUI()
             self:SaveSettings()
         end,
     })
+
+    if self._photoEnabled then
+        self.rfSettings:CreateButton({
+            name = "Take a photo",
+            icon = "lucide:camera",
+            description = "Saves the window on its own as a transparent PNG, for thumbnails. Needs the Rayfield Photo tool open on your PC. F8 does the same.",
+            callback = function()
+                self:TakePhoto()
+            end,
+        })
+    end
 
     self.rfSettings:CreateButton({
         name = "Reset Window Size",
@@ -37282,6 +37517,9 @@ export type WindowProps = {
     -- what the Search action looks through: "tab" (default) filters the page the player is on,
     -- following them to another tab with the query; "all" gathers every page into one list
     searchScope: string?,
+    -- the photo tool for thumbnails: a Settings button and F8 (off by default; needs the Rayfield
+    -- Photo program on the PC - window:TakePhoto() works either way)
+    photo: boolean?,
     subtitle: string?,
     theme: Theme?,
     icon: (string | number)?,
@@ -38582,6 +38820,8 @@ export type Window = {
     SetTransparency: (self: Window, percent: number) -> (),
     -- Devlog 7: frosts the game behind the window via a Lighting blur
     SetAcrylic: (self: Window, enabled: boolean, intensity: number?) -> (), -- intensity 0-1
+    -- the window alone, black then white behind it, for the Rayfield Photo tool; yields ~1s
+    TakePhoto: (self: Window) -> boolean,
     SetLocale: (self: Window, localeId: string) -> (),
     SetTranslator: (self: Window, translator: Translator?) -> (),
     RegisterTranslations: (self: Window, translations: Translations) -> (),
