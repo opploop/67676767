@@ -29856,6 +29856,257 @@ end
 return Tour
 ]=====]
 
+sources["components/updatecheck"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- Update check: tell a player their hub is out of date.
+--
+--   Rayfield:CreateWindow({
+--       version = "v1.0.2",
+--       updateCheck = {
+--           url = "https://raw.githubusercontent.com/me/repo/main/version.json",
+--           interval = 600, -- seconds between checks, never under 60
+--           loader = 'loadstring(game:HttpGet("https://example.com/loader"))()',
+--           onUpdate = function(remoteVersion, notes) end,
+--       },
+--   })
+--
+-- The url answers with the newest version, either as JSON - { "version": "1.0.3", "notes": "..." }
+-- (a "loader" there overrides the one above) - or as plain text holding just the version. It is
+-- fetched in the background, a few seconds after the window opens and then every `interval`.
+-- When it is newer than `version` (major.minor.patch, a leading "v" ignored), the player gets one
+-- notification per session with the notes, and a toast whose button copies the loader. A network
+-- or parse failure is only ever a debug log line: never a toast, never a retry storm. Without
+-- `updateCheck`, none of this runs.
+
+local updateCheck = {}
+updateCheck.__index = updateCheck
+
+local utility = script.Parent.Parent.utility
+local network = require(utility.network)
+local clipboard = require(utility.clipboard)
+local locale = require(utility.locale)
+local variables = require(utility.variables)
+
+local minimumInterval = 60
+local defaultInterval = 600
+-- the first check waits for the window to be up and the player settled in
+local firstCheckDelay = 8
+
+-- "v1.2.3" / "1.2" / "1.2.3-beta" -> { 1, 2, 3 }; nil when there is no number to read
+function updateCheck.parse(text): { number }?
+    if type(text) ~= "string" then
+        return nil
+    end
+    local major, minor, patch = string.match(text, "^%s*[vV]?(%d+)%.?(%d*)%.?(%d*)")
+    if not major then
+        return nil
+    end
+    return { tonumber(major) or 0, tonumber(minor) or 0, tonumber(patch) or 0 }
+end
+
+-- -1 when a is older than b, 1 when newer, 0 when the same (or either cannot be read)
+function updateCheck.compare(a, b): number
+    local left, right = updateCheck.parse(a), updateCheck.parse(b)
+    if not left or not right then
+        return 0
+    end
+    for index = 1, 3 do
+        if left[index] ~= right[index] then
+            return if left[index] < right[index] then -1 else 1
+        end
+    end
+    return 0
+end
+
+-- A string field of a small JSON object, read without a JSON decoder - for an HttpService that
+-- will not decode (a thin executor, the test shim). Handles the escapes a version file uses.
+local function field(json: string, name: string): string?
+    local _, opening = string.find(json, '"' .. name .. '"%s*:%s*"')
+    if not opening then
+        -- a bare number: "version": 1.2
+        return string.match(json, '"' .. name .. '"%s*:%s*([%d%.]+)')
+    end
+    -- walk to the closing quote, taking each escaped character as it is meant
+    local out = {}
+    local index = opening + 1
+    while index <= #json do
+        local char = string.sub(json, index, index)
+        if char == "\\" then
+            local escaped = string.sub(json, index + 1, index + 1)
+            table.insert(out, if escaped == "n" then "\n" elseif escaped == "t" then "\t" else escaped)
+            index += 2
+        elseif char == '"' then
+            return table.concat(out)
+        else
+            table.insert(out, char)
+            index += 1
+        end
+    end
+    return nil
+end
+
+-- What the url answered: the version, and the notes and loader when it gave them.
+function updateCheck.read(body): (string?, string?, string?)
+    if type(body) ~= "string" then
+        return nil
+    end
+    local trimmed = string.match(body, "^%s*(.-)%s*$") or ""
+    if string.sub(trimmed, 1, 1) == "{" then
+        local ok, data = pcall(function()
+            return variables.httpService:JSONDecode(trimmed)
+        end)
+        if not ok or type(data) ~= "table" then
+            data = {
+                version = field(trimmed, "version"),
+                notes = field(trimmed, "notes"),
+                loader = field(trimmed, "loader"),
+            }
+        end
+        local version = data.version or data.Version
+        local notes = data.notes or data.Notes
+        local loader = data.loader or data.Loader
+        return if version ~= nil then tostring(version) else nil,
+            if type(notes) == "string" and notes ~= "" then notes else nil,
+            if type(loader) == "string" and loader ~= "" then loader else nil
+    end
+    local firstLine = string.match(trimmed, "^[^\r\n]+")
+    return if firstLine and updateCheck.parse(firstLine) then firstLine else nil
+end
+
+function updateCheck.new(window, config, version)
+    if type(config) ~= "table" or type(config.url or config.Url) ~= "string" then
+        return nil
+    end
+    local self = setmetatable({
+        window = window,
+        url = config.url or config.Url,
+        interval = math.max(tonumber(config.interval or config.Interval) or defaultInterval, minimumInterval),
+        loader = config.loader or config.Loader,
+        onUpdate = config.onUpdate or config.OnUpdate,
+        version = tostring(config.version or config.Version or version or ""),
+        -- a request is never made more often than this, whoever asks
+        lastRequest = nil,
+        remote = nil,
+        notes = nil,
+        notified = false,
+        announced = {},
+    }, updateCheck)
+
+    task.spawn(function()
+        task.wait(firstCheckDelay)
+        while not window.unloaded do
+            self:check()
+            task.wait(self.interval)
+        end
+    end)
+    return self
+end
+
+function updateCheck:_log(...)
+    if self.window.DebugLog then
+        self.window:DebugLog("update", ...)
+    end
+end
+
+-- Fetch and compare. Yields for the request; answers (hasUpdate, remoteVersion, notes). Within
+-- a minute of the last request it answers from that one instead of asking again.
+function updateCheck:check(): (boolean, string?, string?)
+    if self.window.unloaded then
+        return false
+    end
+    local now = os.clock()
+    if self.lastRequest and now - self.lastRequest < minimumInterval then
+        return self:_answer()
+    end
+    self.lastRequest = now
+
+    -- (_fetch: a spec hands one in; the game uses the executor's own request or HttpGet)
+    local fetch = self._fetch or network.getFetchFn()
+    if not fetch then
+        self:_log("no way to make an HTTP request on this executor")
+        return false
+    end
+    -- the query keeps a CDN from handing back an old copy of the file
+    local separator = if string.find(self.url, "?", 1, true) then "&" else "?"
+    local ok, response = pcall(fetch, { Url = self.url .. separator .. "rf=" .. tostring(os.time()), Method = "GET" })
+    local body = ok and type(response) == "table" and response.Body
+    if not ok or type(body) ~= "string" or (response.Success == false) then
+        self:_log("check failed:", if ok then tostring(response and response.StatusCode) else tostring(response))
+        return self:_answer()
+    end
+
+    local remote, notes, loader = updateCheck.read(body)
+    if not remote then
+        self:_log("could not read a version from", self.url)
+        return self:_answer()
+    end
+    self.remote, self.notes = remote, notes
+    if loader then
+        self.loader = loader
+    end
+
+    if updateCheck.compare(remote, self.version) > 0 then
+        self:_announce(remote, notes)
+    end
+    return self:_answer()
+end
+
+function updateCheck:_answer(): (boolean, string?, string?)
+    local newer = self.remote ~= nil and updateCheck.compare(self.remote, self.version) > 0
+    return newer, self.remote, self.notes
+end
+
+-- Once per session for the notification; once per remote version for the dev's callback.
+function updateCheck:_announce(remote: string, notes: string?)
+    if not self.announced[remote] then
+        self.announced[remote] = true
+        if type(self.onUpdate) == "function" then
+            local ok, err = pcall(self.onUpdate, remote, notes)
+            if not ok then
+                self:_log("onUpdate failed:", tostring(err))
+            end
+        end
+    end
+    if self.notified then
+        return
+    end
+    self.notified = true
+
+    local window = self.window
+    window:NotifyInfo({
+        title = string.format(locale.resolve("New version %s available"), remote),
+        content = notes or locale.resolve("Reopen the script to get it."),
+        icon = "lucide:download",
+        duration = 12,
+    })
+    if type(self.loader) == "string" and self.loader ~= "" then
+        local loader = self.loader
+        window:Toast({
+            title = locale.resolve("Update available"),
+            subtitle = remote,
+            icon = "lucide:download",
+            duration = 12,
+            action = {
+                text = locale.resolve("Copy loader"),
+                callback = function()
+                    if clipboard.copy(loader) then
+                        window:Toast({ title = locale.resolve("Loader copied"), icon = "lucide:check", duration = 3 })
+                    end
+                end,
+            },
+        })
+    end
+end
+
+return updateCheck
+]=====]
+
 sources["components/window"] = [=====[
 --!nonstrict
 
@@ -31245,6 +31496,12 @@ function Window.new(properties)
     self:_buildSettingsUI()
 
     self:_syncLiveAnimation()
+
+    -- The hub's own version, and where to look for a newer one (see updatecheck.luau). Nothing
+    -- runs without updateCheck.
+    self.version = properties.version or properties.Version
+    self._updateCheck =
+        require(script.Parent.updatecheck).new(self, properties.updateCheck or properties.UpdateCheck, self.version)
 
     return self
 end
@@ -34189,6 +34446,16 @@ end
 -- running on the PC, which saves it as a PNG with a transparent background. Yields about a second.
 function Window:TakePhoto()
     return require(script.Parent.photo).take(self)
+end
+
+-- Ask the updateCheck url now rather than waiting for the next scheduled check. Yields for the
+-- request; answers (hasUpdate, remoteVersion, notes). Never more than one request a minute:
+-- within that it answers from the last one. Without updateCheck, answers false.
+function Window:CheckForUpdate()
+    if not self._updateCheck then
+        return false
+    end
+    return self._updateCheck:check()
 end
 
 function Window:_refreshElementThemes()
@@ -37517,6 +37784,10 @@ export type WindowProps = {
     -- what the Search action looks through: "tab" (default) filters the page the player is on,
     -- following them to another tab with the query; "all" gathers every page into one list
     searchScope: string?,
+    -- the hub's own version, e.g. "v1.0.2" - what updateCheck compares against
+    version: string?,
+    -- looks for a newer version in the background and tells the player once per session
+    updateCheck: UpdateCheckProps?,
     -- the photo tool for thumbnails: a Settings button and F8 (off by default; needs the Rayfield
     -- Photo program on the PC - window:TakePhoto() works either way)
     photo: boolean?,
@@ -38122,6 +38393,13 @@ export type StatusCardProps = {
     expanded: boolean?, -- default true
     glow: boolean?, -- ambient glow behind the card, default true
     rows: { StatusCardRow }?,
+}
+
+export type UpdateCheckProps = {
+    url: string, -- answers { "version": "1.0.3", "notes": "...", "loader": "..." } or just "1.0.3"
+    interval: number?, -- seconds between checks (default 600, never under 60)
+    loader: string?, -- what the "Copy loader" button copies (the url's own "loader" wins)
+    onUpdate: ((remoteVersion: string, notes: string?) -> ())?, -- once per newer version found
 }
 
 export type NotifyProps = {
@@ -38822,6 +39100,8 @@ export type Window = {
     SetAcrylic: (self: Window, enabled: boolean, intensity: number?) -> (), -- intensity 0-1
     -- the window alone, black then white behind it, for the Rayfield Photo tool; yields ~1s
     TakePhoto: (self: Window) -> boolean,
+    -- check the updateCheck url now; yields; (hasUpdate, remoteVersion, notes)
+    CheckForUpdate: (self: Window) -> (boolean, string?, string?),
     SetLocale: (self: Window, localeId: string) -> (),
     SetTranslator: (self: Window, translator: Translator?) -> (),
     RegisterTranslations: (self: Window, translations: Translations) -> (),
@@ -39674,6 +39954,11 @@ return {
         ["Saved configuration"] = "Configuração salva",
         ["Search all pages"] = "Pesquisar em todas as páginas",
         ["Search this page"] = "Pesquisar nesta página",
+        ["New version %s available"] = "Nova versão %s disponível",
+        ["Reopen the script to get it."] = "Abra o script de novo para pegar a atualização.",
+        ["Update available"] = "Atualização disponível",
+        ["Copy loader"] = "Copiar loader",
+        ["Loader copied"] = "Loader copiado",
         ["Search..."] = "Pesquisar...",
         ["Secure mode"] = "Modo seguro",
         ["Signed in as"] = "Conectado como",
@@ -39711,6 +39996,11 @@ return {
         ["Saved configuration"] = "Configuración guardada",
         ["Search all pages"] = "Buscar en todas las páginas",
         ["Search this page"] = "Buscar en esta página",
+        ["New version %s available"] = "Nueva versión %s disponible",
+        ["Reopen the script to get it."] = "Abre el script de nuevo para obtener la actualización.",
+        ["Update available"] = "Actualización disponible",
+        ["Copy loader"] = "Copiar loader",
+        ["Loader copied"] = "Loader copiado",
         ["Search..."] = "Buscar...",
         ["Secure mode"] = "Modo seguro",
         ["Signed in as"] = "Conectado como",
