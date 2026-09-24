@@ -29871,7 +29871,7 @@ sources["components/updatecheck"] = [=====[
 --       updateCheck = {
 --           url = "https://raw.githubusercontent.com/me/repo/main/version.json",
 --           interval = 600, -- seconds between checks, never under 60
---           loader = 'loadstring(game:HttpGet("https://example.com/loader"))()',
+--           loader = 'loadstring(game:HttpGet("https://example.com/loader"))()', -- run again after rejoining
 --           onUpdate = function(remoteVersion, notes) end,
 --       },
 --   })
@@ -29880,17 +29880,18 @@ sources["components/updatecheck"] = [=====[
 -- (a "loader" there overrides the one above) - or as plain text holding just the version. It is
 -- fetched in the background, a few seconds after the window opens and then every `interval`.
 -- When it is newer than `version` (major.minor.patch, a leading "v" ignored), the player gets one
--- notification per session with the notes, and a toast whose button copies the loader. A network
--- or parse failure is only ever a debug log line: never a toast, never a retry storm. Without
--- `updateCheck`, none of this runs.
+-- notification per session with the notes, and a toast with a Rejoin button: new code only takes
+-- effect in a fresh session, so the button queues the loader to run again on arrival (the
+-- executor's queue_on_teleport) and teleports the player back into the very server they were in -
+-- any server of the same place if that one will not take them. A network or parse failure is
+-- only ever a debug log line: never a toast, never a retry storm. Without `updateCheck`, none of
+-- this runs. The texts are English on purpose, whatever the player's language.
 
 local updateCheck = {}
 updateCheck.__index = updateCheck
 
 local utility = script.Parent.Parent.utility
 local network = require(utility.network)
-local clipboard = require(utility.clipboard)
-local locale = require(utility.locale)
 local variables = require(utility.variables)
 
 local minimumInterval = 60
@@ -30080,28 +30081,99 @@ function updateCheck:_announce(remote: string, notes: string?)
 
     local window = self.window
     window:NotifyInfo({
-        title = string.format(locale.resolve("New version %s available"), remote),
-        content = notes or locale.resolve("Reopen the script to get it."),
+        title = "New version " .. remote .. " available",
+        content = notes or "Rejoin to start using it.",
         icon = "lucide:download",
-        duration = 12,
+        duration = 15,
     })
-    if type(self.loader) == "string" and self.loader ~= "" then
-        local loader = self.loader
-        window:Toast({
-            title = locale.resolve("Update available"),
-            subtitle = remote,
-            icon = "lucide:download",
-            duration = 12,
-            action = {
-                text = locale.resolve("Copy loader"),
-                callback = function()
-                    if clipboard.copy(loader) then
-                        window:Toast({ title = locale.resolve("Loader copied"), icon = "lucide:check", duration = 3 })
-                    end
-                end,
-            },
-        })
+    window:Toast({
+        title = "Update available",
+        subtitle = remote,
+        icon = "lucide:download",
+        duration = 25,
+        action = {
+            text = "Rejoin",
+            callback = function()
+                self:Rejoin()
+            end,
+        },
+    })
+end
+
+-- The executor's function for running code after a teleport, under whichever name it has one.
+function updateCheck.queueFn(env: any?): ((string) -> ())?
+    env = env or getfenv()
+    local ok, fn = pcall(function()
+        return env.queue_on_teleport
+            or env.queueonteleport
+            or (env.syn and env.syn.queue_on_teleport)
+            or (env.fluxus and env.fluxus.queue_on_teleport)
+    end)
+    return if ok and typeof(fn) == "function" then fn else nil
+end
+
+-- Back into the same server, with the script queued to run again on arrival. Falls back to any
+-- server of the same place when that one will not take the player (full, shut down, reserved).
+function updateCheck:Rejoin(): boolean
+    -- one teleport at a time: a second click would queue the script twice. Still here 15 seconds
+    -- later means every teleport was refused, so the player may try again.
+    if self._rejoinedAt and os.clock() - self._rejoinedAt < 15 then
+        return false
     end
+    self._rejoinedAt = os.clock()
+    local window = self.window
+
+    local queued = false
+    if type(self.loader) == "string" and self.loader ~= "" then
+        local queue = self._queue or updateCheck.queueFn()
+        if queue then
+            -- it runs the moment the player arrives, before the game has loaded: a loader (or its
+            -- key system) that reaches for the game that early would fail
+            queued = pcall(queue, "if not game:IsLoaded() then game.Loaded:Wait() end " .. self.loader)
+        end
+    end
+    window:Toast({
+        title = "Rejoining...",
+        subtitle = if queued
+            then "The script will run again when you're back"
+            else "Run the script again once you're back",
+        icon = "lucide:refresh-cw",
+        duration = 5,
+    })
+
+    local teleport = self._teleport
+        or function(sameServer: boolean)
+            local service = game:GetService("TeleportService")
+            local player = game:GetService("Players").LocalPlayer
+            if sameServer and game.JobId ~= "" then
+                service:TeleportToPlaceInstance(game.PlaceId, game.JobId, player)
+            else
+                service:Teleport(game.PlaceId, player)
+            end
+        end
+
+    task.delay(0.6, function()
+        -- the same server refused: any server of the same place, rather than nowhere
+        local ok, failed = pcall(function()
+            local service = game:GetService("TeleportService")
+            local player = game:GetService("Players").LocalPlayer
+            local connection
+            connection = service.TeleportInitFailed:Connect(function(who)
+                if who == player then
+                    connection:Disconnect()
+                    pcall(teleport, false)
+                end
+            end)
+            return connection
+        end)
+        if not pcall(teleport, true) then
+            pcall(teleport, false)
+        end
+        if not ok then
+            self:_log("could not watch for a failed teleport:", tostring(failed))
+        end
+    end)
+    return true
 end
 
 return updateCheck
@@ -38398,7 +38470,7 @@ export type StatusCardProps = {
 export type UpdateCheckProps = {
     url: string, -- answers { "version": "1.0.3", "notes": "...", "loader": "..." } or just "1.0.3"
     interval: number?, -- seconds between checks (default 600, never under 60)
-    loader: string?, -- what the "Copy loader" button copies (the url's own "loader" wins)
+    loader: string?, -- the script to run again after the Rejoin button (the url's own "loader" wins)
     onUpdate: ((remoteVersion: string, notes: string?) -> ())?, -- once per newer version found
 }
 
@@ -39954,11 +40026,6 @@ return {
         ["Saved configuration"] = "Configuração salva",
         ["Search all pages"] = "Pesquisar em todas as páginas",
         ["Search this page"] = "Pesquisar nesta página",
-        ["New version %s available"] = "Nova versão %s disponível",
-        ["Reopen the script to get it."] = "Abra o script de novo para pegar a atualização.",
-        ["Update available"] = "Atualização disponível",
-        ["Copy loader"] = "Copiar loader",
-        ["Loader copied"] = "Loader copiado",
         ["Search..."] = "Pesquisar...",
         ["Secure mode"] = "Modo seguro",
         ["Signed in as"] = "Conectado como",
@@ -39996,11 +40063,6 @@ return {
         ["Saved configuration"] = "Configuración guardada",
         ["Search all pages"] = "Buscar en todas las páginas",
         ["Search this page"] = "Buscar en esta página",
-        ["New version %s available"] = "Nueva versión %s disponible",
-        ["Reopen the script to get it."] = "Abre el script de nuevo para obtener la actualización.",
-        ["Update available"] = "Actualización disponible",
-        ["Copy loader"] = "Copiar loader",
-        ["Loader copied"] = "Loader copiado",
         ["Search..."] = "Buscar...",
         ["Secure mode"] = "Modo seguro",
         ["Signed in as"] = "Conectado como",
