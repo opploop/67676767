@@ -29356,6 +29356,7 @@ function SubTabs.new(tab)
 
         Parent = self.strip,
     })
+    self:_wireStripDrag()
 
     -- the scrolling area and, over its top edge, a fade the page goes under as it scrolls - the
     -- window's own top fade, for the part of this tab that scrolls now
@@ -29543,6 +29544,9 @@ function SubTabs:Create(properties)
     table.insert(self.elements, page)
 
     window:Connect(pill.MouseButton1Click, function()
+        if self:_justDragged() then
+            return -- the row was dragged, not the pill clicked
+        end
         if self.selected ~= page then
             hapticEngine.click()
             soundEngine.click()
@@ -29627,6 +29631,73 @@ function SubTabs:Select(target, noAnimation)
         strip.CanvasPosition = Vector2.new(math.max(0, left - pillGap), 0)
     end
     return true
+end
+
+-- How far the row can run sideways: 0 while every pill fits.
+function SubTabs:_maxScroll(): number
+    local strip = self.strip
+    return math.max(strip.AbsoluteCanvasSize.X - strip.AbsoluteWindowSize.X, 0)
+end
+
+-- Scroll the row to x, kept inside what it holds.
+function SubTabs:_scrollTo(x: number)
+    self.strip.CanvasPosition = Vector2.new(math.clamp(x, 0, self:_maxScroll()), 0)
+end
+
+-- A finger already drags a row too long to fit; a mouse cannot drag a ScrollingFrame, and its
+-- wheel runs up and down. So with the mouse the row is grabbed and pulled sideways, and the wheel
+-- over it runs it sideways. Only on the tab on show, only when there is something to scroll to.
+function SubTabs:_wireStripDrag()
+    local window, strip = self.window, self.strip
+    local uis = variables.userInputService
+    local held, startX, startCanvas = false, 0, 0
+    self._dragged = false
+
+    local function live(): boolean
+        return window.selectedTab == self.tab and not window.hidden and not window.minimised and self:_maxScroll() > 0
+    end
+    local function over(position): boolean
+        local at, size = strip.AbsolutePosition, strip.AbsoluteSize
+        return position.X >= at.X and position.X <= at.X + size.X and position.Y >= at.Y and position.Y <= at.Y + size.Y
+    end
+
+    window:Connect(uis.InputBegan, function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 or not live() or not over(input.Position) then
+            return
+        end
+        held, startX, startCanvas = true, input.Position.X, strip.CanvasPosition.X
+        self._dragged = false
+    end)
+    window:Connect(uis.InputChanged, function(input)
+        local kind = input.UserInputType
+        if kind == Enum.UserInputType.MouseMovement and held then
+            local moved = input.Position.X - startX
+            -- a few pixels of wobble is still a click
+            if math.abs(moved) > 6 then
+                self._dragged = true
+            end
+            if self._dragged then
+                self:_scrollTo(startCanvas - moved)
+            end
+        elseif kind == Enum.UserInputType.MouseWheel and live() and over(input.Position) then
+            self:_scrollTo(strip.CanvasPosition.X - input.Position.Z * 60)
+        end
+    end)
+    window:Connect(uis.InputEnded, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 and held then
+            held = false
+            if self._dragged then
+                self._dragged = false
+                self._dragEndedAt = os.clock()
+            end
+        end
+    end)
+end
+
+-- The release that ends a drag also lands on whichever pill is under it, before or after the
+-- drag hears of it: either way it is not a click.
+function SubTabs:_justDragged(): boolean
+    return self._dragged or (self._dragEndedAt ~= nil and os.clock() - self._dragEndedAt < 0.15)
 end
 
 -- The fade under the pills: none with the page at its top, full once it has scrolled fadeFull
@@ -34476,6 +34547,536 @@ end
 return Tour
 ]=====]
 
+sources["components/updatecard"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- Update card: how updatecheck.luau tells a player their hub is out of date. One card in the
+-- notification stack (its corner, its gaps) instead of a notification and a toast at once:
+--
+--   [download]  Update available                    x
+--               Moon Hub
+--   ( v1.0.0 )  ->  ( v1.0.2 )
+--   * the notes, a line each
+--   [ Rejoin now ]  [ Later ]
+--   ---------------------------- how long it stays
+--
+-- The icon sits on a tile of the theme's accent with a soft light behind it, the new version in an
+-- accent pill, a wash of the accent from the left - the watermark's look. It stays 30 seconds,
+-- paused while the pointer is on it; Later, the x or the time running out slides it away. Rejoin
+-- now runs the check's own Rejoin and says so on the button. The words are English on purpose,
+-- like the rest of the update check.
+
+local UpdateCard = {}
+UpdateCard.__index = UpdateCard
+
+local utility = script.Parent.Parent.utility
+local variables = require(utility.variables)
+local functions = require(utility.functions)
+local constants = require(utility.constants)
+local image = require(utility.image)
+local textMetrics = require(utility.textMetrics)
+local hapticEngine = require(utility.HapticEngine)
+local soundEngine = require(utility.sound)
+
+local width = 300
+local pad = 14
+local iconTile = 34
+local chipHeight = 20
+local buttonHeight = 30
+local noteSize = 13
+local stackGap = 8
+local defaultDuration = 30
+local z = constants.zIndex.notification
+
+local growInfo = TweenInfo.new(0.55, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
+local fadeInfo = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
+local hoverInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local centred = UDim2.fromScale(0.5, 0.5)
+
+-- "Fixed the farm\nNew tab" -> "• Fixed the farm\n• New tab"; one line stays as it is.
+function UpdateCard.bullets(notes: string?): string?
+    if type(notes) ~= "string" then
+        return nil
+    end
+    local lines = {}
+    for line in string.gmatch(notes, "[^\r\n]+") do
+        line = string.match(line, "^%s*[-*•]?%s*(.-)%s*$")
+        if line ~= "" then
+            table.insert(lines, line)
+        end
+    end
+    if #lines == 0 then
+        return nil
+    elseif #lines == 1 then
+        return lines[1]
+    end
+    for index, line in lines do
+        lines[index] = "• " .. line
+    end
+    return table.concat(lines, "\n")
+end
+
+-- props: { from, to, notes, title, onRejoin, duration }
+function UpdateCard.new(window, props)
+    local self = setmetatable({
+        window = window,
+        from = props.from,
+        to = props.to,
+        notes = UpdateCard.bullets(props.notes),
+        onRejoin = props.onRejoin,
+        duration = props.duration or defaultDuration,
+        _fades = {},
+        _hovered = false,
+        _dismissed = false,
+    }, UpdateCard)
+    local stack = window:_notificationStack()
+    local onLeft = window.notifySide == "Left"
+    self._offscreen = UDim2.new(0.5, if onLeft then -width - 60 else width + 60, 0.5, 0)
+
+    local function fade(instance, property, shown)
+        table.insert(self._fades, { instance, property, shown })
+        return instance
+    end
+
+    -- the slot in the stack; only its height moves, so the cards above slide up with it
+    self.main = window:Create("Frame", {
+        Name = "UpdateCard",
+        Size = UDim2.new(1, 0, 0, 0),
+        BackgroundTransparency = 1,
+        LayoutOrder = 0,
+        ZIndex = z,
+        Parent = stack,
+    })
+    window:Create("UIPadding", { PaddingTop = UDim.new(0, stackGap), Parent = self.main })
+
+    self.body = window:Create("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        Position = self._offscreen,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Active = true,
+        ZIndex = z,
+        Parent = self.main,
+    })
+    fade(self.body, "BackgroundTransparency", 0.03)
+    window:Create("UIGradient", {
+        Rotation = 90,
+        Parent = self.body,
+    }, { Color = { "WindowColor", functions.toColorSequence } })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = self.body })
+    fade(
+        window:Create("UIStroke", {
+            Transparency = 1,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+            Parent = self.body,
+        }, { Color = "ContentColor" }),
+        "Transparency",
+        0.86
+    )
+    self.shadow = window:CreateGlow(self.body, "ShadowColor", 14, 1)
+    fade(self.shadow, "Transparency", 0.6)
+
+    -- the accent washing in from the left, the watermark's
+    local tint = window:Create("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = z,
+        Parent = self.body,
+    }, { BackgroundColor3 = "AccentColor" })
+    fade(tint, "BackgroundTransparency", 0)
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = tint })
+    window:Create("UIGradient", {
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.8),
+            NumberSequenceKeypoint.new(0.6, 1),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Parent = tint,
+    })
+
+    -- the download mark on its accent tile
+    local tile = window:Create("Frame", {
+        Size = UDim2.fromOffset(iconTile, iconTile),
+        Position = UDim2.fromOffset(pad, pad),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = z + 2,
+        Parent = self.body,
+    }, { BackgroundColor3 = "AccentColor" })
+    fade(tile, "BackgroundTransparency", 0.78)
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = tile })
+    local glow = window:Create("ImageLabel", {
+        Image = "rbxassetid://8992230677",
+        Size = UDim2.fromOffset(iconTile * 2.4, iconTile * 2.4),
+        Position = UDim2.fromOffset(pad + iconTile / 2, pad + iconTile / 2),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+        ZIndex = z + 1,
+        Parent = self.body,
+    }, { ImageColor3 = "AccentStroke" })
+    fade(glow, "ImageTransparency", 0.75)
+    local mark = window:Create("ImageLabel", {
+        Size = UDim2.fromOffset(18, 18),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+        ZIndex = z + 3,
+        Parent = tile,
+    }, { ImageColor3 = "AccentStroke" })
+    image.assign(mark, "Image", "lucide:download")
+    fade(mark, "ImageTransparency", 0)
+
+    local textLeft = pad + iconTile + 12
+    self.titleLabel = window:Create("TextLabel", {
+        Text = props.heading or "Update available",
+        Size = UDim2.new(1, -(textLeft + pad + 20), 0, 18),
+        Position = UDim2.fromOffset(textLeft, pad),
+        BackgroundTransparency = 1,
+        TextSize = 15,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        TextTransparency = 1,
+        ZIndex = z + 2,
+        Parent = self.body,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    fade(self.titleLabel, "TextTransparency", 0)
+    self.hubLabel = window:Create("TextLabel", {
+        Text = tostring(props.title or window.name or ""),
+        Size = UDim2.new(1, -(textLeft + pad), 0, 14),
+        Position = UDim2.fromOffset(textLeft, pad + 19),
+        BackgroundTransparency = 1,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        TextTransparency = 1,
+        ZIndex = z + 2,
+        Parent = self.body,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    fade(self.hubLabel, "TextTransparency", 0.5)
+
+    self.closeButton = window:Create("ImageButton", {
+        Size = UDim2.fromOffset(16, 16),
+        Position = UDim2.new(1, -pad, 0, pad + 1),
+        AnchorPoint = Vector2.new(1, 0),
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+        AutoButtonColor = false,
+        ZIndex = z + 3,
+        Parent = self.body,
+    }, { ImageColor3 = "ContentColor" })
+    image.assign(self.closeButton, "Image", "lucide:x")
+    fade(self.closeButton, "ImageTransparency", 0.5)
+
+    -- the versions: where the hub is, where it can be
+    local y = pad + iconTile + 12
+    local chipX = pad
+    local function chip(text: string, accent: boolean)
+        local frame = window:Create("Frame", {
+            Size = UDim2.fromOffset(0, chipHeight),
+            Position = UDim2.fromOffset(chipX, y),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            ZIndex = z + 2,
+            Parent = self.body,
+        }, { BackgroundColor3 = if accent then "AccentColor" else "ContentColor" })
+        fade(frame, "BackgroundTransparency", if accent then 0.7 else 0.92)
+        window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = frame })
+        window:Create("UIPadding", {
+            PaddingLeft = UDim.new(0, 9),
+            PaddingRight = UDim.new(0, 9),
+            Parent = frame,
+        })
+        local label = window:Create("TextLabel", {
+            Text = text,
+            Size = UDim2.new(0, 0, 1, 0),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            TextSize = 12,
+            TextTransparency = 1,
+            ZIndex = z + 3,
+            Parent = frame,
+        }, {
+            TextColor3 = if accent then "AccentStroke" else "ContentColor",
+            FontFace = if accent then "TitleFont" else "Font",
+        })
+        fade(label, "TextTransparency", if accent then 0 else 0.4)
+        local labelWidth = 0
+        local ok, bounds = pcall(function()
+            return label.TextBounds
+        end)
+        if ok and typeof(bounds) == "Vector2" and bounds.X > 0 then
+            labelWidth = bounds.X
+        else
+            labelWidth = #text * 12 * 0.56
+        end
+        chipX += math.ceil(labelWidth) + 18
+        return frame
+    end
+    if self.from and tostring(self.from) ~= "" then
+        self.fromChip = chip(tostring(self.from), false)
+        local arrow = window:Create("ImageLabel", {
+            Size = UDim2.fromOffset(14, 14),
+            Position = UDim2.fromOffset(chipX + 7, y + (chipHeight - 14) / 2),
+            BackgroundTransparency = 1,
+            ImageTransparency = 1,
+            ZIndex = z + 2,
+            Parent = self.body,
+        }, { ImageColor3 = "ContentColor" })
+        image.assign(arrow, "Image", "lucide:arrow-right")
+        fade(arrow, "ImageTransparency", 0.5)
+        chipX += 28
+    end
+    self.toChip = chip(tostring(self.to or "new"), true)
+    y += chipHeight + 12
+
+    -- the notes, a line each
+    if self.notes then
+        local noteWidth = width - pad * 2
+        local font = window.theme and window.theme.Font or Font.fromEnum(Enum.Font.BuilderSans)
+        local noteHeight = textMetrics.textHeight(font, noteSize, self.notes, noteWidth)
+        -- the measure leaves out the line height, and can come back short: never under a line each
+        local _, breaks = string.gsub(self.notes, "\n", "")
+        local lineHeight = math.ceil(noteSize * 1.1) + 2
+        noteHeight = math.max(math.ceil(noteHeight * 1.1), (breaks + 1) * lineHeight)
+        self.notesLabel = window:Create("TextLabel", {
+            Text = self.notes,
+            Size = UDim2.fromOffset(noteWidth, noteHeight),
+            Position = UDim2.fromOffset(pad, y),
+            BackgroundTransparency = 1,
+            TextSize = noteSize,
+            TextWrapped = true,
+            LineHeight = 1.1,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextYAlignment = Enum.TextYAlignment.Top,
+            TextTransparency = 1,
+            ZIndex = z + 2,
+            Parent = self.body,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+        fade(self.notesLabel, "TextTransparency", 0.3)
+        y += noteHeight + 12
+    end
+
+    -- Rejoin now, and Later
+    local gap = 8
+    local rejoinWidth = math.floor((width - pad * 2 - gap) * 0.6)
+    self.rejoinButton = window:Create("TextButton", {
+        Text = "",
+        Size = UDim2.fromOffset(rejoinWidth, buttonHeight),
+        Position = UDim2.fromOffset(pad, y),
+        BackgroundTransparency = 1,
+        AutoButtonColor = false,
+        BorderSizePixel = 0,
+        ZIndex = z + 2,
+        Parent = self.body,
+    }, { BackgroundColor3 = "AccentColor" })
+    fade(self.rejoinButton, "BackgroundTransparency", 0)
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.rejoinButton })
+    local rejoinIcon = window:Create("ImageLabel", {
+        Size = UDim2.fromOffset(14, 14),
+        Position = UDim2.new(0.5, -46, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundTransparency = 1,
+        ImageColor3 = Color3.new(1, 1, 1),
+        ImageTransparency = 1,
+        ZIndex = z + 3,
+        Parent = self.rejoinButton,
+    })
+    image.assign(rejoinIcon, "Image", "lucide:refresh-cw")
+    fade(rejoinIcon, "ImageTransparency", 0)
+    self.rejoinLabel = window:Create("TextLabel", {
+        Text = "Rejoin now",
+        Size = UDim2.new(1, 0, 1, 0),
+        Position = UDim2.fromOffset(10, 0),
+        BackgroundTransparency = 1,
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 13,
+        TextTransparency = 1,
+        ZIndex = z + 3,
+        Parent = self.rejoinButton,
+    }, { FontFace = "TitleFont" })
+    fade(self.rejoinLabel, "TextTransparency", 0)
+
+    self.laterButton = window:Create("TextButton", {
+        Text = "Later",
+        Size = UDim2.fromOffset(width - pad * 2 - gap - rejoinWidth, buttonHeight),
+        Position = UDim2.fromOffset(pad + rejoinWidth + gap, y),
+        BackgroundTransparency = 1,
+        AutoButtonColor = false,
+        BorderSizePixel = 0,
+        TextSize = 13,
+        TextTransparency = 1,
+        ZIndex = z + 2,
+        Parent = self.body,
+    }, { BackgroundColor3 = "ContentColor", TextColor3 = "ContentColor", FontFace = "Font" })
+    fade(self.laterButton, "BackgroundTransparency", 0.92)
+    fade(self.laterButton, "TextTransparency", 0.2)
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.laterButton })
+    y += buttonHeight + 12
+
+    -- how long it stays, running down
+    local track = window:Create("Frame", {
+        Size = UDim2.new(1, -pad * 2, 0, 2),
+        Position = UDim2.fromOffset(pad, y),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        ZIndex = z + 2,
+        Parent = self.body,
+    }, { BackgroundColor3 = "ContentColor" })
+    fade(track, "BackgroundTransparency", 0.92)
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = track })
+    self.timeFill = window:Create("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = z + 3,
+        Parent = track,
+    }, { BackgroundColor3 = "AccentStroke" })
+    fade(self.timeFill, "BackgroundTransparency", 0)
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = self.timeFill })
+    self.height = y + 2 + pad - 2
+
+    self:_wire()
+    task.spawn(function()
+        self:_show()
+    end)
+    return self
+end
+
+function UpdateCard:_wire()
+    local window = self.window
+    window:ConnectFor(self, self.body.MouseEnter, function()
+        self._hovered = true
+    end)
+    window:ConnectFor(self, self.body.MouseLeave, function()
+        self._hovered = false
+    end)
+    local function hover(button, property, rest, lit)
+        window:ConnectFor(self, button.MouseEnter, function()
+            if not self._dismissed then
+                variables.tweenService:Create(button, hoverInfo, { [property] = lit }):Play()
+            end
+        end)
+        window:ConnectFor(self, button.MouseLeave, function()
+            if not self._dismissed then
+                variables.tweenService:Create(button, hoverInfo, { [property] = rest }):Play()
+            end
+        end)
+    end
+    hover(self.rejoinButton, "BackgroundTransparency", 0, 0.15)
+    hover(self.laterButton, "BackgroundTransparency", 0.92, 0.86)
+    hover(self.closeButton, "ImageTransparency", 0.5, 0.1)
+
+    window:ConnectFor(self, self.rejoinButton.MouseButton1Click, function()
+        self:Rejoin()
+    end)
+    window:ConnectFor(self, self.laterButton.MouseButton1Click, function()
+        self:Dismiss()
+    end)
+    window:ConnectFor(self, self.closeButton.MouseButton1Click, function()
+        self:Dismiss()
+    end)
+end
+
+-- Open the slot, slide the card in, bring every part up, then run the clock down.
+function UpdateCard:_show()
+    if not self.main.Parent then
+        return
+    end
+    hapticEngine.notify()
+    soundEngine.notify()
+    local tweenService = variables.tweenService
+    tweenService:Create(self.main, growInfo, { Size = UDim2.new(1, 0, 0, self.height + stackGap) }):Play()
+    tweenService:Create(self.body, growInfo, { Position = centred }):Play()
+    for _, entry in self._fades do
+        tweenService:Create(entry[1], fadeInfo, { [entry[2]] = entry[3] }):Play()
+    end
+
+    local elapsed = 0
+    while elapsed < self.duration and not self._dismissed and self.main.Parent and not self.window.unloaded do
+        local dt = task.wait()
+        if not self._hovered then
+            elapsed += dt
+            self.timeFill.Size = UDim2.fromScale(math.max(1 - elapsed / self.duration, 0), 1)
+        end
+    end
+    self:Dismiss()
+end
+
+-- Run the check's Rejoin, and say so on the button.
+function UpdateCard:Rejoin()
+    if self._dismissed or self._rejoining then
+        return
+    end
+    self._rejoining = true
+    self.rejoinLabel.Text = "Rejoining..."
+    self.rejoinButton.Active = false
+    if self.onRejoin then
+        local ok = pcall(self.onRejoin)
+        if not ok then
+            self.rejoinLabel.Text = "Rejoin now"
+        end
+    end
+    task.delay(15, function()
+        -- still here: every teleport was refused, so the player may try again
+        if not self._dismissed then
+            self._rejoining = false
+            self.rejoinLabel.Text = "Rejoin now"
+            self.rejoinButton.Active = true
+        end
+    end)
+end
+
+-- Slide it away and close its slot.
+function UpdateCard:Dismiss()
+    if self._dismissed then
+        return
+    end
+    self._dismissed = true
+    local tweenService = variables.tweenService
+    local info = TweenInfo.new(0.4, Enum.EasingStyle.Exponential, Enum.EasingDirection.In)
+    tweenService:Create(self.body, info, { Position = self._offscreen }):Play()
+    for _, entry in self._fades do
+        local hidden = if entry[2] == "Transparency" or string.find(entry[2], "Transparency") then 1 else entry[3]
+        tweenService:Create(entry[1], info, { [entry[2]] = hidden }):Play()
+    end
+    task.delay(0.35, function()
+        if self.main.Parent then
+            tweenService:Create(self.main, growInfo, { Size = UDim2.new(1, 0, 0, 0) }):Play()
+        end
+        task.delay(0.6, function()
+            self:Destroy()
+        end)
+    end)
+end
+
+function UpdateCard:Destroy()
+    self._dismissed = true
+    if self.connections then
+        for _, connection in self.connections do
+            self.window:Disconnect(connection)
+        end
+        table.clear(self.connections)
+    end
+    if self.main.Parent then
+        self.window:DestroySubtree(self.main)
+    end
+end
+
+return UpdateCard
+]=====]
+
 sources["components/updatecheck"] = [=====[
 --!nonstrict
 
@@ -34700,23 +35301,18 @@ function updateCheck:_announce(remote: string, notes: string?)
     self.notified = true
 
     local window = self.window
-    window:NotifyInfo({
-        title = "New version " .. remote .. " available",
-        content = notes or "Rejoin to start using it.",
-        icon = "lucide:download",
-        duration = 15,
-    })
-    window:Toast({
-        title = "Update available",
-        subtitle = remote,
-        icon = "lucide:download",
-        duration = 25,
-        action = {
-            text = "Rejoin",
-            callback = function()
-                self:Rejoin()
-            end,
-        },
+    if window.unloaded then
+        return
+    end
+    -- one card in the notification stack: the versions, the notes, Rejoin now and Later
+    self.card = require(script.Parent.updatecard).new(window, {
+        from = self.version,
+        to = remote,
+        notes = notes,
+        duration = self.cardDuration,
+        onRejoin = function()
+            self:Rejoin()
+        end,
     })
 end
 
@@ -40756,10 +41352,8 @@ function Window:_keybindUsing(key, exclude)
     return found
 end
 
-function Window:Notify(properties)
-    if self.unloaded then
-        return -- nothing to parent into once the ScreenGui is gone
-    end
+-- The corner notifications stack up in, built on first use. The update card joins it too.
+function Window:_notificationStack()
     if not self.notifications then
         -- notifySide: Right (default, matches every prior version of this) or Left - the whole
         -- stack's own corner, not a per-call option, since notifications share one growing
@@ -40788,6 +41382,14 @@ function Window:Notify(properties)
         })
     end
 
+    return self.notifications
+end
+
+function Window:Notify(properties)
+    if self.unloaded then
+        return -- nothing to parent into once the ScreenGui is gone
+    end
+    self:_notificationStack()
     return require(script.Parent.notification).new(self, properties)
 end
 
