@@ -35002,9 +35002,13 @@ function Watermark.new(window, properties)
         ImageTransparency = 1,
         ScaleType = Enum.ScaleType.Fit,
         ZIndex = baseZ + 2,
+        ImageColor3 = if window.logoTint then nil else Color3.new(1, 1, 1), -- its own colours
         Parent = self.main,
-    })
-    window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.mark })
+    }, if window.logoTint then { ImageColor3 = "AccentStroke" } else nil)
+    -- the window's logoRounded and logoTint hold here too: one mark, one look
+    if window.logoRounded ~= false then
+        window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.mark })
+    end
     if self.icon then
         image.assign(self.mark, "Image", self.icon)
     end
@@ -35582,6 +35586,10 @@ function Window.new(properties)
     -- tier) - Sidebar tabsMode only, see the profile block built below. Ported from upstream
     -- Rayfield Gen2 1.2's own sidebar profile subtitle; nil means the name stands on its own.
     self.profileText = properties.profile or properties.Profile
+    -- The hub's mark (the rail's top, the watermark): rounded corners by default - a mark is often
+    -- a square picture - and its own colours unless logoTint paints it in the theme's accent.
+    self.logoRounded = properties.logoRounded ~= false and properties.LogoRounded ~= false
+    self.logoTint = properties.logoTint == true or properties.LogoTint == true
     -- mobileHitScale: multiplies a handful of touch-target sizes (the window's own resize grip -
     -- see resize.luau's own gripSize - and the sidebar's resize grip below) when Window:IsMobile()
     -- reads true. Scoped to hit areas specifically rather than a full mobile/desktop pass over
@@ -38711,13 +38719,21 @@ function Window:_applyRail()
             BackgroundTransparency = 1,
             ImageTransparency = 1,
             ZIndex = railZ + 1,
+            ImageColor3 = if self.logoTint then nil else Color3.new(1, 1, 1), -- its own colours
             Parent = dock,
-        }, { ImageColor3 = "AccentStroke" })
-        self:Create("UIGradient", {
-            Rotation = 90,
-            Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(205, 205, 212)),
-            Parent = self.railLogo,
-        })
+        }, if self.logoTint then { ImageColor3 = "AccentStroke" } else nil)
+        if self.logoTint then
+            -- painted in the accent, a little darker at its foot
+            self:Create("UIGradient", {
+                Rotation = 90,
+                Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(205, 205, 212)),
+                Parent = self.railLogo,
+            })
+        end
+        -- a hub's mark is often a square picture: rounded like the watermark's (8 on 28)
+        if self.logoRounded then
+            self.railLogoCorner = self:Create("UICorner", { CornerRadius = UDim.new(0, 13), Parent = self.railLogo })
+        end
         self:_iconGlow(self.railLogo, 0.12)
     end
 
@@ -43503,6 +43519,10 @@ export type WindowProps = {
     updateCheck: UpdateCheckProps?,
     -- soft glows of the theme's accent from the window's edges (default true)
     ambient: boolean?,
+    -- the hub's mark (top of the rail, the watermark): rounded corners (default true)
+    logoRounded: boolean?,
+    -- the hub's mark painted in the theme's accent instead of its own colours (default false)
+    logoTint: boolean?,
     -- the photo tool for thumbnails: a Settings button and F8 (off by default; needs the Rayfield
     -- Photo program on the PC - window:TakePhoto() works either way)
     photo: boolean?,
