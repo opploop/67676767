@@ -3232,6 +3232,7 @@ local variables = require(utility.variables)
 local moveable = require(utility.moveable)
 local functions = require(utility.functions)
 local locale = require(utility.locale)
+local image = require(utility.image)
 local constants = require(utility.constants)
 -- the height of a one-line card (see constants.elementHeight)
 local elementHeight = constants.elementHeight
@@ -3239,7 +3240,10 @@ local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
 
 local heightInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-local chevronInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local chevronSize = 16
+-- the minus/plus swapping: it shrinks to nothing, changes, and springs back
+local swapOutInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+local swapInInfo = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
 local headerHeight = elementHeight
 
@@ -3252,7 +3256,7 @@ local contentPadBottom = 8
 -- header so the two read as separate surfaces, and one pixel of room on each side and the bottom,
 -- because a UIStroke draws OUTSIDE its frame and contentWrapper clips - a card flush with the
 -- wrapper's edges would lose its outline on exactly those sides.
-local cardGap = 6
+local cardGap = 2 -- close under the header: a wider gap read as two loose cards
 local strokeRoom = 1
 
 -- Half the element fill, so the element cards inside still read as raised - see
@@ -3369,7 +3373,6 @@ function Collapsible.new(tab, properties)
     -- start at the right height instantly - no animating in from 0 on first build
     if self.expanded then
         self:_setHeight(self:_contentHeight(), false)
-        self.chevron.Rotation = 0
     end
 
     -- Tracked per-window (same shape as window.tabs) so the guided tour can find whichever
@@ -3461,11 +3464,13 @@ function Collapsible:_buildHeader()
             Size = UDim2.fromOffset(constants.elementIconSize, constants.elementIconSize),
             BorderSizePixel = 0,
             BackgroundTransparency = 1,
+            ZIndex = 2,
 
             ImageTransparency = 1, -- In = 0
 
             Parent = self.container,
-        }, { ImageColor3 = "ContentColor" })
+        }, { ImageColor3 = "AccentStroke" })
+        self.window:_iconGlow(self.iconLabel)
     end
 
     self.title = self.window:Create("TextLabel", {
@@ -3484,20 +3489,23 @@ function Collapsible:_buildHeader()
         Parent = self.container,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
-    -- chevron: 180deg = closed (matches dropdown.luau's own convention), tweens to 0 on open
+    -- open or closed: a minus while open, a plus while closed, in the accent with a glow (the
+    -- Airflow hub's section headers). Still called chevron: it is the same control.
     self.chevron = self.window:Create("ImageLabel", {
-        Image = constants.icons.chevron,
-        Size = UDim2.fromOffset(12, 12),
-        AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -20, 0.5, 0),
-        Rotation = 180,
+        Size = UDim2.fromOffset(chevronSize, chevronSize),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(1, -20 - chevronSize / 2, 0.5, 0),
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
+        ZIndex = 2,
 
-        ImageTransparency = 1, -- In = 0.4
+        ImageTransparency = 1, -- In = 0
 
         Parent = self.header,
-    }, { ImageColor3 = "ContentColor" })
+    }, { ImageColor3 = "AccentStroke" })
+    self.chevronGlyph = if self.expanded then "lucide:minus" else "lucide:plus"
+    image.assign(self.chevron, "Image", self.chevronGlyph)
+    self.window:_iconGlow(self.chevron)
 
     self.interact = self.window:Create("TextButton", {
         BackgroundTransparency = 1,
@@ -3554,10 +3562,22 @@ function Collapsible:SetExpanded(expanded, skipAnimation: boolean?)
     self.window:_persist(self)
 
     self:_setHeight(if expanded then self:_contentHeight() else 0, not skipAnimation)
+    local glyph = if expanded then "lucide:minus" else "lucide:plus"
+    self.chevronGlyph = glyph
     if skipAnimation then
-        self.chevron.Rotation = if expanded then 0 else 180
+        image.assign(self.chevron, "Image", glyph)
+        self.chevron.Size = UDim2.fromOffset(chevronSize, chevronSize)
     else
-        variables.tweenService:Create(self.chevron, chevronInfo, { Rotation = if expanded then 0 else 180 }):Play()
+        local shrink = variables.tweenService:Create(self.chevron, swapOutInfo, { Size = UDim2.fromOffset(0, 0) })
+        shrink.Completed:Connect(function()
+            if self.expanded == expanded then
+                image.assign(self.chevron, "Image", glyph)
+            end
+            variables.tweenService
+                :Create(self.chevron, swapInInfo, { Size = UDim2.fromOffset(chevronSize, chevronSize) })
+                :Play()
+        end)
+        shrink:Play()
     end
 end
 
@@ -3602,6 +3622,11 @@ for _, name in
         "CreatePanel",
         "CreateChart",
         "CreateStackedChart",
+        "CreateTarget",
+        "CreateItemPicker",
+        "CreateDashboard",
+        "CreateESPPreview",
+        "CreateColorSwatch",
         "CreateCountdown",
         "CreateFAQ",
         "CreateTable",
@@ -3620,7 +3645,7 @@ function Collapsible:_setShown(shown, animate)
     local proxy = { stroke = self.stroke, title = self.title, main = self.header, iconLabel = self.iconLabel }
     if shown then
         w:_revealCommon(proxy, animate)
-        w:_reveal(self.chevron, { ImageTransparency = 0.4 }, animate)
+        w:_reveal(self.chevron, { ImageTransparency = 0 }, animate)
     else
         w:_hideCommon(proxy, animate)
         w:_reveal(self.chevron, { ImageTransparency = 1 }, animate)
@@ -4574,6 +4599,158 @@ moveable(ColorPicker)
 lockable(ColorPicker)
 
 return ColorPicker
+]=====]
+
+sources["components/colorswatch"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- ColorSwatch: a row that is just a name and a small colour chip, opening a little picker when the
+-- chip is clicked - the Airflow hub's "Chams Outline". For a colour that sits among toggles and
+-- would be too much as a full ColorPicker card. (A toggle takes the same chip beside its switch:
+-- `color = ...` on CreateToggle.)
+--
+--   local outline = column:CreateColorSwatch({
+--       name = "Chams Outline",
+--       color = Color3.fromRGB(235, 199, 246),
+--       flag = "ChamsOutline",
+--       callback = function(color) end,
+--   })
+--   outline:Set(Color3.new(1, 0, 0)); outline:Get()
+
+local ColorSwatch = {}
+ColorSwatch.__index = ColorSwatch
+ColorSwatch.__type = "ColorSwatch"
+
+local utility = script.Parent.Parent.utility
+local constants = require(utility.constants)
+local functions = require(utility.functions)
+local locale = require(utility.locale)
+local image = require(utility.image)
+local moveable = require(utility.moveable)
+local colorSwatch = require(utility.colorSwatch)
+
+function ColorSwatch.new(tab, properties)
+    properties = if typeof(properties) == "table" then properties else {}
+    local self = setmetatable({
+        tab = tab,
+        window = tab.window,
+        name = properties.name or properties.Name or "Color",
+        icon = properties.icon or properties.Icon,
+        description = properties.description or properties.Description,
+        tooltip = properties.tooltip or properties.Tooltip,
+        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+    }, ColorSwatch)
+    local window = self.window
+    local flag = properties.flag
+        or properties.Flag
+        or (not self.forgetState and functions.deriveFlagFromName(self.name) or nil)
+
+    self.main = window:Create("Frame", {
+        Name = self.name,
+        Size = UDim2.new(1, -20, 0, constants.elementHeight),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = 1,
+        Parent = tab.tabPage,
+    }, { BackgroundTransparency = "ElementTransparency" })
+    self.stroke = window:StyleElementBody(self.main)
+
+    local left = constants.elementInset
+    if self.icon then
+        self.iconLabel = window:Create("ImageLabel", {
+            Size = UDim2.fromOffset(constants.elementIconSize, constants.elementIconSize),
+            Position = UDim2.new(0, left, 0.5, 0),
+            AnchorPoint = Vector2.new(0, 0.5),
+            BackgroundTransparency = 1,
+            ImageTransparency = 1,
+            Parent = self.main,
+        }, { ImageColor3 = "ContentColor" })
+        image.assign(self.iconLabel, "Image", self.icon)
+        left += constants.elementIconSize + constants.elementIconGap
+    end
+    self.title = window:Create("TextLabel", {
+        Text = locale.t(self.name),
+        Size = UDim2.new(1, -(left + 15 + colorSwatch.width + 10), 0, 18),
+        Position = UDim2.new(0, left, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundTransparency = 1,
+        TextSize = 16,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        TextTransparency = 1,
+        Parent = self.main,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+
+    self.swatch = colorSwatch.new(window, self, {
+        color = properties.color or properties.Color or properties.value or properties.Value,
+        parent = self.main,
+        position = UDim2.new(1, -15, 0.5, 0),
+        anchor = Vector2.new(1, 0.5),
+        flag = flag,
+        forgetState = self.forgetState,
+        callback = properties.callback or properties.Callback,
+    })
+    self.flag = self.swatch.flag
+    self.value = self.swatch.value
+    local own = self.swatch.callback
+    self.swatch.callback = function(color)
+        self.value = color
+        if own then
+            own(color)
+        end
+    end
+
+    window:_wireElementHover(self)
+    window:_wireTooltip(self)
+    if self.description then
+        self.descriptor = require(script.Parent.descriptor).new(tab, { description = self.description })
+    end
+    return self
+end
+
+function ColorSwatch:Get(): Color3
+    return self.swatch.value
+end
+
+function ColorSwatch:Set(color, skipCallback)
+    self.swatch:Set(color, skipCallback)
+    self.value = self.swatch.value
+end
+
+function ColorSwatch:Open()
+    self.swatch:Open()
+end
+
+function ColorSwatch:_setShown(shown, animate)
+    local window = self.window
+    if shown then
+        window:_revealCommon(self, animate)
+    else
+        window:_hideCommon(self, animate)
+    end
+    self.swatch:_setShown(shown, animate)
+end
+
+function ColorSwatch:_minWidth(): number
+    return 160
+end
+
+function ColorSwatch:Remove()
+    self.swatch.Close()
+    if self.descriptor then
+        self.descriptor:Remove()
+    end
+    self.main:Destroy()
+end
+
+moveable(ColorSwatch)
+
+return ColorSwatch
 ]=====]
 
 sources["components/console"] = [=====[
@@ -6144,6 +6321,1116 @@ function Countdown:Remove()
 end
 
 return Countdown
+]=====]
+
+sources["components/dashboard"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- Dashboard: a hub's home page in one call.
+--
+--   home:CreateDashboard({
+--       badge = { text = "Free", subtitle = function() return keyTimeLeft() end },
+--       links = {
+--           { title = "Join the community", text = "dsc.gg/myhub", icon = "lucide:message-circle",
+--             button = "Copy Invite", copy = "https://discord.gg/myhub" },
+--           { title = "Supported games", text = "myhub.com", icon = "lucide:monitor",
+--             button = "Copy Website", copy = "https://myhub.com" },
+--       },
+--   })
+--
+-- From the top: the player - their headshot, "Welcome back," and their name, a badge (the key tier,
+-- say) and two switches that hide the name and the picture behind the hub's own, here and on the
+-- sidebar's chip, for a player recording or streaming. Then six numbers kept live: players in the
+-- server, friends in it, how many times the hub has been run, the session's length, FPS and ping.
+-- Then the game - its icon, name and creator, the server's ids - with Rejoin, Server Hop, the two
+-- ids to copy and Join Lowest Server. Then the executor, and the dev's links, each with a button
+-- that copies it.
+
+local Dashboard = {}
+Dashboard.__index = Dashboard
+Dashboard.__type = "Dashboard"
+
+local utility = script.Parent.Parent.utility
+local variables = require(utility.variables)
+local locale = require(utility.locale)
+local image = require(utility.image)
+local moveable = require(utility.moveable)
+local clipboard = require(utility.clipboard)
+local network = require(utility.network)
+local capabilities = require(utility.capabilities)
+local hapticEngine = require(utility.HapticEngine)
+local soundEngine = require(utility.sound)
+
+local gap = 8
+local profileHeight = 120
+local statHeight = 70
+local gameHeight = 128
+local executorHeight = 62
+local linkHeight = 64
+local avatarSize = 64
+-- a soft round light behind an accent icon, in the icon's own colour
+local glowImage = "rbxassetid://8992230677"
+local buttonWidth = 118
+local buttonHeight = 28
+
+local switchInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local hoverInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- 1h 04m, 12m 30s, 45s
+local function duration(seconds: number): string
+    seconds = math.max(math.floor(seconds), 0)
+    local hours = math.floor(seconds / 3600)
+    local minutes = math.floor(seconds % 3600 / 60)
+    if hours > 0 then
+        return string.format("%dh %02dm", hours, minutes)
+    elseif minutes > 0 then
+        return string.format("%dm %02ds", minutes, seconds % 60)
+    end
+    return seconds .. "s"
+end
+Dashboard.duration = duration
+
+-- 785e606f...b357
+local function shortId(id: string): string
+    if #id <= 16 then
+        return id
+    end
+    return string.sub(id, 1, 8) .. "..." .. string.sub(id, -4)
+end
+Dashboard.shortId = shortId
+
+local function service(name: string)
+    local ok, found = pcall(function()
+        return game:GetService(name)
+    end)
+    return if ok then found else nil
+end
+
+function Dashboard.new(tab, properties)
+    properties = if typeof(properties) == "table" then properties else {}
+    local window = tab.window
+    local badge = properties.badge or properties.Badge
+
+    local self = setmetatable({
+        tab = tab,
+        window = window,
+        name = "Dashboard",
+        forgetState = true,
+        badge = if type(badge) == "table" then badge elseif type(badge) == "string" then { text = badge } else nil,
+        hubName = tostring(properties.hubName or properties.HubName or window.name or window.showName or "Hub"),
+        hubIcon = properties.hubIcon or properties.HubIcon or window.icon,
+        links = properties.links or properties.Links or {},
+        showExecutor = properties.executor ~= false and properties.Executor ~= false,
+        executorText = properties.executorText
+            or properties.ExecutorText
+            or "Your executor is supported and fully compatible.",
+        loader = properties.loader or properties.Loader,
+        startedAt = os.clock(),
+        fades = {},
+        stats = {},
+        _shown = false,
+        _frames = 0,
+        _fps = 0,
+        _friends = 0,
+    }, Dashboard)
+
+    self:_loadState()
+    self:_build()
+    self:_applyStreamer()
+    self:_refresh()
+    self:_startClock()
+    return self
+end
+
+-- The switches and the run count live in the window's settings file, per hub.
+function Dashboard:_loadState()
+    local window = self.window
+    local all = window.settings.dashboards
+    if type(all) ~= "table" then
+        all = {}
+        window.settings.dashboards = all
+    end
+    local key = tostring(window.name or "Rayfield")
+    local state = all[key]
+    if type(state) ~= "table" then
+        state = {}
+        all[key] = state
+    end
+    self.state = state
+    state.executions = (tonumber(state.executions) or 0) + 1
+    state.hideName = state.hideName == true
+    state.hideAvatar = state.hideAvatar == true
+    pcall(window.SaveSettings, window)
+end
+
+-- A part that fades with the element: its property and the value it shows at.
+function Dashboard:_fade(instance, property: string, shown)
+    table.insert(self.fades, { instance = instance, property = property, shown = shown })
+    return instance
+end
+
+function Dashboard:_card(height: number, order: number, parent)
+    local window = self.window
+    local card = window:Create("Frame", {
+        Size = UDim2.new(1, 0, 0, height),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = 1,
+        LayoutOrder = order,
+        Parent = parent or self.main,
+    }, { BackgroundTransparency = "ElementTransparency" })
+    local stroke = window:StyleElementBody(card)
+    self:_fade(card, "BackgroundTransparency", function()
+        return window.theme.ElementTransparency or 0
+    end)
+    if stroke then
+        self:_fade(stroke, "Transparency", function()
+            return window.theme.ElementStrokeTransparency or 0
+        end)
+    end
+    return card
+end
+
+function Dashboard:_text(parent, properties, shown: number?)
+    local label = self.window:Create("TextLabel", {
+        Text = properties.Text or "",
+        Size = properties.Size,
+        Position = properties.Position,
+        AnchorPoint = properties.AnchorPoint,
+        BackgroundTransparency = 1,
+        TextSize = properties.TextSize or 13,
+        TextXAlignment = properties.TextXAlignment or Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        TextTransparency = 1,
+        Parent = parent,
+    }, {
+        TextColor3 = properties.color or "ContentColor",
+        FontFace = if properties.bold then "TitleFont" else "Font",
+    })
+    self:_fade(label, "TextTransparency", shown or 0)
+    return label
+end
+
+-- An icon. An accent one wears the theme's colour, shaded a little towards its foot, over a soft
+-- glow of the same colour twice its size.
+function Dashboard:_icon(
+    parent,
+    source,
+    size: number,
+    position: UDim2,
+    anchor: Vector2?,
+    shown: number?,
+    accent: boolean?
+)
+    local window = self.window
+    local icon = window:Create("ImageLabel", {
+        Size = UDim2.fromOffset(size, size),
+        Position = position,
+        AnchorPoint = anchor or Vector2.zero,
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+        ZIndex = 2,
+        Parent = parent,
+    }, { ImageColor3 = if accent then "AccentStroke" else "ContentColor" })
+    image.assign(icon, "Image", source)
+    self:_fade(icon, "ImageTransparency", shown or (if accent then 0 else 0.45))
+    if accent then
+        window:Create("UIGradient", {
+            Rotation = 90,
+            Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(200, 200, 205)),
+            Parent = icon,
+        })
+        local glow = window:Create("ImageLabel", {
+            Name = "Glow",
+            Image = glowImage,
+            Size = UDim2.fromScale(2.2, 2.2),
+            Position = UDim2.fromScale(0.5, 0.5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundTransparency = 1,
+            ImageTransparency = 1,
+            ZIndex = 1,
+            Parent = icon,
+        }, { ImageColor3 = "AccentStroke" })
+        self:_fade(glow, "ImageTransparency", 0.86)
+    end
+    return icon
+end
+
+-- A soft button with a hairline, brighter under the pointer.
+function Dashboard:_button(parent, text: string, size: UDim2, position: UDim2, onClick)
+    local window = self.window
+    local button = window:Create("TextButton", {
+        Name = text,
+        Text = locale.resolve(text),
+        Size = size,
+        Position = position,
+        AnchorPoint = Vector2.new(1, 0),
+        AutoButtonColor = false,
+        BackgroundTransparency = 1,
+        TextTransparency = 1,
+        TextSize = 13,
+        Parent = parent,
+    }, { BackgroundColor3 = "ContentColor", TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 7), Parent = button })
+    local stroke = window:Create("UIStroke", {
+        Transparency = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = button,
+    }, { Color = "ContentColor" })
+    self:_fade(button, "BackgroundTransparency", 0.93)
+    self:_fade(button, "TextTransparency", 0)
+    self:_fade(stroke, "Transparency", 0.92)
+    window:ConnectFor(self, button.MouseEnter, function()
+        if self._shown then
+            variables.tweenService:Create(button, hoverInfo, { BackgroundTransparency = 0.87 }):Play()
+        end
+    end)
+    window:ConnectFor(self, button.MouseLeave, function()
+        if self._shown then
+            variables.tweenService:Create(button, hoverInfo, { BackgroundTransparency = 0.93 }):Play()
+        end
+    end)
+    window:ConnectFor(self, button.MouseButton1Click, function()
+        hapticEngine.click()
+        soundEngine.click()
+        onClick()
+    end)
+    return button
+end
+
+-- A small on/off switch, the Settings toggle's shape at a third of its size.
+function Dashboard:_switch(parent, position: UDim2, on: boolean, onChange, icon, label)
+    local window = self.window
+    local track = window:Create("TextButton", {
+        Text = "",
+        AutoButtonColor = false,
+        Size = UDim2.fromOffset(36, 20),
+        Position = position,
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundTransparency = 1,
+        Parent = parent,
+    })
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = track })
+    local knob = window:Create("Frame", {
+        Size = UDim2.fromOffset(14, 14),
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Parent = track,
+    })
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = knob })
+
+    local switch = { track = track, knob = knob, on = on }
+    function switch.paint(animate)
+        local theme = window.theme
+        local goals = {
+            track = {
+                BackgroundColor3 = if switch.on then theme.AccentColor else theme.ContentColor,
+                BackgroundTransparency = if not self._shown then 1 elseif switch.on then 0 else 0.85,
+            },
+            knob = {
+                Position = UDim2.new(0, if switch.on then 19 else 3, 0.5, 0),
+                BackgroundTransparency = if self._shown then 0 else 1,
+            },
+        }
+        if icon then
+            goals.icon = {
+                ImageColor3 = if switch.on then theme.AccentStroke else theme.ContentColor,
+                ImageTransparency = if not self._shown then 1 elseif switch.on then 0 else 0.45,
+            }
+        end
+        if label then
+            goals.label = {
+                TextColor3 = if switch.on then theme.AccentStroke else theme.ContentColor,
+                TextTransparency = if not self._shown then 1 elseif switch.on then 0 else 0.35,
+            }
+        end
+        local parts = { track = track, knob = knob, icon = icon, label = label }
+        for part, properties in goals do
+            local instance = parts[part]
+            if animate then
+                variables.tweenService:Create(instance, switchInfo, properties):Play()
+            else
+                for property, value in properties do
+                    instance[property] = value
+                end
+            end
+        end
+    end
+    window:ConnectFor(self, track.MouseButton1Click, function()
+        hapticEngine.click()
+        switch.on = not switch.on
+        switch.paint(true)
+        onChange(switch.on)
+    end)
+    switch.paint(false)
+    return switch
+end
+
+function Dashboard:_build()
+    local window = self.window
+
+    self.main = window:Create("Frame", {
+        Name = "Dashboard",
+        Size = UDim2.new(1, -20, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        Parent = self.tab.tabPage,
+    })
+    window:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Vertical,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, gap),
+        Parent = self.main,
+    })
+
+    self:_buildProfile()
+    self:_buildStats()
+    self:_buildGame()
+    if self.showExecutor then
+        self:_buildExecutor()
+    end
+    if #self.links > 0 then
+        self:_buildLinks()
+    end
+end
+
+function Dashboard:_buildProfile()
+    local window = self.window
+    local card = self:_card(profileHeight, 1)
+    card.ClipsDescendants = true
+    self.profileCard = card
+
+    -- the accent, glowing in from the left edge
+    local glow = window:Create("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+        Parent = card,
+    }, { BackgroundColor3 = "AccentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 14), Parent = glow })
+    window:Create("UIGradient", {
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.82),
+            NumberSequenceKeypoint.new(0.45, 0.96),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Parent = glow,
+    })
+    self:_fade(glow, "BackgroundTransparency", 0)
+
+    local players = service("Players")
+    local player = if players then players.LocalPlayer else nil
+    self.player = player
+
+    self.avatar = window:Create("ImageLabel", {
+        Size = UDim2.fromOffset(avatarSize, avatarSize),
+        Position = UDim2.fromOffset(18, 20),
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+        ScaleType = Enum.ScaleType.Crop,
+        Parent = card,
+    }, { BackgroundColor3 = "StatBackground" })
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = self.avatar })
+    local ring = window:Create("UIStroke", {
+        Thickness = 2,
+        Transparency = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = self.avatar,
+    }, { Color = "AccentStroke" })
+    -- the hub's mark, in the accent, while the player's picture is hidden
+    self.avatarLogo = window:Create("ImageLabel", {
+        Name = "HubMark",
+        Size = UDim2.fromScale(0.6, 0.6),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+        Visible = false,
+        Parent = self.avatar,
+    }, { ImageColor3 = "AccentStroke" })
+    if self.hubIcon then
+        image.assign(self.avatarLogo, "Image", self.hubIcon)
+    end
+    self:_fade(self.avatarLogo, "ImageTransparency", 0)
+    self:_fade(self.avatar, "ImageTransparency", 0)
+    self:_fade(self.avatar, "BackgroundTransparency", 0)
+    self:_fade(ring, "Transparency", 0.25)
+    if player then
+        self.headshot = image.avatar(player.UserId, function(uri)
+            self.headshot = uri
+            self:_applyStreamer()
+        end)
+    end
+
+    local left = 18 + avatarSize + 14
+    self:_text(card, {
+        Text = locale.resolve("Welcome back,"),
+        Size = UDim2.new(0.5, 0, 0, 16),
+        Position = UDim2.fromOffset(left, 17),
+        TextSize = 13,
+    }, 0.45)
+    self.nameLabel = self:_text(card, {
+        Size = UDim2.new(0.5, 0, 0, 26),
+        Position = UDim2.fromOffset(left, 33),
+        TextSize = 22,
+        bold = true,
+    })
+    self.userLabel = self:_text(card, {
+        Size = UDim2.new(0.5, 0, 0, 16),
+        Position = UDim2.fromOffset(left, 60),
+        TextSize = 13,
+    }, 0.45)
+
+    -- the badge: the hub's mark and a word (the key's tier), a line under it
+    if self.badge then
+        local pill = window:Create("Frame", {
+            Size = UDim2.fromOffset(0, 32),
+            AutomaticSize = Enum.AutomaticSize.X,
+            Position = UDim2.new(1, -16, 0, 18),
+            AnchorPoint = Vector2.new(1, 0),
+            BackgroundTransparency = 1,
+            Parent = card,
+        }, { BackgroundColor3 = "AccentStroke" })
+        window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = pill })
+        local pillStroke = window:Create("UIStroke", {
+            Transparency = 1,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+            Parent = pill,
+        }, { Color = "AccentStroke" })
+        window:Create("UIPadding", {
+            PaddingLeft = UDim.new(0, 12),
+            PaddingRight = UDim.new(0, 14),
+            Parent = pill,
+        })
+        window:Create("UIListLayout", {
+            FillDirection = Enum.FillDirection.Horizontal,
+            VerticalAlignment = Enum.VerticalAlignment.Center,
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            Padding = UDim.new(0, 8),
+            Parent = pill,
+        })
+        self:_fade(pill, "BackgroundTransparency", 0.88)
+        self:_fade(pillStroke, "Transparency", 0.45)
+        local badgeIcon = self.badge.icon or self.hubIcon
+        if badgeIcon then
+            local mark = window:Create("ImageLabel", {
+                Size = UDim2.fromOffset(20, 20),
+                BackgroundTransparency = 1,
+                ImageTransparency = 1,
+                LayoutOrder = 1,
+                Parent = pill,
+            }, { ImageColor3 = "AccentStroke" })
+            image.assign(mark, "Image", badgeIcon)
+            self:_fade(mark, "ImageTransparency", 0)
+        end
+        local word = window:Create("TextLabel", {
+            Text = tostring(self.badge.text or ""),
+            Size = UDim2.fromOffset(0, 32),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            TextSize = 15,
+            TextTransparency = 1,
+            LayoutOrder = 2,
+            Parent = pill,
+        }, { TextColor3 = "AccentStroke", FontFace = "TitleFont" })
+        self:_fade(word, "TextTransparency", 0)
+        self.badgeLabel = word
+
+        self.badgeSubtitle = self:_text(card, {
+            Size = UDim2.fromOffset(200, 15),
+            Position = UDim2.new(1, -16, 0, 56),
+            AnchorPoint = Vector2.new(1, 0),
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Right,
+        }, 0.45)
+    end
+
+    -- the two switches: the name, and the picture
+    local bar = window:Create("Frame", {
+        Size = UDim2.fromOffset(268, 32),
+        Position = UDim2.new(1, -16, 0, 74),
+        AnchorPoint = Vector2.new(1, 0),
+        BackgroundTransparency = 1,
+        Parent = card,
+    }, { BackgroundColor3 = "ContentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 9), Parent = bar })
+    local barStroke = window:Create("UIStroke", {
+        Transparency = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = bar,
+    }, { Color = "ContentColor" })
+    self:_fade(bar, "BackgroundTransparency", 0.96)
+    self:_fade(barStroke, "Transparency", 0.9)
+
+    -- each switch lights its own icon and word when it is on, so those two are painted by the
+    -- switch rather than faded with the rest
+    local function item(iconName: string, word: string, iconX: number, wordWidth: number)
+        local icon = self:_icon(bar, iconName, 15, UDim2.new(0, iconX, 0.5, 0), Vector2.new(0, 0.5))
+        table.remove(self.fades)
+        local label = self:_text(bar, {
+            Text = locale.resolve(word),
+            Size = UDim2.fromOffset(wordWidth, 32),
+            Position = UDim2.fromOffset(iconX + 21, 0),
+            TextSize = 13,
+        }, 0.35)
+        table.remove(self.fades)
+        return icon, label
+    end
+
+    local nameIcon, nameWord = item("lucide:eye-off", "Name", 12, 46)
+    self.nameSwitch = self:_switch(bar, UDim2.new(0, 84, 0.5, 0), self.state.hideName, function(on)
+        self:SetHideName(on)
+    end, nameIcon, nameWord)
+    local divider = window:Create("Frame", {
+        Size = UDim2.fromOffset(1, 18),
+        Position = UDim2.new(0, 132, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+        Parent = bar,
+    }, { BackgroundColor3 = "ContentColor" })
+    self:_fade(divider, "BackgroundTransparency", 0.85)
+    local avatarIcon, avatarWord = item("lucide:user", "Profile", 145, 52)
+    self.avatarSwitch = self:_switch(bar, UDim2.new(0, 220, 0.5, 0), self.state.hideAvatar, function(on)
+        self:SetHideAvatar(on)
+    end, avatarIcon, avatarWord)
+end
+
+local statDefinitions = {
+    { key = "players", label = "Players", icon = "lucide:users" },
+    { key = "friends", label = "Friends", icon = "lucide:user-check" },
+    { key = "execs", label = "Execs", icon = "lucide:zap" },
+    { key = "session", label = "Session", icon = "lucide:timer" },
+    { key = "fps", label = "FPS", icon = "lucide:gauge" },
+    { key = "ping", label = "Ping", icon = "lucide:wifi" },
+}
+
+function Dashboard:_buildStats()
+    local window = self.window
+    local row = window:Create("Frame", {
+        Name = "Stats",
+        Size = UDim2.new(1, 0, 0, statHeight),
+        BackgroundTransparency = 1,
+        LayoutOrder = 2,
+        Parent = self.main,
+    })
+    window:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, gap),
+        Parent = row,
+    })
+    local count = #statDefinitions
+    for index, definition in statDefinitions do
+        local tile = self:_card(statHeight, index, row)
+        tile.Size = UDim2.new(1 / count, -gap * (count - 1) / count, 1, 0)
+        self:_icon(tile, definition.icon, 15, UDim2.fromOffset(13, 15), nil, nil, true)
+        self:_text(tile, {
+            Text = locale.resolve(definition.label),
+            Size = UDim2.new(1, -40, 0, 16),
+            Position = UDim2.fromOffset(34, 14),
+            TextSize = 13,
+        }, 0.45)
+        self.stats[definition.key] = self:_text(tile, {
+            Text = "-",
+            Size = UDim2.new(1, -24, 0, 22),
+            Position = UDim2.fromOffset(13, 36),
+            TextSize = 18,
+            bold = true,
+        })
+    end
+end
+
+function Dashboard:_buildGame()
+    local window = self.window
+    local card = self:_card(gameHeight, 3)
+
+    local placeId = tonumber(game.PlaceId) or 0
+    local universeId = tonumber(game.GameId) or 0
+    local jobId = tostring(game.JobId or "")
+    self.placeId, self.universeId, self.jobId = placeId, universeId, jobId
+
+    local icon = window:Create("ImageLabel", {
+        Size = UDim2.fromOffset(62, 62),
+        Position = UDim2.fromOffset(16, 16),
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+        ScaleType = Enum.ScaleType.Crop,
+        Parent = card,
+    }, { BackgroundColor3 = "StatBackground" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = icon })
+    image.assign(icon, "Image", "rbxthumb://type=GameIcon&id=" .. universeId .. "&w=150&h=150")
+    self:_fade(icon, "ImageTransparency", 0)
+    self:_fade(icon, "BackgroundTransparency", 0)
+
+    local left = 16 + 62 + 14
+    local textWidth = UDim2.new(1, -(left + buttonWidth * 2 + 8 + 28), 0, 20)
+    self.gameName = self:_text(
+        card,
+        { Text = "", Size = textWidth, Position = UDim2.fromOffset(left, 18), TextSize = 17, bold = true }
+    )
+    self.gameCreator =
+        self:_text(card, { Text = "", Size = textWidth, Position = UDim2.fromOffset(left, 40), TextSize = 13 }, 0.45)
+    self:_text(card, {
+        Text = "Job  " .. (if jobId ~= "" then shortId(jobId) else "-"),
+        Size = textWidth,
+        Position = UDim2.fromOffset(left, 59),
+        TextSize = 13,
+    }, 0.45)
+    self:_text(card, {
+        Text = "Place  " .. placeId,
+        Size = UDim2.fromOffset(170, 16),
+        Position = UDim2.fromOffset(16, 96),
+        TextSize = 13,
+    }, 0.45)
+    self:_text(card, {
+        Text = "Universe  " .. universeId,
+        Size = UDim2.fromOffset(170, 16),
+        Position = UDim2.fromOffset(190, 96),
+        TextSize = 13,
+    }, 0.45)
+
+    -- the name and the creator come from the marketplace, which answers in its own time
+    task.spawn(function()
+        -- the experience's own name ("Slayers 2"), not the place's ("Ouwland"): the games API
+        -- knows it; the marketplace only knows the place, so it is the fallback
+        local fetch = self._fetch or network.getFetchFn()
+        if fetch then
+            local fetched, response = pcall(fetch, {
+                Url = "https://games.roblox.com/v1/games?universeIds=" .. universeId,
+                Method = "GET",
+            })
+            local body = fetched and type(response) == "table" and response.Body
+            local decoded, data = pcall(function()
+                return variables.httpService:JSONDecode(body)
+            end)
+            local entry = decoded and type(data) == "table" and type(data.data) == "table" and data.data[1]
+            if type(entry) == "table" and type(entry.name) == "string" and not self.window.unloaded then
+                self.gameName.Text = entry.name
+                local creator = type(entry.creator) == "table" and entry.creator.name
+                self.gameCreator.Text = if creator then "by " .. tostring(creator) else ""
+                return
+            end
+        end
+        local marketplace = service("MarketplaceService")
+        local ok, info = pcall(function()
+            return marketplace:GetProductInfo(placeId)
+        end)
+        if self.window.unloaded then
+            return
+        end
+        if ok and type(info) == "table" then
+            self.gameName.Text = tostring(info.Name or "")
+            local creator = type(info.Creator) == "table" and info.Creator.Name
+            self.gameCreator.Text = if creator then "by " .. tostring(creator) else ""
+        else
+            self.gameName.Text = "Place " .. placeId
+        end
+    end)
+
+    local second = -16
+    local first = second - buttonWidth - 8
+    local size = UDim2.fromOffset(buttonWidth, buttonHeight)
+    self.rejoinButton = self:_button(card, "Rejoin", size, UDim2.new(1, first, 0, 16), function()
+        self:Rejoin()
+    end)
+    self.hopButton = self:_button(card, "Server Hop", size, UDim2.new(1, second, 0, 16), function()
+        self:ServerHop(false)
+    end)
+    self:_button(card, "Copy Job ID", size, UDim2.new(1, first, 0, 16 + buttonHeight + 8), function()
+        self:_copy(jobId, "Job ID copied")
+    end)
+    self:_button(card, "Copy Universe", size, UDim2.new(1, second, 0, 16 + buttonHeight + 8), function()
+        self:_copy(tostring(universeId), "Universe ID copied")
+    end)
+    self:_button(
+        card,
+        "Join Lowest Server",
+        UDim2.fromOffset(buttonWidth * 2 + 8, buttonHeight),
+        UDim2.new(1, second, 0, 16 + (buttonHeight + 8) * 2),
+        function()
+            self:ServerHop(true)
+        end
+    )
+end
+
+function Dashboard:_buildExecutor()
+    local card = self:_card(executorHeight, 4)
+    self:_icon(card, "lucide:shield-check", 20, UDim2.new(0, 20, 0.5, 0), Vector2.new(0, 0.5), nil, true)
+    local ok, report = pcall(capabilities.probe)
+    local name = if ok and type(report) == "table" then tostring(report.executor) else "unknown"
+    self:_text(card, {
+        Text = if name ~= "unknown" then name else locale.resolve("Your executor"),
+        Size = UDim2.new(1, -70, 0, 18),
+        Position = UDim2.fromOffset(54, 13),
+        TextSize = 15,
+        bold = true,
+    })
+    self:_text(card, {
+        Text = locale.resolve(self.executorText),
+        Size = UDim2.new(1, -70, 0, 16),
+        Position = UDim2.fromOffset(54, 33),
+        TextSize = 13,
+    }, 0.45)
+end
+
+function Dashboard:_buildLinks()
+    local window = self.window
+    local row = window:Create("Frame", {
+        Name = "Links",
+        Size = UDim2.new(1, 0, 0, linkHeight),
+        BackgroundTransparency = 1,
+        LayoutOrder = 5,
+        Parent = self.main,
+    })
+    window:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, gap),
+        Parent = row,
+    })
+    local count = #self.links
+    for index, link in self.links do
+        local card = self:_card(linkHeight, index, row)
+        card.Size = UDim2.new(1 / count, -gap * (count - 1) / count, 1, 0)
+        self:_icon(card, link.icon or "lucide:link", 18, UDim2.new(0, 18, 0.5, 0), Vector2.new(0, 0.5), nil, true)
+        local buttonText = tostring(link.button or "Copy")
+        local room = 18 + 18 + 12 + 112
+        self:_text(card, {
+            Text = locale.resolve(tostring(link.title or "")),
+            Size = UDim2.new(1, -room, 0, 18),
+            Position = UDim2.fromOffset(48, 13),
+            TextSize = 15,
+            bold = true,
+        })
+        self:_text(card, {
+            Text = tostring(link.text or link.copy or ""),
+            Size = UDim2.new(1, -room, 0, 16),
+            Position = UDim2.fromOffset(48, 34),
+            TextSize = 13,
+        }, 0.45)
+        local target = tostring(link.copy or link.text or "")
+        local button = self:_button(
+            card,
+            buttonText,
+            UDim2.fromOffset(104, buttonHeight),
+            UDim2.new(1, -14, 0.5, 0),
+            function()
+                if type(link.callback) == "function" then
+                    self.window:_runGuarded(self, link.callback)
+                end
+                if target ~= "" then
+                    self:_copy(target, "Copied")
+                end
+            end
+        )
+        button.AnchorPoint = Vector2.new(1, 0.5)
+    end
+end
+
+-- The player's name and picture, or the hub's in their place.
+function Dashboard:_applyStreamer()
+    local player = self.player
+    local hideName, hideAvatar = self.state.hideName, self.state.hideAvatar
+    local anonymous = hideName or hideAvatar
+    local displayName = if player then player.DisplayName else "Player"
+    local shownName = if anonymous then self.hubName else displayName
+
+    if self.nameLabel then
+        self.nameLabel.Text = shownName
+        self.userLabel.Text = if anonymous or not player then "" else "@" .. player.Name
+    end
+    if self.avatar then
+        if hideAvatar then
+            self.avatar.Image = ""
+        elseif self.headshot then
+            image.assign(self.avatar, "Image", self.headshot)
+        end
+        self.avatarLogo.Visible = hideAvatar and self.hubIcon ~= nil
+    end
+
+    -- the sidebar's own chip says the same
+    local window = self.window
+    if window.profileName then
+        window.profileName.Text = shownName
+    end
+    local chip = window.profileAvatar
+    if chip then
+        if not self.chipLogo and self.hubIcon then
+            self.chipLogo = window:Create("ImageLabel", {
+                Name = "HubMark",
+                Size = UDim2.fromScale(0.62, 0.62),
+                Position = UDim2.fromScale(0.5, 0.5),
+                AnchorPoint = Vector2.new(0.5, 0.5),
+                BackgroundTransparency = 1,
+                ZIndex = chip.ZIndex + 1,
+                Visible = false,
+                Parent = chip,
+            }, { ImageColor3 = "AccentStroke" })
+            image.assign(self.chipLogo, "Image", self.hubIcon)
+        end
+        if hideAvatar then
+            self._chipPicture = self._chipPicture or chip.Image
+            chip.Image = ""
+        elseif self._chipPicture then
+            chip.Image = self._chipPicture
+            self._chipPicture = nil
+        end
+        if self.chipLogo then
+            self.chipLogo.Visible = hideAvatar
+        end
+    end
+end
+
+function Dashboard:SetHideName(hidden: boolean)
+    self.state.hideName = hidden == true
+    if self.nameSwitch and self.nameSwitch.on ~= self.state.hideName then
+        self.nameSwitch.on = self.state.hideName
+        self.nameSwitch.paint(true)
+    end
+    self:_applyStreamer()
+    pcall(self.window.SaveSettings, self.window)
+end
+
+function Dashboard:SetHideAvatar(hidden: boolean)
+    self.state.hideAvatar = hidden == true
+    if self.avatarSwitch and self.avatarSwitch.on ~= self.state.hideAvatar then
+        self.avatarSwitch.on = self.state.hideAvatar
+        self.avatarSwitch.paint(true)
+    end
+    self:_applyStreamer()
+    pcall(self.window.SaveSettings, self.window)
+end
+
+function Dashboard:_copy(text: string, done: string)
+    if clipboard.copy(text) then
+        self.window:Toast({ title = locale.resolve(done), icon = "lucide:check", duration = 2.5 })
+    else
+        self.window:Toast({ title = locale.resolve("Couldn't copy on this executor"), icon = "lucide:x", duration = 3 })
+    end
+end
+
+-- The live numbers ------------------------------------------------------------------------------------
+
+function Dashboard:_countFriends()
+    local players = service("Players")
+    local me = self.player
+    if not players or not me then
+        return
+    end
+    local count = 0
+    for _, other in players:GetPlayers() do
+        if other ~= me then
+            local ok, friends = pcall(me.IsFriendsWith, me, other.UserId)
+            if ok and friends then
+                count += 1
+            end
+        end
+    end
+    self._friends = count
+end
+
+function Dashboard:_ping(): number?
+    local stats = service("Stats")
+    local ok, value = pcall(function()
+        return stats.Network.ServerStatsItem["Data Ping"]:GetValue()
+    end)
+    if ok and type(value) == "number" then
+        return value
+    end
+    local me = self.player
+    local pinged, seconds = pcall(function()
+        return me:GetNetworkPing()
+    end)
+    return if pinged and type(seconds) == "number" then seconds * 2000 else nil
+end
+
+function Dashboard:_refresh()
+    local players = service("Players")
+    local stats = self.stats
+    if players then
+        local ok, list = pcall(players.GetPlayers, players)
+        local count = if ok then #list else 0
+        stats.players.Text = count .. "/" .. tostring(players.MaxPlayers or "?")
+    end
+    stats.friends.Text = tostring(self._friends)
+    stats.execs.Text = tostring(self.state.executions or 1)
+    stats.session.Text = duration(os.clock() - self.startedAt)
+    stats.fps.Text = if self._fps > 0 then tostring(self._fps) else "-"
+    local ping = self:_ping()
+    stats.ping.Text = if ping then math.floor(ping + 0.5) .. "ms" else "-"
+
+    if self.badgeSubtitle then
+        local subtitle = self.badge.subtitle
+        if type(subtitle) == "function" then
+            local ok, value = pcall(subtitle)
+            subtitle = if ok then value else nil
+        end
+        self.badgeSubtitle.Text = if subtitle ~= nil then tostring(subtitle) else ""
+    end
+end
+
+function Dashboard:_startClock()
+    local window = self.window
+    local runService = service("RunService")
+    if runService then
+        window:ConnectFor(self, runService.RenderStepped, function()
+            self._frames += 1
+        end)
+    end
+    local players = service("Players")
+    if players then
+        window:ConnectFor(self, players.PlayerAdded, function()
+            task.spawn(self._countFriends, self)
+        end)
+        window:ConnectFor(self, players.PlayerRemoving, function()
+            task.defer(self._countFriends, self)
+        end)
+    end
+    task.spawn(self._countFriends, self)
+
+    task.spawn(function()
+        local last = os.clock()
+        while not window.unloaded and self.main and self.main.Parent do
+            task.wait(1)
+            local now = os.clock()
+            self._fps = math.floor(self._frames / math.max(now - last, 0.001) + 0.5)
+            self._frames = 0
+            last = now
+            self:_refresh()
+        end
+    end)
+end
+
+-- The server --------------------------------------------------------------------------------------------
+
+-- Back into this very server; the loader, when the dashboard was given one, runs again on arrival.
+function Dashboard:Rejoin(): boolean
+    local updateCheck = require(script.Parent.updatecheck)
+    local teleport = self._teleport
+        or function()
+            local players = service("Players")
+            service("TeleportService"):TeleportToPlaceInstance(self.placeId, self.jobId, players.LocalPlayer)
+        end
+    if type(self.loader) == "string" and self.loader ~= "" then
+        local queue = self._queue or updateCheck.queueFn()
+        if queue then
+            pcall(queue, "if not game:IsLoaded() then game.Loaded:Wait() end " .. self.loader)
+        end
+    end
+    self.window:Toast({ title = locale.resolve("Rejoining..."), icon = "lucide:refresh-cw", duration = 4 })
+    local ok = pcall(teleport)
+    return ok
+end
+
+-- The public servers of this place, the fullest first or the emptiest first.
+function Dashboard:_servers(lowest: boolean): { any }
+    local fetch = self._fetch or network.getFetchFn()
+    if not fetch then
+        return {}
+    end
+    local url = "https://games.roblox.com/v1/games/"
+        .. self.placeId
+        .. "/servers/Public?sortOrder="
+        .. (if lowest then "Asc" else "Desc")
+        .. "&limit=100&excludeFullGames=true"
+    local ok, response = pcall(fetch, { Url = url, Method = "GET" })
+    if not ok or type(response) ~= "table" or type(response.Body) ~= "string" then
+        return {}
+    end
+    local decoded, data = pcall(function()
+        return variables.httpService:JSONDecode(response.Body)
+    end)
+    if not decoded or type(data) ~= "table" or type(data.data) ~= "table" then
+        return {}
+    end
+    return data.data
+end
+
+-- Another server: a random one with room, or the emptiest (lowest = true).
+function Dashboard:ServerHop(lowest: boolean?): boolean
+    self.window:Toast({
+        title = locale.resolve(if lowest then "Finding the emptiest server..." else "Finding another server..."),
+        icon = "lucide:search",
+        duration = 3,
+    })
+    local candidates = {}
+    for _, server in self:_servers(lowest == true) do
+        if type(server) == "table" and server.id ~= self.jobId then
+            local playing, max = tonumber(server.playing) or 0, tonumber(server.maxPlayers) or 0
+            if max == 0 or playing < max then
+                table.insert(candidates, server)
+            end
+        end
+    end
+    if #candidates == 0 then
+        self.window:Toast({ title = locale.resolve("No other server to join"), icon = "lucide:x", duration = 3 })
+        return false
+    end
+    local server = if lowest then candidates[1] else candidates[math.random(1, #candidates)]
+    local teleport = self._teleportTo
+        or function(id)
+            local players = service("Players")
+            service("TeleportService"):TeleportToPlaceInstance(self.placeId, id, players.LocalPlayer)
+        end
+    if type(self.loader) == "string" and self.loader ~= "" then
+        local queue = self._queue or require(script.Parent.updatecheck).queueFn()
+        if queue then
+            pcall(queue, "if not game:IsLoaded() then game.Loaded:Wait() end " .. self.loader)
+        end
+    end
+    return (pcall(teleport, server.id))
+end
+
+-- The element contract ----------------------------------------------------------------------------------
+
+function Dashboard:_searchText(): string
+    return "Dashboard Players Friends Session FPS Ping Rejoin Server Hop"
+end
+
+function Dashboard:_setShown(shown, animate)
+    local window = self.window
+    self._shown = shown
+    for _, fade in self.fades do
+        local value = fade.shown
+        if type(value) == "function" then
+            value = value()
+        end
+        window:_reveal(fade.instance, { [fade.property] = if shown then value else 1 }, animate)
+    end
+    for _, switch in { self.nameSwitch, self.avatarSwitch } do
+        if switch then
+            switch.paint(animate)
+        end
+    end
+end
+
+function Dashboard:_refreshTheme()
+    for _, switch in { self.nameSwitch, self.avatarSwitch } do
+        if switch then
+            switch.paint(false)
+        end
+    end
+end
+
+function Dashboard:_minWidth(): number
+    return 420
+end
+
+function Dashboard:Remove()
+    self.main:Destroy()
+end
+
+moveable(Dashboard)
+
+return Dashboard
 ]=====]
 
 sources["components/datatable"] = [=====[
@@ -8939,6 +10226,740 @@ end
 return Dropdown
 ]=====]
 
+sources["components/esppreview"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- ESP preview: what the hub's ESP settings will draw, on the player's own character, turning on
+-- a little stage. The shape of the Airflow hub's preview.
+--
+--   local preview = column:CreateESPPreview({
+--       box = "Full",            -- "Full", "Corner", or false
+--       name = true, distance = true, weapon = false,
+--       healthBar = true, healthText = false, tracer = false,
+--       chams = true, chamsTransparency = 0.4,
+--       colors = { box = Color3.fromRGB(235, 199, 246) },
+--   })
+--   espBoxToggle.callback = function(on) preview:Set({ box = if on then "Full" else false }) end
+--
+-- The character is a copy of the player's own (or the model given), turning by itself; dragging
+-- across it turns it by hand, and it carries on turning a moment after it is let go. Over it the
+-- ESP is drawn the way a real one is: the model's box projected through the camera every frame,
+-- so the box follows the turn - a full outline or its four corners, each with a dark edge - the
+-- name over it, the distance and the weapon under it, and a health bar down its left side.
+
+local ESPPreview = {}
+ESPPreview.__index = ESPPreview
+ESPPreview.__type = "ESPPreview"
+
+local utility = script.Parent.Parent.utility
+local variables = require(utility.variables)
+local locale = require(utility.locale)
+local moveable = require(utility.moveable)
+
+local defaultHeight = 170
+local fieldOfView = 38
+-- degrees a second while it turns by itself, and per pixel dragged
+local turnSpeed = 32
+local dragTurn = 0.6
+-- how fast the animated health goes round (radians a second)
+local healthCycle = 1.05
+-- how long after a drag it waits before turning by itself again
+local resumeAfter = 1.2
+local cornerLength = 0.3 -- of the box's shorter side
+-- how much of the stage's height the box takes (the Airflow hub's: 117 of 165), and the room
+-- over it for the name - what is left under it takes the distance and the weapon
+local boxShare = 0.71
+local roomAbove = 19
+local outline = Color3.new(0, 0, 0)
+
+local defaults = {
+    box = "Full",
+    name = true,
+    distance = true,
+    weapon = false,
+    healthBar = true,
+    healthText = false,
+    tracer = false,
+    chams = false,
+    chamsTransparency = 0.4,
+}
+
+local function service(name: string)
+    local ok, found = pcall(function()
+        return game:GetService(name)
+    end)
+    return if ok then found else nil
+end
+
+-- A signal off an object, or nil where it has none (a headless run's stand-ins lack a few).
+local function signal(object, name: string)
+    if object == nil then
+        return nil
+    end
+    local ok, found = pcall(function()
+        return object[name]
+    end)
+    return if ok then found else nil
+end
+
+-- Put a character copy back in its standing pose. A copy keeps whatever frame of an animation
+-- the real one was in - mid-stride, leaning, turned at the waist - and a copy turning on the
+-- stage in that pose looked like it was facing every way but the one it turned to. Every joint
+-- is walked from the root and each part put where its joint puts it at rest (a Motor6D with no
+-- animation on it, a weld as it is), so accessories and a held tool come along.
+function ESPPreview.restPose(model: Model)
+    local root = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+    if not root or not root:IsA("BasePart") then
+        return
+    end
+    -- every joint, from both of its ends
+    local links = {}
+    local function link(part, joint)
+        links[part] = links[part] or {}
+        table.insert(links[part], joint)
+    end
+    for _, joint in model:GetDescendants() do
+        if (joint:IsA("Motor6D") or joint:IsA("Weld")) and joint.Part0 and joint.Part1 then
+            link(joint.Part0, joint)
+            link(joint.Part1, joint)
+        end
+    end
+    local placed = { [root] = true }
+    local queue = { root }
+    while #queue > 0 do
+        local part = table.remove(queue, 1)
+        for _, joint in links[part] or {} do
+            -- Part0 * C0 == Part1 * C1 at rest, whichever end is already placed
+            local other, cframe
+            if joint.Part0 == part then
+                other, cframe = joint.Part1, part.CFrame * joint.C0 * joint.C1:Inverse()
+            else
+                other, cframe = joint.Part0, part.CFrame * joint.C1 * joint.C0:Inverse()
+            end
+            if other and not placed[other] then
+                other.CFrame = cframe
+                placed[other] = true
+                table.insert(queue, other)
+            end
+        end
+    end
+end
+
+-- Where a point in the viewport's world lands on the viewport, in pixels (nil behind the camera).
+function ESPPreview.project(cameraCFrame: CFrame, fov: number, size: Vector2, point: Vector3): Vector2?
+    return ESPPreview.projectRelative(cameraCFrame:PointToObjectSpace(point), fov, size)
+end
+
+-- The same, for a point already in the camera's own space (it looks down -Z).
+function ESPPreview.projectRelative(relative: Vector3, fov: number, size: Vector2): Vector2?
+    if relative.Z >= 0 then
+        return nil
+    end
+    local depth = -relative.Z
+    local tanHalf = math.tan(math.rad(fov) / 2)
+    local aspect = if size.Y > 0 then size.X / size.Y else 1
+    local x = (relative.X / depth) / (tanHalf * aspect)
+    local y = (relative.Y / depth) / tanHalf
+    return Vector2.new((x * 0.5 + 0.5) * size.X, (0.5 - y * 0.5) * size.Y)
+end
+
+function ESPPreview.new(tab, properties)
+    properties = if typeof(properties) == "table" then properties else {}
+
+    local self = setmetatable({
+        tab = tab,
+        window = tab.window,
+        name = tostring(properties.title or properties.Title or "ESP Preview"),
+        height = math.max(tonumber(properties.height or properties.Height) or defaultHeight, 110),
+        autoRotate = properties.autoRotate ~= false and properties.AutoRotate ~= false,
+        -- the health rising and falling, so the bar and its number show what they do
+        animateHealth = properties.animateHealth ~= false and properties.AnimateHealth ~= false,
+        forgetState = true,
+        options = {},
+        colors = {},
+        angle = 0,
+        _shown = false,
+    }, ESPPreview)
+
+    for key, value in defaults do
+        self.options[key] = value
+    end
+    self:_readOptions(properties)
+
+    self:_build()
+    self:SetCharacter(properties.character or properties.Character)
+    self:_startLoop()
+
+    -- a new character (a respawn) is the one to show, once it has its appearance
+    local players = service("Players")
+    local player = players and players.LocalPlayer
+    local added = signal(player, "CharacterAdded")
+    if added and not (properties.character or properties.Character) then
+        self.window:ConnectFor(self, added, function(character)
+            task.delay(1, function()
+                if not self.window.unloaded and self.main.Parent then
+                    self:SetCharacter(character)
+                end
+            end)
+        end)
+    end
+    return self
+end
+
+function ESPPreview:_readOptions(properties)
+    for key in defaults do
+        local value = properties[key]
+        if value == nil then
+            value = properties[string.upper(string.sub(key, 1, 1)) .. string.sub(key, 2)]
+        end
+        if value ~= nil then
+            self.options[key] = value
+        end
+    end
+    local box = self.options.box
+    if box == true then
+        self.options.box = "Full"
+    elseif type(box) == "string" then
+        self.options.box = if string.lower(box) == "corner" then "Corner" else "Full"
+    end
+    local colors = properties.colors or properties.Colors
+    if type(colors) == "table" then
+        for key, color in colors do
+            if typeof(color) == "Color3" then
+                self.colors[key] = color
+            end
+        end
+    end
+end
+
+-- A piece's colour: the dev's, or the theme's accent (the box, the chams) or white (the text).
+function ESPPreview:_color(key: string): Color3
+    local given = self.colors[key]
+    if given then
+        return given
+    end
+    local theme = self.window.theme
+    if key == "box" or key == "tracer" or key == "chams" then
+        return theme.AccentStroke or theme.AccentColor
+    end
+    return Color3.new(1, 1, 1)
+end
+
+function ESPPreview:_build()
+    local window = self.window
+
+    self.main = window:Create("Frame", {
+        Name = self.name,
+        Size = UDim2.new(1, -20, 0, self.height),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = 1,
+        ClipsDescendants = true,
+
+        Parent = self.tab.tabPage,
+    }, { BackgroundTransparency = "ElementTransparency" })
+    self.stroke = window:StyleElementBody(self.main)
+
+    -- the stage: a soft light behind the character and its shadow on the floor
+    self.stageLight = window:Create("ImageLabel", {
+        Name = "StageLight",
+        Image = "rbxassetid://8992230677",
+        Size = UDim2.fromOffset(self.height * 1.9, self.height * 1.9),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+        ZIndex = 1,
+        Parent = self.main,
+    }, { ImageColor3 = "ContentColor" })
+    self.floorShadow = window:Create("ImageLabel", {
+        Name = "FloorShadow",
+        Image = "rbxassetid://8992230677",
+        Size = UDim2.fromOffset(120, 26),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ImageColor3 = Color3.new(0, 0, 0),
+        ImageTransparency = 1,
+        ZIndex = 1,
+        Parent = self.main,
+    })
+
+    self.viewport = window:Create("ViewportFrame", {
+        Name = "Stage",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+        Ambient = Color3.fromRGB(150, 145, 152),
+        LightColor = Color3.fromRGB(255, 255, 255),
+        LightDirection = Vector3.new(-0.6, -1, -0.8),
+        ZIndex = 2,
+        Parent = self.main,
+    })
+    self.camera = Instance.new("Camera")
+    self.camera.FieldOfView = fieldOfView
+    self.camera.Parent = self.viewport
+    self.viewport.CurrentCamera = self.camera
+
+    -- the ESP drawn over the stage
+    self.overlay = window:Create("Frame", {
+        Name = "ESP",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Visible = false,
+        ZIndex = 3,
+        Parent = self.main,
+    })
+    local function line(parent, z)
+        return window:Create("Frame", {
+            BorderSizePixel = 0,
+            BackgroundColor3 = Color3.new(1, 1, 1),
+            ZIndex = z,
+            Parent = parent,
+        })
+    end
+    -- the box as eight strokes (a full outline uses four long ones, the corners all eight short),
+    -- each over a dark one a pixel wider on every side
+    self.boxParts = {}
+    for index = 1, 8 do
+        self.boxParts[index] = { edge = line(self.overlay, 4), stroke = line(self.overlay, 5) }
+        self.boxParts[index].edge.BackgroundColor3 = outline
+    end
+    self.healthBack = line(self.overlay, 4)
+    self.healthBack.BackgroundColor3 = outline
+    self.healthFill = line(self.healthBack, 5)
+    self.tracerLine = line(self.overlay, 4)
+    self.tracerLine.AnchorPoint = Vector2.new(0.5, 0.5)
+
+    local function text(anchor: Vector2)
+        local label = window:Create("TextLabel", {
+            Size = UDim2.fromOffset(200, 14),
+            AnchorPoint = anchor,
+            BackgroundTransparency = 1,
+            TextSize = 13,
+            ZIndex = 6,
+            Parent = self.overlay,
+        }, { FontFace = "TitleFont" })
+        return label
+    end
+    self.nameLabel = text(Vector2.new(0.5, 1))
+    self.distanceLabel = text(Vector2.new(0.5, 0))
+    self.weaponLabel = text(Vector2.new(0.5, 0))
+    self.healthLabel = text(Vector2.new(1, 0.5))
+    self.healthLabel.Size = UDim2.fromOffset(40, 12)
+    self.healthLabel.TextSize = 12
+    self.healthLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+    self.hint = window:Create("TextLabel", {
+        Text = locale.resolve("drag to rotate"),
+        Size = UDim2.fromOffset(120, 12),
+        Position = UDim2.new(1, -10, 1, -8),
+        AnchorPoint = Vector2.new(1, 1),
+        BackgroundTransparency = 1,
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        TextTransparency = 1,
+        ZIndex = 6,
+        Parent = self.main,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+
+    -- dragging across the stage turns the character
+    self.drag = window:Create("TextButton", {
+        Name = "Drag",
+        Text = "",
+        AutoButtonColor = false,
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        ZIndex = 7,
+        Parent = self.main,
+    })
+    local userInput = variables.userInputService
+    local changed, ended = signal(userInput, "InputChanged"), signal(userInput, "InputEnded")
+    window:ConnectFor(self, self.drag.InputBegan, function(input)
+        local kind = input.UserInputType
+        if kind == Enum.UserInputType.MouseButton1 or kind == Enum.UserInputType.Touch then
+            self._dragging = true
+            self._dragFrom = input.Position.X
+        end
+    end)
+    if not changed or not ended then
+        return
+    end
+    window:ConnectFor(self, changed, function(input)
+        if not self._dragging then
+            return
+        end
+        local kind = input.UserInputType
+        if kind == Enum.UserInputType.MouseMovement or kind == Enum.UserInputType.Touch then
+            local x = input.Position.X
+            self.angle += (x - (self._dragFrom or x)) * dragTurn
+            self._dragFrom = x
+            self._lastDrag = os.clock()
+        end
+    end)
+    window:ConnectFor(self, ended, function(input)
+        local kind = input.UserInputType
+        if self._dragging and (kind == Enum.UserInputType.MouseButton1 or kind == Enum.UserInputType.Touch) then
+            self._dragging = false
+            self._lastDrag = os.clock()
+        end
+    end)
+end
+
+-- The character on the stage: the model given, or the player's own. A copy - nothing it does
+-- touches the real one.
+function ESPPreview:SetCharacter(model: Instance?)
+    if self.model then
+        self.model:Destroy()
+        self.model = nil
+    end
+    if model == nil then
+        local players = service("Players")
+        local player = players and players.LocalPlayer
+        model = player and player.Character
+    end
+    if typeof(model) ~= "Instance" or not model:IsA("Model") then
+        return false
+    end
+
+    local archivable = model.Archivable
+    model.Archivable = true
+    local ok, copy = pcall(model.Clone, model)
+    model.Archivable = archivable
+    if not ok or not copy then
+        return false
+    end
+
+    -- the weapon: whatever tool it is holding
+    local tool = copy:FindFirstChildWhichIsA("Tool")
+    self.weaponName = if tool then tool.Name else "None"
+    local humanoid = copy:FindFirstChildWhichIsA("Humanoid")
+    self.health, self.maxHealth = 100, 100
+    if humanoid then
+        self.health, self.maxHealth = humanoid.Health, math.max(humanoid.MaxHealth, 1)
+        humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+    end
+    self.displayName = model.Name
+    local players = service("Players")
+    local owner = players and players:GetPlayerFromCharacter(model)
+    if owner then
+        self.displayName = owner.DisplayName
+    end
+
+    pcall(ESPPreview.restPose, copy)
+
+    self.parts = {}
+    for _, descendant in copy:GetDescendants() do
+        if descendant:IsA("BaseScript") or descendant:IsA("Sound") or descendant:IsA("ParticleEmitter") then
+            descendant:Destroy()
+        elseif descendant:IsA("BasePart") then
+            descendant.Anchored = true
+            descendant.CanCollide = false
+            table.insert(self.parts, {
+                part = descendant,
+                color = descendant.Color,
+                material = descendant.Material,
+                transparency = descendant.Transparency,
+            })
+        end
+    end
+
+    -- stand it at the origin, facing the camera
+    local root = copy.PrimaryPart or copy:FindFirstChild("HumanoidRootPart")
+    if root and root:IsA("BasePart") then
+        copy:PivotTo(root.CFrame:ToObjectSpace(copy:GetPivot()))
+    end
+    self.basePivot = copy:GetPivot()
+    copy.Parent = self.viewport
+    self.model = copy
+
+    local box, size = copy:GetBoundingBox()
+    self.modelHeight = size.Y
+    self.modelCentre = box.Position
+    self:_frame(box.Position, size)
+
+    self:_applyChams()
+    self:_draw()
+    return true
+end
+
+-- The camera: far enough back that the box - its nearest face, turned whichever way - fits the
+-- room between the name over it and the words under it, and aimed so it sits in that room.
+function ESPPreview:_frame(centre: Vector3, size: Vector3)
+    local stage = self.height
+    local target = stage * boxShare
+    local tanHalf = math.tan(math.rad(fieldOfView / 2))
+    -- turned, the model reaches this far towards the camera
+    local reach = math.max(size.X, size.Z) / 2
+    local distance = size.Y * stage / (2 * tanHalf * target) + reach
+    -- the box's middle sits this far over the stage's
+    local lift = (roomAbove + target / 2) - stage / 2
+    local shift = -lift * (2 * distance * tanHalf) / stage
+    local aim = centre + Vector3.new(0, -shift, 0)
+    self.camera.CFrame = CFrame.lookAt(aim + Vector3.new(0, 0, -distance), aim)
+end
+
+-- The chams: every part in one colour, see-through by the option's amount.
+function ESPPreview:_applyChams()
+    local on = self.options.chams == true
+    local color = self:_color("chams")
+    local transparency = math.clamp(tonumber(self.options.chamsTransparency) or 0.4, 0, 0.95)
+    for _, entry in self.parts or {} do
+        local part = entry.part
+        if part.Parent then
+            if on and entry.transparency < 1 then
+                part.Color = color
+                part.Material = Enum.Material.SmoothPlastic
+                part.Transparency = transparency
+            else
+                part.Color = entry.color
+                part.Material = entry.material
+                part.Transparency = entry.transparency
+            end
+        end
+    end
+end
+
+-- Any of the options CreateESPPreview takes; the preview redraws at once.
+function ESPPreview:Set(properties)
+    if type(properties) ~= "table" then
+        return
+    end
+    self:_readOptions(properties)
+    self:_applyChams()
+    self:_draw()
+end
+
+function ESPPreview:Get()
+    return table.clone(self.options)
+end
+
+function ESPPreview:SetAutoRotate(on: boolean)
+    self.autoRotate = on == true
+end
+
+-- The health rising and falling by itself, or held where the character's is.
+function ESPPreview:SetAnimateHealth(on: boolean)
+    self.animateHealth = on == true
+    if not self.animateHealth then
+        self.health = self.maxHealth
+        self:_draw()
+    end
+end
+
+function ESPPreview:_startLoop()
+    local stepped = signal(service("RunService"), "RenderStepped")
+    if not stepped then
+        return
+    end
+    self.window:ConnectFor(self, stepped, function(delta)
+        if not self._shown or not self.model or self.window.hidden or self.window.minimised then
+            return
+        end
+        -- only while it is on screen: a hidden tab's page has no size
+        if self.main.AbsoluteSize.X <= 0 then
+            return
+        end
+        local idle = not self._dragging and (not self._lastDrag or os.clock() - self._lastDrag > resumeAfter)
+        if self.autoRotate and idle then
+            self.angle += turnSpeed * delta
+        end
+        if self.animateHealth then
+            -- down to a sliver and back to full, about every six seconds
+            local share = 0.53 + 0.47 * math.cos(os.clock() * healthCycle)
+            self.health = (self.maxHealth or 100) * share
+        end
+        self:_draw()
+    end)
+end
+
+-- Place one stroke of the box: a line from a to b, over its dark edge.
+local function placeStroke(part, a: Vector2, b: Vector2, thickness: number)
+    local min = Vector2.new(math.min(a.X, b.X), math.min(a.Y, b.Y))
+    local size = Vector2.new(math.max(math.abs(b.X - a.X), thickness), math.max(math.abs(b.Y - a.Y), thickness))
+    part.stroke.Position = UDim2.fromOffset(min.X, min.Y)
+    part.stroke.Size = UDim2.fromOffset(size.X, size.Y)
+    part.edge.Position = UDim2.fromOffset(min.X - 1, min.Y - 1)
+    part.edge.Size = UDim2.fromOffset(size.X + 2, size.Y + 2)
+    part.stroke.Visible = true
+    part.edge.Visible = true
+end
+
+function ESPPreview:_draw()
+    if not self.model or not self.basePivot then
+        self.overlay.Visible = false
+        return
+    end
+    self.model:PivotTo(CFrame.Angles(0, math.rad(self.angle), 0) * self.basePivot)
+
+    local size = self.viewport.AbsoluteSize
+    if size.X <= 0 or size.Y <= 0 then
+        return
+    end
+
+    -- the model's box, projected: its eight corners through the camera
+    local box, extent = self.model:GetBoundingBox()
+    local half = extent / 2
+    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+    for _, sx in { -1, 1 } do
+        for _, sy in { -1, 1 } do
+            for _, sz in { -1, 1 } do
+                local point = box:PointToWorldSpace(Vector3.new(half.X * sx, half.Y * sy, half.Z * sz))
+                local screen = ESPPreview.project(self.camera.CFrame, fieldOfView, size, point)
+                if screen then
+                    minX, minY = math.min(minX, screen.X), math.min(minY, screen.Y)
+                    maxX, maxY = math.max(maxX, screen.X), math.max(maxY, screen.Y)
+                end
+            end
+        end
+    end
+    if minX == math.huge then
+        self.overlay.Visible = false
+        return
+    end
+    minX, minY, maxX, maxY = math.floor(minX), math.floor(minY), math.floor(maxX), math.floor(maxY)
+    local width, height = maxX - minX, maxY - minY
+    self.overlay.Visible = self._shown
+
+    -- the floor shadow under the feet
+    self.floorShadow.Position = UDim2.fromOffset((minX + maxX) / 2, maxY)
+
+    local options = self.options
+    local boxColor = self:_color("box")
+    for _, part in self.boxParts do
+        part.stroke.Visible = false
+        part.edge.Visible = false
+        part.stroke.BackgroundColor3 = boxColor
+    end
+    if options.box == "Full" then
+        local tl, tr, bl, br =
+            Vector2.new(minX, minY), Vector2.new(maxX, minY), Vector2.new(minX, maxY), Vector2.new(maxX, maxY)
+        placeStroke(self.boxParts[1], tl, tr, 1)
+        placeStroke(self.boxParts[2], bl, br, 1)
+        placeStroke(self.boxParts[3], tl, bl, 1)
+        placeStroke(self.boxParts[4], tr, br, 1)
+    elseif options.box == "Corner" then
+        local run = math.floor(math.min(width, height) * cornerLength)
+        local corners = {
+            { Vector2.new(minX, minY), 1, 1 },
+            { Vector2.new(maxX, minY), -1, 1 },
+            { Vector2.new(minX, maxY), 1, -1 },
+            { Vector2.new(maxX, maxY), -1, -1 },
+        }
+        for index, corner in corners do
+            local at, dx, dy = corner[1], corner[2], corner[3]
+            placeStroke(self.boxParts[index * 2 - 1], at, at + Vector2.new(dx * run, 0), 1)
+            placeStroke(self.boxParts[index * 2], at, at + Vector2.new(0, dy * run), 1)
+        end
+    end
+
+    -- the words: the name over the box, the distance and then the weapon under it
+    local centreX = (minX + maxX) / 2
+    self.nameLabel.Visible = options.name == true
+    self.nameLabel.Text = tostring(self.displayName or "")
+    self.nameLabel.TextColor3 = self:_color("name")
+    self.nameLabel.Position = UDim2.fromOffset(centreX, minY - 3)
+    local below = maxY + 3
+    self.distanceLabel.Visible = options.distance == true
+    self.distanceLabel.Text = "24m"
+    self.distanceLabel.TextColor3 = self:_color("distance")
+    self.distanceLabel.Position = UDim2.fromOffset(centreX, below)
+    if options.distance == true then
+        below += 14
+    end
+    self.weaponLabel.Visible = options.weapon == true
+    self.weaponLabel.Text = tostring(self.weaponName or "None")
+    self.weaponLabel.TextColor3 = self:_color("weapon")
+    self.weaponLabel.Position = UDim2.fromOffset(centreX, below)
+
+    -- the health bar down the left side, green when full and red when low
+    local share = math.clamp((self.health or 100) / (self.maxHealth or 100), 0, 1)
+    self.healthBack.Visible = options.healthBar == true
+    self.healthBack.Position = UDim2.fromOffset(minX - 7, minY - 1)
+    self.healthBack.Size = UDim2.fromOffset(4, height + 2)
+    self.healthFill.AnchorPoint = Vector2.new(0, 1)
+    self.healthFill.Position = UDim2.new(0, 1, 1, -1)
+    self.healthFill.Size = UDim2.new(0, 2, 0, math.max(math.floor(height * share), 1))
+    self.healthFill.BackgroundColor3 = self.colors.health
+        or Color3.fromRGB(235, 64, 64):Lerp(Color3.fromRGB(96, 221, 127), share)
+    self.healthLabel.Visible = options.healthText == true
+    self.healthLabel.Text = tostring(math.floor((self.health or 100) + 0.5))
+    self.healthLabel.TextColor3 = self:_color("healthText")
+    -- the number rides the top of the bar's fill, falling and rising with it
+    local fillTop = minY + height * (1 - share)
+    self.healthLabel.Position = UDim2.fromOffset(minX - (if options.healthBar then 10 else 3), math.floor(fillTop))
+
+    -- the tracer: from the foot of the stage to the foot of the box
+    local from = Vector2.new(size.X / 2, size.Y)
+    local to = Vector2.new(centreX, maxY)
+    local span = to - from
+    self.tracerLine.Visible = options.tracer == true and span.Magnitude > 1
+    self.tracerLine.BackgroundColor3 = self:_color("tracer")
+    self.tracerLine.Position = UDim2.fromOffset((from.X + to.X) / 2, (from.Y + to.Y) / 2)
+    self.tracerLine.Size = UDim2.fromOffset(span.Magnitude, 1)
+    self.tracerLine.Rotation = math.deg(math.atan2(span.Y, span.X))
+end
+
+function ESPPreview:_searchText(): string
+    return "ESP Preview"
+end
+
+function ESPPreview:_setShown(shown, animate)
+    local window = self.window
+    self._shown = shown
+    if shown then
+        window:_revealCommon(self, animate)
+    else
+        window:_hideCommon(self, animate)
+    end
+    local glass = self:_glass()
+    window:_reveal(self.viewport, { ImageTransparency = if shown then glass * 0.6 else 1 }, animate)
+    window:_reveal(self.stageLight, { ImageTransparency = if shown then 0.93 + 0.07 * glass else 1 }, animate)
+    window:_reveal(self.floorShadow, { ImageTransparency = if shown then 0.5 + 0.5 * glass else 1 }, animate)
+    window:_reveal(self.hint, { TextTransparency = if shown then 0.55 else 1 }, animate)
+    self.overlay.Visible = shown and self.model ~= nil
+    if shown then
+        self:_draw()
+    end
+end
+
+-- How see-through the window has been made (Settings > Window transparency): the stage follows
+-- it like every card does, the character a little less so it stays readable.
+function ESPPreview:_glass(): number
+    return math.clamp(tonumber(self.window.theme.ElementTransparency) or 0, 0, 1)
+end
+
+function ESPPreview:_refreshTheme()
+    self:_applyChams()
+    if self._shown then
+        local glass = self:_glass()
+        self.viewport.ImageTransparency = glass * 0.6
+        self.stageLight.ImageTransparency = 0.93 + 0.07 * glass
+        self.floorShadow.ImageTransparency = 0.5 + 0.5 * glass
+    end
+    self:_draw()
+end
+
+function ESPPreview:_minWidth(): number
+    return 180
+end
+
+function ESPPreview:Remove()
+    if self.model then
+        self.model:Destroy()
+    end
+    self.main:Destroy()
+end
+
+moveable(ESPPreview)
+
+return ESPPreview
+]=====]
+
 sources["components/faq"] = [=====[
 --!nonstrict
 
@@ -11381,6 +13402,21 @@ end
 function Group:CreateStackedChart(properties)
     return self:_add("stackedchart", properties)
 end
+function Group:CreateTarget(properties)
+    return self:_add("target", properties)
+end
+function Group:CreateColorSwatch(properties)
+    return self:_add("colorswatch", properties)
+end
+function Group:CreateESPPreview(properties)
+    return self:_add("esppreview", properties)
+end
+function Group:CreateDashboard(properties)
+    return self:_add("dashboard", properties)
+end
+function Group:CreateItemPicker(properties)
+    return self:_add("itempicker", properties)
+end
 function Group:CreateScrollHint(properties)
     return self:_add("scrollhint", properties)
 end
@@ -12586,6 +14622,7 @@ local functions = require(utility.functions)
 local moveable = require(utility.moveable)
 local lockable = require(utility.lockable)
 local locale = require(utility.locale)
+local image = require(utility.image)
 local constants = require(utility.constants)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
@@ -12629,6 +14666,10 @@ local defaultHeight = constants.listMaxHeight -- shared with ListPicker
 local emptyRoom = 62 -- the panel a grid keeps when it has nothing to show, for the empty state
 local defaultCellHeight = 56
 local stackedCellHeight = 128 -- room for a thumbnail plus its name underneath
+-- layout = "list": one row per item, a picture, the name in its rarity colour over a line of small
+-- print, and a value on the right (the shape of a loot table)
+local listCellHeight = 40
+local listThumb = 32
 
 -- Below this a card can't hold a two-word name, so the grid drops a column instead of letting
 -- every label truncate. Checked against the real width, so a collapsed window reflows.
@@ -12669,6 +14710,12 @@ local function normalise(entry)
             image = entry.image or entry.Image,
             color = entry.color or entry.Color,
             tag = entry.tag or entry.Tag,
+            -- a line of small print under the name, and a value on the right (list layout)
+            subtitle = entry.subtitle or entry.Subtitle,
+            value = if entry.value ~= nil
+                then tostring(entry.value)
+                elseif entry.Value ~= nil then tostring(entry.Value)
+                else nil,
         }
     end
     return nil
@@ -12706,16 +14753,24 @@ function ItemGrid.new(tab, properties)
         imageLayout = "left"
     end
 
+    local listLayout = string.lower(tostring(properties.layout or properties.Layout or "grid")) == "list"
+    -- a list you only read (a loot table) takes no clicks at all
+    local selectable = functions.readBool(properties, "selectable", true)
+
     local self = setmetatable({
         tab = assert(tab, "Missing argument #1 (Tab expected)"),
         window = tab.window,
+        listLayout = listLayout,
+        selectable = selectable,
         name = properties.name or properties.Name or "Items",
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
 
-        columns = math.clamp(tonumber(properties.columns or properties.Columns) or defaultColumns, 1, 8),
+        columns = if listLayout
+            then 1
+            else math.clamp(tonumber(properties.columns or properties.Columns) or defaultColumns, 1, 8),
         -- The ceiling. `maxHeight` is the name that says what it does; `height` is the original
         -- spelling and still works, since a ceiling is what it always meant here.
         height = math.max(
@@ -12728,11 +14783,11 @@ function ItemGrid.new(tab, properties)
         -- `columns` is a ceiling by default: a narrow window drops below it rather than squeezing
         -- every card under a readable width. fixedColumns = true holds it exactly - three per row
         -- stays three per row however narrow the window gets, and the cards narrow instead.
-        fixedColumns = functions.readBool(properties, "fixedColumns", false),
+        fixedColumns = listLayout or functions.readBool(properties, "fixedColumns", false),
         -- The "Select all / Clear" line above the grid. On by default, because a multi-select
         -- grid of any size wants it, but it does cost a row of height in a small grid that does
         -- not - unlike Dropdown's, this element is always on the page rather than in a panel.
-        quickActions = functions.readBool(properties, "quickActions", true),
+        quickActions = selectable and functions.readBool(properties, "quickActions", not listLayout),
         -- A cap on a multi-select grid: "pick up to 3 of these 40". nil means no cap, and it is
         -- meaningless on a single-select grid (multiSelect = false is already a cap of one).
         maxSelected = (function()
@@ -12758,7 +14813,8 @@ function ItemGrid.new(tab, properties)
         flag = properties.flag
             or properties.Flag
             or (
-                not (properties.forgetState or properties.ForgetState or tab.forgetState)
+                selectable
+                    and not (properties.forgetState or properties.ForgetState or tab.forgetState)
                     and functions.deriveFlagFromName(properties.name or properties.Name or "Items")
                 or nil
             ),
@@ -12792,7 +14848,12 @@ function ItemGrid.new(tab, properties)
 
     self.cellHeight = math.max(
         tonumber(properties.cellHeight or properties.CellHeight)
-            or (if imageLayout == "top" then stackedCellHeight else defaultCellHeight),
+            or (
+                if listLayout
+                    then listCellHeight
+                    elseif imageLayout == "top" then stackedCellHeight
+                    else defaultCellHeight
+            ),
         30
     )
 
@@ -13006,10 +15067,17 @@ function ItemGrid:_buildSearch(top)
         Parent = self.main,
     }, { BackgroundColor3 = "FieldBackground" })
     window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.searchBox })
+    self.searchStroke = window:Create("UIStroke", {
+        Thickness = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Transparency = 1, -- In = 0
+
+        Parent = self.searchBox,
+    }, { Color = "ElementStroke" })
 
     self.searchIcon = window:Create("ImageLabel", {
-        Image = constants.icons.search,
         Size = UDim2.fromOffset(14, 14),
+        ZIndex = 2,
         Position = UDim2.new(0, 11, 0.5, 0),
         AnchorPoint = Vector2.new(0, 0.5),
         BackgroundTransparency = 1,
@@ -13036,6 +15104,9 @@ function ItemGrid:_buildSearch(top)
 
         Parent = self.searchBox,
     }, { TextColor3 = "ContentColor", FontFace = "Font", PlaceholderColor3 = "PlaceholderColor" })
+    image.assign(self.searchIcon, "Image", "lucide:search")
+    window:_iconGlow(self.searchIcon)
+    window:_wireFieldFocus(self.searchInput, self.searchStroke, self.searchIcon, 0.5)
 
     self.window:ConnectFor(self, self.searchInput:GetPropertyChangedSignal("Text"), function()
         if self.locked then
@@ -13589,7 +15660,8 @@ end
 function ItemGrid:_buildCell(entry, order)
     local window = self.window
     local cell = { connections = {}, entry = entry }
-    cell.stacked = self.imageLayout == "top" and entry.image ~= nil
+    cell.stacked = not self.listLayout and self.imageLayout == "top" and entry.image ~= nil
+    cell.list = self.listLayout
 
     cell.frame = window:Create("Frame", {
         Name = entry.name,
@@ -13697,6 +15769,36 @@ function ItemGrid:_buildCell(entry, order)
         Parent = cell.frame,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
+    if cell.list then
+        cell.subtitle = window:Create("TextLabel", {
+            Text = if entry.subtitle then tostring(entry.subtitle) else "",
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            TextSize = 12,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Visible = entry.subtitle ~= nil,
+
+            TextTransparency = 1, -- In = 0.5
+
+            Parent = cell.frame,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+        cell.valueLabel = window:Create("TextLabel", {
+            Text = entry.value or "",
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            TextSize = 13,
+            TextXAlignment = Enum.TextXAlignment.Right,
+            Visible = entry.value ~= nil,
+
+            TextTransparency = 1, -- In = 0
+
+            Parent = cell.frame,
+        }, { TextColor3 = "AccentStroke", FontFace = "TitleFont" })
+        cell.box.Visible = false
+        cell.dot.Visible = false
+    end
+
     if entry.icon and not entry.image then
         cell.iconLabel = window:Create("ImageLabel", {
             Image = entry.icon,
@@ -13761,7 +15863,7 @@ function ItemGrid:_buildCell(entry, order)
     end)
 
     self:_cellConnect(cell, cell.interact.MouseButton1Click, function()
-        if self.locked then
+        if self.locked or not self.selectable then
             return
         end
         self:Toggle(entry.id)
@@ -13773,6 +15875,38 @@ end
 -- Places the parts inside one card. Two shapes: a row (tick, optional thumbnail, name) and a
 -- stacked card (thumbnail filling the top, tick floating in its corner, name underneath).
 function ItemGrid:_layoutCell(cell)
+    if cell.list then
+        local left = 6
+        if cell.image then
+            cell.image.Size = UDim2.fromOffset(listThumb, listThumb)
+            cell.image.Position = UDim2.new(0, left, 0.5, 0)
+            cell.image.AnchorPoint = Vector2.new(0, 0.5)
+            left += listThumb + 10
+        elseif cell.iconLabel then
+            cell.iconLabel.Position = UDim2.new(0, left + 2, 0.5, 0)
+            left += 26
+        else
+            left += 4
+        end
+        local right = if cell.valueLabel.Visible then 58 else 10
+        cell.valueLabel.Size = UDim2.new(0, 50, 1, 0)
+        cell.valueLabel.Position = UDim2.new(1, -10, 0, 0)
+        cell.valueLabel.AnchorPoint = Vector2.new(1, 0)
+        if cell.subtitle.Visible then
+            cell.title.TextWrapped = false
+            cell.title.Size = UDim2.new(1, -(left + right), 0, 16)
+            cell.title.Position = UDim2.new(0, left, 0.5, -1)
+            cell.title.AnchorPoint = Vector2.new(0, 1)
+            cell.subtitle.Size = UDim2.new(1, -(left + right), 0, 14)
+            cell.subtitle.Position = UDim2.new(0, left, 0.5, 1)
+            cell.subtitle.AnchorPoint = Vector2.new(0, 0)
+        else
+            cell.title.Size = UDim2.new(1, -(left + right), 1, -6)
+            cell.title.Position = UDim2.new(0, left, 0.5, 0)
+            cell.title.AnchorPoint = Vector2.new(0, 0.5)
+        end
+        return
+    end
     if cell.stacked then
         local nameHeight = 28
         cell.image.Size = UDim2.new(1, -20, 1, -(nameHeight + 20))
@@ -13831,6 +15965,11 @@ end
 
 -- One place that decides what a cell looks like, so hover/selection/theme can't disagree.
 function ItemGrid:_applyCell(cell, animate)
+    if cell.list then
+        self:_paintListCell(cell, self._revealed == true, animate)
+        return
+    end
+
     local theme = self.window.theme
     local isSelected = self.selected[cell.entry.id] == true
 
@@ -13860,6 +15999,49 @@ function ItemGrid:_applyCell(cell, animate)
         },
     }
 
+    for part, properties in goals do
+        if animate then
+            variables.tweenService:Create(cell[part], stateInfo, properties):Play()
+        else
+            for property, value in properties do
+                cell[part][property] = value
+            end
+        end
+    end
+end
+
+-- A list row: no fill until pointed at, the name in its rarity colour, the value in the accent.
+-- A picked row keeps a faint fill and an accent edge.
+function ItemGrid:_paintListCell(cell, shown: boolean, animate: boolean?)
+    local theme = self.window.theme
+    local isSelected = self.selected[cell.entry.id] == true
+    local lit = self.selectable and not self.locked
+    local goals = {
+        frame = {
+            BackgroundTransparency = if not shown
+                then 1
+                elseif cell.pressed and lit then 0.9
+                elseif cell.hovered then 0.95
+                elseif isSelected then 0.94
+                else 1,
+        },
+        stroke = {
+            Color = theme.AccentStroke,
+            Transparency = if shown and isSelected then 0.35 else 1,
+        },
+        title = {
+            TextColor3 = cell.entry.color or theme.ContentColor,
+            TextTransparency = if shown then 0 else 1,
+        },
+        subtitle = { TextTransparency = if shown then 0.5 else 1 },
+        valueLabel = { TextTransparency = if shown then 0 else 1 },
+    }
+    if cell.image then
+        goals.image = { ImageTransparency = if shown then 0 else 1 }
+    end
+    if cell.iconLabel then
+        goals.iconLabel = { ImageTransparency = if shown then 0.2 else 1 }
+    end
     for part, properties in goals do
         if animate then
             variables.tweenService:Create(cell[part], stateInfo, properties):Play()
@@ -13920,10 +16102,12 @@ function ItemGrid:_syncValue()
         end
     end
 
-    -- "0 / 0" while the grid is still waiting for its items is noise; the placeholders say it
+    -- "0 / 0" while the grid is still waiting for its items is noise; the placeholders say it.
+    -- A list only to read has nothing ticked to count: just how many rows show.
     self.counter.Text = if self:_showingSkeleton()
         then ""
         elseif self.maxSelected then `{#ids} / {self.maxSelected}`
+        elseif not self.selectable then `{visible}`
         else `{visibleTicked} / {visible}`
 end
 
@@ -14438,6 +16622,32 @@ function ItemGrid:_buildSkeleton(index: number)
 end
 
 -- Replace the item set, keeping the ticks of anything that survives.
+-- The value on the right of one row (list layout) - "x3" farmed, "12%" - without rebuilding the
+-- list. nil takes it away. Returns false for an id the grid does not hold.
+function ItemGrid:SetValue(id, value): boolean
+    id = tostring(id)
+    local text = if value ~= nil then tostring(value) else nil
+    local found = false
+    for _, entry in self.entries do
+        if entry.id == id then
+            entry.value = text
+            found = true
+            break
+        end
+    end
+    local cell = self.cells[id]
+    if cell and cell.valueLabel then
+        local wasShowing = cell.valueLabel.Visible
+        cell.valueLabel.Text = text or ""
+        cell.valueLabel.Visible = text ~= nil
+        -- the name gives up or takes back the room the value uses
+        if wasShowing ~= cell.valueLabel.Visible then
+            self:_layoutCell(cell)
+        end
+    end
+    return found
+end
+
 function ItemGrid:Refresh(items, skipCallback)
     local rebuilt, seen = {}, {}
     for _, entry in (items or {}) do
@@ -14500,6 +16710,7 @@ function ItemGrid:_setShown(shown, animate)
         if self.searchBox then
             w:_reveal(self.searchBox, { BackgroundTransparency = w.theme.FieldTransparency }, animate)
             w:_reveal(self.searchIcon, { ImageTransparency = 0.5 }, animate)
+            w:_reveal(self.searchStroke, { Transparency = 0 }, animate)
             w:_reveal(self.searchInput, { TextTransparency = 0.15 }, animate)
         end
         if self.selectAllButton then
@@ -14526,6 +16737,10 @@ function ItemGrid:_setShown(shown, animate)
         end
 
         for _, cell in self.cells do
+            if cell.list then
+                self:_paintListCell(cell, true, animate)
+                continue
+            end
             local isSelected = self.selected[cell.entry.id] == true
             w:_reveal(cell.frame, { BackgroundTransparency = cellRest }, animate)
             w:_reveal(cell.stroke, { Transparency = if isSelected then 0.15 else 0.85 }, animate)
@@ -14552,6 +16767,7 @@ function ItemGrid:_setShown(shown, animate)
         if self.searchBox then
             w:_reveal(self.searchBox, { BackgroundTransparency = 1 }, animate)
             w:_reveal(self.searchIcon, { ImageTransparency = 1 }, animate)
+            w:_reveal(self.searchStroke, { Transparency = 1 }, animate)
             w:_reveal(self.searchInput, { TextTransparency = 1 }, animate)
         end
         if self.selectAllButton then
@@ -14576,6 +16792,10 @@ function ItemGrid:_setShown(shown, animate)
         end
 
         for _, cell in self.cells do
+            if cell.list then
+                self:_paintListCell(cell, false, animate)
+                continue
+            end
             w:_reveal(cell.frame, { BackgroundTransparency = 1 }, animate)
             w:_reveal(cell.stroke, { Transparency = 1 }, animate)
             w:_reveal(cell.dot, { BackgroundTransparency = 1 }, animate)
@@ -14618,6 +16838,1259 @@ function ItemGrid:Remove()
 end
 
 return ItemGrid
+]=====]
+
+sources["components/itempicker"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- Item picker: a row that says what is picked, and opens a whole page of cards to pick from.
+--
+--   local materials = column:CreateItemPicker({
+--       name = "Items",
+--       title = "Select Materials",
+--       search = "Search items or mobs",
+--       filters = {
+--           { tag = "Common", color = Color3.fromRGB(223, 230, 204) },
+--           { tag = "Mythic", color = Color3.fromRGB(235, 64, 64) },
+--       },
+--       items = {
+--           { id = "Bamboo Muzzle", image = "rbxassetid://...", tag = "Mythic", rarity = "Mythic",
+--             color = Color3.fromRGB(235, 64, 64), value = "3%", subtitle = "Nezura" },
+--       },
+--       flag = "FarmMaterials",
+--       callback = function(selected) end,
+--   })
+--
+-- For a long list of things with pictures - materials, pets, cosmetics - where a dropdown shows
+-- too little of each and an inline grid takes a whole column. The row reads "None", the one item
+-- picked or "3 selected"; clicking it lays the picker over the page: a title with the count, Done,
+-- a search box, Select all and Clear, a chip per filter with "All" first, and the cards - picture,
+-- name, a dot and label for the rarity, a value and a line of small print, ticked when picked.
+
+local ItemPicker = {}
+ItemPicker.__index = ItemPicker
+ItemPicker.__type = "ItemPicker"
+
+local utility = script.Parent.Parent.utility
+local constants = require(utility.constants)
+local variables = require(utility.variables)
+local functions = require(utility.functions)
+local locale = require(utility.locale)
+local image = require(utility.image)
+local moveable = require(utility.moveable)
+local hapticEngine = require(utility.HapticEngine)
+local soundEngine = require(utility.sound)
+
+local elementHeight = constants.elementHeight
+
+-- the page over the tab: its own layer, under the window's bottom fade like any page
+local baseZ = 60
+
+local pad = 18
+local headerTop = 16
+local headerHeight = 32
+local toolsTop = headerTop + headerHeight + 12
+local toolsHeight = 34
+local chipsTop = toolsTop + toolsHeight + 10
+local chipHeight = 28
+local chipRoom = 3 -- around the chips, for the outline the active one wears
+local gridTop = chipsTop + chipHeight + 14
+local buttonWidth = 100
+local doneWidth = 84
+
+local minCardWidth = 118
+local cardHeight = 152
+local cardGap = 8
+local wellHeight = 74
+local thumbSize = 58
+local badgeSize = 20
+local popInfo = TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+local openInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local stateInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- A bare string is its own id and name.
+local function normalise(entry)
+    if type(entry) == "string" then
+        return { id = entry, name = entry }
+    elseif type(entry) ~= "table" then
+        return nil
+    end
+    local id = entry.id or entry.Id or entry.name or entry.Name
+    if id == nil then
+        return nil
+    end
+    local value = entry.value
+    if value == nil then
+        value = entry.Value
+    end
+    return {
+        id = tostring(id),
+        name = tostring(entry.name or entry.Name or id),
+        image = entry.image or entry.Image or entry.icon or entry.Icon,
+        color = entry.color or entry.Color,
+        tag = entry.tag or entry.Tag or entry.rarity or entry.Rarity,
+        rarity = entry.rarity or entry.Rarity or entry.tag or entry.Tag,
+        value = if value ~= nil then tostring(value) else nil,
+        subtitle = entry.subtitle or entry.Subtitle,
+    }
+end
+
+local function normaliseFilter(entry)
+    if type(entry) == "string" then
+        return { tag = entry, name = entry }
+    elseif type(entry) ~= "table" then
+        return nil
+    end
+    local tag = entry.tag or entry.Tag or entry.name or entry.Name
+    if tag == nil then
+        return nil
+    end
+    return { tag = tostring(tag), name = tostring(entry.name or entry.Name or tag), color = entry.color or entry.Color }
+end
+
+function ItemPicker.new(tab, properties)
+    properties = if typeof(properties) == "table" then properties else {}
+    local search = properties.search
+    if search == nil then
+        search = properties.Search
+    end
+
+    local self = setmetatable({
+        tab = assert(tab, "Missing argument #1 (Tab expected)"),
+        window = tab.window,
+        name = properties.name or properties.Name or "Items",
+        heading = properties.title or properties.Title,
+        icon = properties.icon or properties.Icon,
+        description = properties.description or properties.Description,
+        tooltip = properties.tooltip or properties.Tooltip,
+        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        multiSelect = functions.readBool(properties, "multiSelect", true),
+        searchPlaceholder = if type(search) == "string" then search else "Search",
+        emptyText = properties.emptyText or properties.EmptyText or "Nothing matches that.",
+        callback = properties.callback or properties.Callback or function() end,
+
+        entries = {},
+        filters = {},
+        selected = {}, -- id -> true, ids not (yet) in the list included
+        order = {}, -- the ids picked, in the order they were picked
+        cards = {},
+        chips = {},
+        activeTag = nil, -- nil = All
+        searchText = "",
+        value = {},
+        isOpen = false,
+        _shown = false,
+    }, ItemPicker)
+    self.heading = self.heading or ("Select " .. tostring(self.name))
+    self.flag = properties.flag
+        or properties.Flag
+        or (not self.forgetState and functions.deriveFlagFromName(self.name) or nil)
+
+    for _, entry in (properties.items or properties.Items or {}) do
+        local item = normalise(entry)
+        if item then
+            table.insert(self.entries, item)
+        end
+    end
+    for _, entry in (properties.filters or properties.Filters or {}) do
+        local filter = normaliseFilter(entry)
+        if filter then
+            table.insert(self.filters, filter)
+        end
+    end
+
+    self.window:_registerControl(self)
+    self:_buildRow()
+
+    local initial = functions.readValue(properties, { "value", "Value" })
+    if initial ~= nil then
+        self:Set(initial, true)
+    else
+        self:_syncValue()
+    end
+
+    self.window:_wireTooltip(self)
+    if self.description then
+        self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })
+    end
+    return self
+end
+
+-- The row on the page ---------------------------------------------------------------------------
+
+function ItemPicker:_buildRow()
+    local window = self.window
+
+    self.main = window:Create("Frame", {
+        Name = self.name,
+        Size = UDim2.new(1, -20, 0, elementHeight),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = 1,
+
+        Parent = self.tab.tabPage,
+    }, { BackgroundTransparency = "ElementTransparency" })
+    self.stroke = window:StyleElementBody(self.main)
+
+    local left = constants.elementInset
+    if self.icon then
+        self.iconLabel = window:Create("ImageLabel", {
+            Size = UDim2.fromOffset(constants.elementIconSize, constants.elementIconSize),
+            Position = UDim2.new(0, left, 0.5, 0),
+            AnchorPoint = Vector2.new(0, 0.5),
+            BackgroundTransparency = 1,
+            ImageTransparency = 1,
+
+            Parent = self.main,
+        }, { ImageColor3 = "ContentColor" })
+        image.assign(self.iconLabel, "Image", self.icon)
+        left += constants.elementIconSize + constants.elementIconGap
+    end
+
+    self.title = window:Create("TextLabel", {
+        Text = locale.t(self.name),
+        Size = UDim2.new(0.5, -left, 0, 18),
+        Position = UDim2.new(0, left, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundTransparency = 1,
+        TextSize = 16,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        TextTransparency = 1,
+
+        Parent = self.main,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+
+    -- what is picked, and the glyph that says a bigger picker opens from here
+    self.summaryIcon = window:Create("ImageLabel", {
+        Size = UDim2.fromOffset(16, 16),
+        Position = UDim2.new(1, -15, 0.5, 0),
+        AnchorPoint = Vector2.new(1, 0.5),
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+
+        Parent = self.main,
+    }, { ImageColor3 = "ContentColor" })
+    image.assign(self.summaryIcon, "Image", "lucide:list-filter")
+
+    self.summary = window:Create("TextLabel", {
+        Text = "",
+        Size = UDim2.new(0.5, -48, 0, 18),
+        Position = UDim2.new(1, -40, 0.5, 0),
+        AnchorPoint = Vector2.new(1, 0.5),
+        BackgroundTransparency = 1,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        TextTransparency = 1,
+
+        Parent = self.main,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+
+    self.interact = window:Create("TextButton", {
+        Name = "Interact",
+        Text = "",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        AutoButtonColor = false,
+
+        Parent = self.main,
+    })
+    window:ConnectFor(self, self.interact.MouseButton1Click, function()
+        if self.locked then
+            return
+        end
+        hapticEngine.click()
+        soundEngine.click()
+        self:Open()
+    end)
+    window:_wireElementHover(self)
+end
+
+function ItemPicker:_summaryText(): string
+    local count = #self.value
+    if count == 0 then
+        return locale.resolve("None")
+    elseif count == 1 then
+        local id = self.value[1]
+        for _, entry in self.entries do
+            if entry.id == id then
+                return entry.name
+            end
+        end
+        return id
+    end
+    return count .. " " .. locale.resolve("selected")
+end
+
+-- The page over the tab --------------------------------------------------------------------------
+
+local function z(level: number): number
+    return baseZ + level
+end
+
+function ItemPicker:_buildPage()
+    local window = self.window
+    local host = window.elements
+
+    local page = window:Create("TextButton", {
+        Name = "ItemPicker",
+        Text = "",
+        AutoButtonColor = false,
+        -- where the pages are, over them
+        Size = host.Size,
+        Position = host.Position,
+        AnchorPoint = host.AnchorPoint,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        Visible = false,
+        ZIndex = z(0),
+
+        Parent = window.main,
+    })
+    self.page = page
+    local hostCorner
+    for _, child in host:GetChildren() do
+        if child.ClassName == "UICorner" then
+            hostCorner = child
+        end
+    end
+    if hostCorner then
+        window:Create("UICorner", { CornerRadius = hostCorner.CornerRadius, Parent = page })
+    end
+    self:_paintPage()
+    window:OnThemeChanged(function()
+        if self.page then
+            self:_paintPage()
+        end
+    end)
+
+    -- everything but the backdrop drops into place as the page opens
+    local body = window:Create("Frame", {
+        Name = "Body",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        ZIndex = z(1),
+        Parent = page,
+    })
+    self.body = body
+
+    -- header: the title and a pill with the count; Done on the right
+    local header = window:Create("Frame", {
+        Size = UDim2.new(1, -(pad * 2 + doneWidth + 12), 0, headerHeight),
+        Position = UDim2.fromOffset(pad, headerTop),
+        BackgroundTransparency = 1,
+        ZIndex = z(1),
+        Parent = body,
+    })
+    window:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 10),
+        Parent = header,
+    })
+    window:Create("TextLabel", {
+        Name = "Title",
+        Text = locale.t(self.heading),
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.fromOffset(0, headerHeight),
+        BackgroundTransparency = 1,
+        TextSize = 18,
+        LayoutOrder = 1,
+        ZIndex = z(2),
+        Parent = header,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    local countPill = window:Create("Frame", {
+        Name = "Count",
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.fromOffset(0, 22),
+        BackgroundTransparency = 0.94,
+        LayoutOrder = 2,
+        ZIndex = z(2),
+        Parent = header,
+    }, { BackgroundColor3 = "ContentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = countPill })
+    self.countPill = countPill
+    self.countStroke = window:Create("UIStroke", { Transparency = 0.9, Parent = countPill }, { Color = "ContentColor" })
+    window:Create("UIPadding", {
+        PaddingLeft = UDim.new(0, 10),
+        PaddingRight = UDim.new(0, 10),
+        Parent = countPill,
+    })
+    self.countLabel = window:Create("TextLabel", {
+        Text = "",
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.fromOffset(0, 22),
+        BackgroundTransparency = 1,
+        TextSize = 12,
+        TextTransparency = 0.4,
+        ZIndex = z(3),
+        Parent = countPill,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+
+    self.doneButton = self:_button(body, "Done", UDim2.fromOffset(doneWidth, headerHeight), function()
+        self:Close()
+    end)
+    self.doneButton.Position = UDim2.new(1, -pad, 0, headerTop)
+    self.doneButton.AnchorPoint = Vector2.new(1, 0)
+
+    -- tools: search, Select all, Clear
+    local searchWidth = pad + (if self.multiSelect then buttonWidth * 2 + 16 else buttonWidth + 8)
+    local searchBox = window:Create("Frame", {
+        Name = "Search",
+        Size = UDim2.new(1, -(pad + searchWidth), 0, toolsHeight),
+        Position = UDim2.fromOffset(pad, toolsTop),
+        BackgroundTransparency = 0.95,
+        ZIndex = z(1),
+        Parent = body,
+    }, { BackgroundColor3 = "ContentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = searchBox })
+    local searchStroke = window:Create("UIStroke", { Parent = searchBox }, { Color = "ElementStroke" })
+    local searchIcon = window:Create("ImageLabel", {
+        Size = UDim2.fromOffset(15, 15),
+        Position = UDim2.new(0, 11, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
+        BackgroundTransparency = 1,
+        ImageTransparency = 0.5,
+        ZIndex = z(2),
+        Parent = searchBox,
+    }, { ImageColor3 = "ContentColor" })
+    image.assign(searchIcon, "Image", "lucide:search")
+    window:_iconGlow(searchIcon)
+    self.searchInput = window:Create("TextBox", {
+        Text = "",
+        PlaceholderText = locale.t(self.searchPlaceholder),
+        ClearTextOnFocus = false,
+        Size = UDim2.new(1, -44, 1, 0),
+        Position = UDim2.fromOffset(34, 0),
+        BackgroundTransparency = 1,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = z(2),
+        Parent = searchBox,
+    }, { TextColor3 = "ContentColor", PlaceholderColor3 = "PlaceholderColor", FontFace = "Font" })
+    window:_wireFieldFocus(self.searchInput, searchStroke, searchIcon, 0.5)
+    window:ConnectFor(self, self.searchInput:GetPropertyChangedSignal("Text"), function()
+        self.searchText = string.lower(self.searchInput.Text)
+        self:_applyFilter()
+    end)
+
+    local toolRight = pad
+    self.clearButton = self:_button(body, "Clear", UDim2.fromOffset(buttonWidth, toolsHeight), function()
+        self:Clear()
+    end)
+    self.clearButton.Position = UDim2.new(1, -toolRight, 0, toolsTop)
+    self.clearButton.AnchorPoint = Vector2.new(1, 0)
+    toolRight += buttonWidth + 8
+    if self.multiSelect then
+        self.selectAllButton = self:_button(body, "Select all", UDim2.fromOffset(buttonWidth, toolsHeight), function()
+            self:SelectAll()
+        end)
+        self.selectAllButton.Position = UDim2.new(1, -toolRight, 0, toolsTop)
+        self.selectAllButton.AnchorPoint = Vector2.new(1, 0)
+    end
+
+    -- chips: All, then one per filter
+    -- a few pixels taller than a chip and starting a little to its left: the row clips, and a chip
+    -- flush with its edges lost the top, bottom and left of its outline
+    self.chipRow = window:Create("ScrollingFrame", {
+        Name = "Filters",
+        Size = UDim2.new(1, -(pad * 2 - chipRoom * 2), 0, chipHeight + chipRoom * 2),
+        Position = UDim2.fromOffset(pad - chipRoom, chipsTop - chipRoom),
+        BackgroundTransparency = 1,
+        AutomaticCanvasSize = Enum.AutomaticSize.X,
+        CanvasSize = UDim2.new(),
+        ScrollingDirection = Enum.ScrollingDirection.X,
+        ScrollBarThickness = 0,
+        ZIndex = z(1),
+        Parent = body,
+    })
+    window:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 6),
+        Parent = self.chipRow,
+    })
+    window:Create("UIPadding", {
+        PaddingLeft = UDim.new(0, chipRoom),
+        PaddingRight = UDim.new(0, chipRoom),
+        Parent = self.chipRow,
+    })
+    self:_buildChip({ tag = nil, name = "All" }, 0)
+    for index, filter in self.filters do
+        self:_buildChip(filter, index)
+    end
+    self.chipRow.Visible = #self.filters > 0
+
+    self.rule = window:Create("Frame", {
+        Size = UDim2.new(1, -pad * 2, 0, 1),
+        Position = UDim2.fromOffset(pad, (if #self.filters > 0 then gridTop else chipsTop) - 8),
+        BackgroundTransparency = 0.93,
+        BorderSizePixel = 0,
+        ZIndex = z(1),
+        Parent = body,
+    }, { BackgroundColor3 = "ContentColor" })
+
+    local top = if #self.filters > 0 then gridTop else chipsTop
+    self.grid = window:Create("ScrollingFrame", {
+        Name = "Cards",
+        Size = UDim2.new(1, -(pad * 2 - 6), 1, -(top + 8)),
+        Position = UDim2.fromOffset(pad - 3, top),
+        BackgroundTransparency = 1,
+        CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+        ScrollBarThickness = 0,
+        ZIndex = z(1),
+        Parent = body,
+    })
+
+    -- The engine's scrollbar drew a dark track down the whole height beside the cards. This is only
+    -- the thumb: a thin rounded bar the length of what shows, there only when there is more to see.
+    self.thumbRail = window:Create("Frame", {
+        Name = "ScrollRail",
+        Size = UDim2.new(0, 3, 1, -(top + 14)),
+        Position = UDim2.new(1, -(pad - 3), 0, top + 3),
+        AnchorPoint = Vector2.new(1, 0),
+        BackgroundTransparency = 1,
+        ZIndex = z(2),
+        Parent = body,
+    })
+    self.thumb = window:Create("Frame", {
+        Name = "Thumb",
+        Size = UDim2.new(1, 0, 0, 24),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 0.65,
+        Visible = false,
+        ZIndex = z(3),
+        Parent = self.thumbRail,
+    }, { BackgroundColor3 = "ContentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = self.thumb })
+    for _, property in { "CanvasPosition", "AbsoluteCanvasSize", "AbsoluteWindowSize" } do
+        window:ConnectFor(self, self.grid:GetPropertyChangedSignal(property), function()
+            self:_syncThumb()
+        end)
+    end
+    -- room for a card's outward stroke on every side
+    window:Create("UIPadding", {
+        PaddingLeft = UDim.new(0, 3),
+        PaddingRight = UDim.new(0, 6),
+        PaddingTop = UDim.new(0, 3),
+        PaddingBottom = UDim.new(0, 14),
+        Parent = self.grid,
+    })
+    self.gridLayout = window:Create("UIGridLayout", {
+        CellSize = UDim2.fromOffset(minCardWidth, cardHeight),
+        CellPadding = UDim2.fromOffset(cardGap, cardGap),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Parent = self.grid,
+    })
+    window:ConnectFor(self, self.grid:GetPropertyChangedSignal("AbsoluteSize"), function()
+        self:_applyColumns()
+    end)
+
+    self.emptyLabel = window:Create("TextLabel", {
+        Text = locale.t(self.emptyText),
+        Size = UDim2.new(1, -pad * 2, 0, 40),
+        Position = UDim2.fromOffset(pad, top + 20),
+        BackgroundTransparency = 1,
+        TextSize = 14,
+        TextTransparency = 0.5,
+        Visible = false,
+        ZIndex = z(2),
+        Parent = body,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+
+    -- Escape closes it, the way it closes every other panel
+    window:ConnectFor(self, variables.userInputService.InputBegan, function(input)
+        if self.isOpen and input.KeyCode == Enum.KeyCode.Escape then
+            self:Close()
+        end
+    end)
+
+    self:_rebuildCards()
+end
+
+-- The page's own ground: the window's colour where the pages are.
+function ItemPicker:_paintPage()
+    local window = self.window
+    local color = window.theme.ContentColor
+    local ok, base = pcall(function()
+        return window:_windowColorAt(0.5)
+    end)
+    local ground = if ok and typeof(base) == "Color3" then base:Lerp(color, 0.02) else Color3.fromRGB(20, 20, 20)
+    self.page.BackgroundColor3 = ground
+    self.page.BackgroundTransparency = 1 - (window.windowOpacity or 1) * 1
+end
+
+-- A plain button on the page: a soft fill and a hairline, brighter under the pointer.
+function ItemPicker:_button(parent, text: string, size: UDim2, onClick)
+    local window = self.window
+    local button = window:Create("TextButton", {
+        Name = text,
+        Text = locale.t(text),
+        Size = size,
+        AutoButtonColor = false,
+        BackgroundTransparency = 0.9,
+        TextSize = 14,
+        ZIndex = z(2),
+        Parent = parent,
+    }, { BackgroundColor3 = "ContentColor", TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = button })
+    window:Create("UIStroke", {
+        Transparency = 0.9,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = button,
+    }, { Color = "ContentColor" })
+    window:ConnectFor(self, button.MouseEnter, function()
+        variables.tweenService:Create(button, stateInfo, { BackgroundTransparency = 0.84 }):Play()
+    end)
+    window:ConnectFor(self, button.MouseLeave, function()
+        variables.tweenService:Create(button, stateInfo, { BackgroundTransparency = 0.9 }):Play()
+    end)
+    window:ConnectFor(self, button.MouseButton1Click, function()
+        hapticEngine.click()
+        soundEngine.click()
+        onClick()
+    end)
+    return button
+end
+
+function ItemPicker:_buildChip(filter, order: number)
+    local window = self.window
+    local chip = { filter = filter }
+    chip.frame = window:Create("TextButton", {
+        Name = filter.name,
+        Text = "",
+        AutoButtonColor = false,
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.fromOffset(0, chipHeight),
+        BackgroundTransparency = 1,
+        LayoutOrder = order,
+        ZIndex = z(2),
+        Parent = self.chipRow,
+    }, { BackgroundColor3 = "ContentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = chip.frame })
+    chip.stroke = window:Create("UIStroke", {
+        Transparency = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = chip.frame,
+    })
+    window:Create("UIPadding", {
+        PaddingLeft = UDim.new(0, if filter.color then 10 else 12),
+        PaddingRight = UDim.new(0, 12),
+        Parent = chip.frame,
+    })
+    window:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 6),
+        Parent = chip.frame,
+    })
+    if filter.color then
+        chip.dot = window:Create("Frame", {
+            Size = UDim2.fromOffset(7, 7),
+            BackgroundColor3 = filter.color,
+            BorderSizePixel = 0,
+            LayoutOrder = 1,
+            ZIndex = z(3),
+            Parent = chip.frame,
+        })
+        window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = chip.dot })
+    end
+    chip.label = window:Create("TextLabel", {
+        Text = locale.t(filter.name),
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.fromOffset(0, chipHeight),
+        BackgroundTransparency = 1,
+        TextSize = 13,
+        LayoutOrder = 2,
+        ZIndex = z(3),
+        Parent = chip.frame,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+
+    window:ConnectFor(self, chip.frame.MouseButton1Click, function()
+        hapticEngine.click()
+        self:SetFilter(filter.tag)
+    end)
+    window:ConnectFor(self, chip.frame.MouseEnter, function()
+        chip.hovered = true
+        self:_paintChip(chip, true)
+    end)
+    window:ConnectFor(self, chip.frame.MouseLeave, function()
+        chip.hovered = false
+        self:_paintChip(chip, true)
+    end)
+
+    table.insert(self.chips, chip)
+    self:_paintChip(chip, false)
+end
+
+function ItemPicker:_paintChip(chip, animate)
+    local theme = self.window.theme
+    local active = self.activeTag == chip.filter.tag
+    local tint = chip.filter.color or theme.ContentColor
+    local goals = {
+        frame = {
+            BackgroundColor3 = if active then tint else theme.ContentColor,
+            BackgroundTransparency = if active
+                then (if chip.filter.color then 0.85 else 0.88)
+                elseif chip.hovered then 0.94
+                else 0.97,
+        },
+        stroke = { Color = tint, Transparency = if active then 0.45 else 0.92 },
+        label = { TextTransparency = if active then 0 elseif chip.hovered then 0.2 else 0.45 },
+    }
+    for part, properties in goals do
+        if animate then
+            variables.tweenService:Create(chip[part], stateInfo, properties):Play()
+        else
+            for property, value in properties do
+                chip[part][property] = value
+            end
+        end
+    end
+end
+
+-- Where the scroll thumb sits and how long it is: the share of the cards on screen, at the share
+-- scrolled.
+function ItemPicker:_syncThumb()
+    if not self.thumb then
+        return
+    end
+    local view = self.grid.AbsoluteWindowSize.Y
+    local canvas = self.grid.AbsoluteCanvasSize.Y
+    if view <= 0 or canvas <= view + 1 then
+        self.thumb.Visible = false
+        return
+    end
+    local rail = self.thumbRail.AbsoluteSize.Y
+    if rail <= 0 then
+        rail = view
+    end
+    local length = math.max(math.floor(rail * view / canvas), 24)
+    local share = math.clamp(self.grid.CanvasPosition.Y / (canvas - view), 0, 1)
+    self.thumb.Size = UDim2.new(1, 0, 0, length)
+    self.thumb.Position = UDim2.fromOffset(0, math.floor((rail - length) * share))
+    self.thumb.Visible = true
+end
+
+function ItemPicker:_applyColumns()
+    local width = self.grid.AbsoluteWindowSize.X
+    if width <= 0 then
+        width = self.grid.AbsoluteSize.X
+    end
+    width -= 9 -- the padding above
+    if width <= 0 then
+        return
+    end
+    local columns = math.max(math.floor((width + cardGap) / (minCardWidth + cardGap)), 1)
+    local cardWidth = math.floor((width - cardGap * (columns - 1)) / columns)
+    self.gridLayout.CellSize = UDim2.fromOffset(cardWidth, cardHeight)
+end
+
+function ItemPicker:_buildCard(entry, order: number)
+    local window = self.window
+    local card = { entry = entry }
+
+    card.frame = window:Create("TextButton", {
+        Name = entry.name,
+        Text = "",
+        AutoButtonColor = false,
+        LayoutOrder = order,
+        BackgroundTransparency = 0.96,
+        ZIndex = z(2),
+        Parent = self.grid,
+    }, { BackgroundColor3 = "ContentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = card.frame })
+    card.stroke = window:Create("UIStroke", {
+        Transparency = 0.92,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = card.frame,
+    })
+
+    -- the picture sits in a darker well that deepens towards its foot
+    card.well = window:Create("Frame", {
+        Size = UDim2.new(1, -12, 0, wellHeight),
+        Position = UDim2.fromOffset(6, 6),
+        BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 0.55,
+        BorderSizePixel = 0,
+        ZIndex = z(3),
+        Parent = card.frame,
+    })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = card.well })
+    window:Create("UIGradient", {
+        Rotation = 90,
+        Transparency = NumberSequence.new(0.6, 0),
+        Parent = card.well,
+    })
+    if entry.image then
+        card.picture = window:Create("ImageLabel", {
+            Size = UDim2.fromOffset(thumbSize, thumbSize),
+            Position = UDim2.fromScale(0.5, 0.5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundTransparency = 1,
+            ScaleType = Enum.ScaleType.Fit,
+            ZIndex = z(4),
+            Parent = card.well,
+        })
+        image.assign(card.picture, "Image", entry.image)
+    end
+
+    local below = 6 + wellHeight + 6
+    card.name = window:Create("TextLabel", {
+        Text = entry.name,
+        Size = UDim2.new(1, -18, 0, 32),
+        Position = UDim2.fromOffset(9, below),
+        BackgroundTransparency = 1,
+        TextSize = 13,
+        TextWrapped = true,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        ZIndex = z(3),
+        Parent = card.frame,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+
+    local metaTop = below + 34
+    local metaLeft = 9
+    if entry.color then
+        card.dot = window:Create("Frame", {
+            Size = UDim2.fromOffset(6, 6),
+            Position = UDim2.fromOffset(9, metaTop + 7),
+            AnchorPoint = Vector2.new(0, 0.5),
+            BackgroundColor3 = entry.color,
+            BorderSizePixel = 0,
+            ZIndex = z(3),
+            Parent = card.frame,
+        })
+        window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = card.dot })
+        metaLeft += 11
+    end
+    if entry.rarity then
+        card.rarity = window:Create("TextLabel", {
+            Text = tostring(entry.rarity),
+            Size = UDim2.new(1, -(metaLeft + 50), 0, 14),
+            Position = UDim2.fromOffset(metaLeft, metaTop),
+            BackgroundTransparency = 1,
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextColor3 = entry.color or Color3.new(1, 1, 1),
+            ZIndex = z(3),
+            Parent = card.frame,
+        }, { FontFace = "TitleFont" })
+    end
+    if entry.value then
+        card.value = window:Create("TextLabel", {
+            Text = entry.value,
+            Size = UDim2.fromOffset(46, 14),
+            Position = UDim2.new(1, -9, 0, metaTop),
+            AnchorPoint = Vector2.new(1, 0),
+            BackgroundTransparency = 1,
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Right,
+            ZIndex = z(3),
+            Parent = card.frame,
+        }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    end
+    if entry.subtitle then
+        card.subtitle = window:Create("TextLabel", {
+            Text = tostring(entry.subtitle),
+            Size = UDim2.new(1, -18, 0, 14),
+            Position = UDim2.fromOffset(9, metaTop + 17),
+            BackgroundTransparency = 1,
+            TextSize = 12,
+            TextTransparency = 0.5,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            ZIndex = z(3),
+            Parent = card.frame,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    end
+
+    -- the tick, over the well's corner
+    card.badge = window:Create("Frame", {
+        Size = UDim2.fromOffset(badgeSize, badgeSize),
+        -- anchored on its middle so the pop grows it about its own centre
+        Position = UDim2.new(1, -(10 + badgeSize / 2), 0, 10 + badgeSize / 2),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+        ZIndex = z(5),
+        Parent = card.frame,
+    }, { BackgroundColor3 = "AccentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = card.badge })
+    card.check = window:Create("ImageLabel", {
+        Size = UDim2.fromScale(0.72, 0.72),
+        ImageColor3 = Color3.new(1, 1, 1),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+        ZIndex = z(6),
+        Parent = card.badge,
+    })
+    image.assign(card.check, "Image", "lucide:check")
+
+    window:ConnectFor(self, card.frame.MouseEnter, function()
+        card.hovered = true
+        self:_paintCard(card, true)
+    end)
+    window:ConnectFor(self, card.frame.MouseLeave, function()
+        card.hovered = false
+        self:_paintCard(card, true)
+    end)
+    window:ConnectFor(self, card.frame.MouseButton1Click, function()
+        hapticEngine.click()
+        soundEngine.click()
+        self:Toggle(entry.id)
+    end)
+
+    self:_paintCard(card, false)
+    return card
+end
+
+function ItemPicker:_paintCard(card, animate)
+    local theme = self.window.theme
+    local picked = self.selected[card.entry.id] == true
+    local goals = {
+        frame = { BackgroundTransparency = if picked then 0.9 elseif card.hovered then 0.93 else 0.96 },
+        stroke = {
+            Color = if picked then theme.AccentStroke or theme.AccentColor else theme.ContentColor,
+            Transparency = if picked then 0.2 elseif card.hovered then 0.8 else 0.92,
+        },
+        name = { TextTransparency = if picked or card.hovered then 0 else 0.2 },
+        badge = { BackgroundTransparency = if picked then 0 else 1 },
+        check = { ImageTransparency = if picked then 0 else 1 },
+    }
+    if card.picture then
+        -- the picture comes forward a little under the pointer
+        local size = if card.hovered then thumbSize + 6 else thumbSize
+        goals.picture = { Size = UDim2.fromOffset(size, size) }
+    end
+    for part, properties in goals do
+        if animate then
+            variables.tweenService:Create(card[part], stateInfo, properties):Play()
+        else
+            for property, value in properties do
+                card[part][property] = value
+            end
+        end
+    end
+
+    -- the tick pops in as the card is picked
+    if animate and picked and not card.wasPicked then
+        card.badge.Size = UDim2.fromOffset(badgeSize * 0.4, badgeSize * 0.4)
+        variables.tweenService:Create(card.badge, popInfo, { Size = UDim2.fromOffset(badgeSize, badgeSize) }):Play()
+    elseif not animate then
+        card.badge.Size = UDim2.fromOffset(badgeSize, badgeSize)
+    end
+    card.wasPicked = picked
+end
+
+function ItemPicker:_rebuildCards()
+    if not self.grid then
+        return
+    end
+    for _, card in self.cards do
+        card.frame:Destroy()
+    end
+    self.cards = {}
+    for index, entry in self.entries do
+        self.cards[entry.id] = self:_buildCard(entry, index)
+    end
+    self:_applyColumns()
+    self:_applyFilter()
+end
+
+function ItemPicker:_matches(entry): boolean
+    if self.activeTag ~= nil and tostring(entry.tag) ~= self.activeTag then
+        return false
+    end
+    if self.searchText ~= "" then
+        local haystack =
+            string.lower(entry.name .. " " .. tostring(entry.subtitle or "") .. " " .. tostring(entry.rarity or ""))
+        return string.find(haystack, self.searchText, 1, true) ~= nil
+    end
+    return true
+end
+
+function ItemPicker:_applyFilter()
+    if not self.grid then
+        return
+    end
+    local any = false
+    for _, entry in self.entries do
+        local card = self.cards[entry.id]
+        if card then
+            local match = self:_matches(entry)
+            card.frame.Visible = match
+            any = any or match
+        end
+    end
+    self.emptyLabel.Visible = not any
+    self:_syncCount()
+end
+
+function ItemPicker:_syncCount()
+    if not self.countLabel then
+        return
+    end
+    local picked = #self.value
+    -- the pill takes the accent's colour once anything is picked
+    local theme = self.window.theme
+    local lit = picked > 0
+    local info = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    variables.tweenService
+        :Create(self.countPill, info, {
+            BackgroundColor3 = if lit then theme.AccentStroke else theme.ContentColor,
+            BackgroundTransparency = if lit then 0.86 else 0.94,
+        })
+        :Play()
+    variables.tweenService
+        :Create(self.countStroke, info, {
+            Color = if lit then theme.AccentStroke else theme.ContentColor,
+            Transparency = if lit then 0.55 else 0.9,
+        })
+        :Play()
+    variables.tweenService
+        :Create(self.countLabel, info, {
+            TextColor3 = if lit then theme.AccentStroke else theme.ContentColor,
+            TextTransparency = if lit then 0 else 0.4,
+        })
+        :Play()
+    self.countLabel.Text = if picked > 0
+        then picked .. " " .. locale.resolve("selected")
+        else #self.entries .. " " .. locale.resolve("items")
+end
+
+-- Selection ----------------------------------------------------------------------------------------
+
+function ItemPicker:_syncValue()
+    local ids = {}
+    local listed = {}
+    for _, entry in self.entries do
+        listed[entry.id] = true
+        if self.selected[entry.id] then
+            table.insert(ids, entry.id)
+        end
+    end
+    -- picks the list does not hold (yet) are kept, so a saved config survives a late Refresh
+    for id in self.selected do
+        if not listed[id] then
+            table.insert(ids, id)
+        end
+    end
+    self.value = ids
+    self.summary.Text = self:_summaryText()
+    self:_syncCount()
+end
+
+function ItemPicker:_changed(skipCallback: boolean?)
+    self:_syncValue()
+    for _, card in self.cards do
+        self:_paintCard(card, self.isOpen)
+    end
+    if not skipCallback then
+        self.window:_runGuarded(self, self.callback, table.clone(self.value))
+        self.window:_persist(self)
+    end
+end
+
+function ItemPicker:Get(): { string }
+    return table.clone(self.value)
+end
+
+function ItemPicker:Set(ids, skipCallback)
+    if type(ids) ~= "table" then
+        ids = if ids == nil then {} else { ids }
+    end
+    table.clear(self.selected)
+    for _, id in ids do
+        self.selected[tostring(id)] = true
+        if not self.multiSelect then
+            break
+        end
+    end
+    self:_changed(skipCallback)
+end
+
+function ItemPicker:Toggle(id, skipCallback): boolean
+    id = tostring(id)
+    if self.selected[id] then
+        self.selected[id] = nil
+    else
+        if not self.multiSelect then
+            table.clear(self.selected)
+        end
+        self.selected[id] = true
+    end
+    self:_changed(skipCallback)
+    return self.selected[id] == true
+end
+
+-- Picks everything the search and the chip show; what is hidden is left as it was.
+function ItemPicker:SelectAll(skipCallback)
+    if not self.multiSelect then
+        return
+    end
+    for _, entry in self.entries do
+        if self:_matches(entry) then
+            self.selected[entry.id] = true
+        end
+    end
+    self:_changed(skipCallback)
+end
+
+function ItemPicker:Clear(skipCallback)
+    table.clear(self.selected)
+    self:_changed(skipCallback)
+end
+
+-- A chip's tag, or nil for All.
+function ItemPicker:SetFilter(tag: string?)
+    self.activeTag = if tag ~= nil then tostring(tag) else nil
+    for _, chip in self.chips do
+        self:_paintChip(chip, self.isOpen)
+    end
+    self:_applyFilter()
+    if self.grid then
+        self.grid.CanvasPosition = Vector2.zero
+    end
+end
+
+function ItemPicker:Refresh(items, skipCallback)
+    self.entries = {}
+    for _, entry in (items or {}) do
+        local item = normalise(entry)
+        if item then
+            table.insert(self.entries, item)
+        end
+    end
+    self:_rebuildCards()
+    self:_changed(skipCallback)
+end
+
+-- Opening and closing ------------------------------------------------------------------------------
+
+function ItemPicker:Open()
+    if self.isOpen then
+        return
+    end
+    local window = self.window
+    -- one at a time: another picker already open closes first
+    if window._openItemPicker and window._openItemPicker ~= self then
+        window._openItemPicker:Close()
+    end
+    window._openItemPicker = self
+    if not self.page then
+        self:_buildPage()
+    end
+    self.isOpen = true
+
+    local host = window.elements
+    self.page.Size = host.Size
+    self.page.Position = host.Position
+    self.page.AnchorPoint = host.AnchorPoint
+    self:_paintPage()
+    self:_applyColumns()
+    for _, card in self.cards do
+        self:_paintCard(card, false)
+    end
+    task.defer(function()
+        self:_syncThumb()
+    end)
+
+    local ground = self.page.BackgroundTransparency
+    self.page.Visible = true
+    if window:_interactive() then
+        self.page.BackgroundTransparency = 1
+        self.body.Position = UDim2.fromOffset(0, 10)
+        variables.tweenService:Create(self.page, openInfo, { BackgroundTransparency = ground }):Play()
+        variables.tweenService:Create(self.body, openInfo, { Position = UDim2.new() }):Play()
+    else
+        self.body.Position = UDim2.new()
+    end
+end
+
+function ItemPicker:Close()
+    if not self.isOpen then
+        return
+    end
+    self.isOpen = false
+    if self.window._openItemPicker == self then
+        self.window._openItemPicker = nil
+    end
+    if self.page then
+        self.page.Visible = false
+    end
+    if self.searchInput and self.searchInput:IsFocused() then
+        self.searchInput:ReleaseFocus()
+    end
+end
+
+function ItemPicker:IsOpen(): boolean
+    return self.isOpen
+end
+
+-- The rest of the element contract -----------------------------------------------------------------
+
+function ItemPicker:_searchText(): string
+    return tostring(self.name) .. " " .. tostring(self.heading)
+end
+
+function ItemPicker:_setShown(shown, animate)
+    local window = self.window
+    self._shown = shown
+    if shown then
+        window:_revealCommon(self, animate)
+    else
+        window:_hideCommon(self, animate)
+        self:Close()
+    end
+    window:_reveal(self.summary, { TextTransparency = if shown then 0.45 else 1 }, animate)
+    window:_reveal(self.summaryIcon, { ImageTransparency = if shown then 0.45 else 1 }, animate)
+end
+
+function ItemPicker:_refreshTheme()
+    for _, card in self.cards do
+        self:_paintCard(card, false)
+    end
+    for _, chip in self.chips do
+        self:_paintChip(chip, false)
+    end
+end
+
+function ItemPicker:_minWidth(): number
+    return 200
+end
+
+function ItemPicker:Remove()
+    self:Close()
+    if self.page then
+        self.page:Destroy()
+        self.page = nil
+    end
+    if self.descriptor then
+        self.descriptor:Remove()
+    end
+    self.main:Destroy()
+end
+
+moveable(ItemPicker)
+
+return ItemPicker
 ]=====]
 
 sources["components/keybind"] = [=====[
@@ -20960,8 +24433,9 @@ sources["components/search"] = [=====[
 -- License, v. 2.0. If a copy of the MPL was not distributed with this
 -- file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
--- Search: a pill that takes over the tab strip and filters what is on screen as the player
--- types. The Search action toggles it.
+-- Search: a field in the header, beside the settings cog, that filters what is on screen as the
+-- player types. Clicked, it widens to the left and its edge and glyph light up in the theme's
+-- accent (the field of the Airflow hub's UI); let go of while empty, it settles back.
 --
 -- By default it searches the page the player is on (searchScope = "tab"): that page's own
 -- elements are filtered in place, a section header goes with the elements under it, and moving
@@ -20974,29 +24448,19 @@ sources["components/search"] = [=====[
 
 local utility = script.Parent.Parent.utility
 local variables = require(utility.variables)
-local constants = require(utility.constants)
 local locale = require(utility.locale)
-local action = require(script.Parent.action)
+local image = require(utility.image)
 
 local search = {}
 
--- crossfade between the tab strip and the search pill, and the search parts fading in/out
-local swapInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-
--- Top mode: the bar opens under the tab strip and the page slides down to make room, on one
--- curve so the two move as one. The tabs stay where they are, so the page search can follow
--- the player to another tab with the query still in the field.
-local openInfo = TweenInfo.new(0.32, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-local barHeight = 40
-local barGap = 8 -- between the tab strip and the bar, and again between the bar and the page
-
--- resting/lit brightness for the Search action icon, matching the other topbar actions
-local iconRest = 0.6
-local iconLit = 0.2
-
--- Gap between the sidebar rail and the search pill beside it (and the same again on the pill's
--- own right edge), so the field doesn't sit flush against either.
-local searchRailGap = 12
+-- the field waking up and settling back: its width, its edge and its glyph, on one curve
+local focusInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local fieldWidth = 170
+local fieldOpenWidth = 230
+local fieldHeight = 26
+-- the slot is the header actions' own height; the field sits in it this far below centre
+local slotHeight = 30
+local fieldDrop = 2
 
 -- The searchable text for one unit: a leaf's own name, or every descendant leaf name joined
 -- so a group matches when any child inside it does. Recurses into anything that can host its
@@ -21019,14 +24483,15 @@ local function leafText(element): string
 end
 
 local function unitText(unit)
-    if unit.__type == "Group" or unit.__type == "Collapsible" or unit.__type == "Tabbox" then
+    local paged = unit.__type == "Tabbox" or unit.__type == "SubTabs"
+    if unit.__type == "Group" or unit.__type == "Collapsible" or paged then
         local parts = {}
         local function walk(container)
             local elements = if container.__type == "Collapsible" then container._group.elements else container.elements
             for _, child in elements do
                 if child.__type == "Group" or child.__type == "Collapsible" then
                     walk(child)
-                elseif child.__type == "Tabbox" then
+                elseif child.__type == "Tabbox" or child.__type == "SubTabs" then
                     for _, page in child.pages do
                         walk(page)
                     end
@@ -21038,7 +24503,7 @@ local function unitText(unit)
                 end
             end
         end
-        if unit.__type == "Tabbox" then
+        if paged then
             for _, page in unit.pages do
                 walk(page)
             end
@@ -21076,53 +24541,57 @@ local function collectUnits(window)
     return units
 end
 
--- Fade the pill's fill, stroke, shadow, icon and field in or out together. In Top mode the
--- bar is revealed instead: its holder opens to full height and the page makes room under it.
+-- The field awake (searching) or at rest: wider or back to its width, the edge and the glyph in
+-- the accent or back to the quiet stroke.
 local function setPillShown(window, shown, info)
-    if window.searchHolder then
-        local holderWidth = window.searchHolder.Size.X
-        variables.tweenService
-            :Create(window.searchHolder, openInfo, {
-                Size = UDim2.new(holderWidth.Scale, holderWidth.Offset, 0, if shown then barHeight else 0),
-            })
-            :Play()
-        local base = window._searchContentBase
-        if base then
-            variables.tweenService
-                :Create(window.elements, openInfo, {
-                    Size = UDim2.new(
-                        base.X.Scale,
-                        base.X.Offset,
-                        base.Y.Scale,
-                        base.Y.Offset - (if shown then barHeight + barGap else 0)
-                    ),
-                })
-                :Play()
-        end
-        variables.tweenService:Create(window.searchIcon, info, { ImageTransparency = if shown then 0.45 else 1 }):Play()
-        variables.tweenService:Create(window.searchInput, info, { TextTransparency = if shown then 0.1 else 1 }):Play()
-        return
-    end
-
-    variables.tweenService
-        :Create(window.searchPill, info, {
-            BackgroundTransparency = if shown then 0.9 else 1,
+    local theme = window.theme
+    local tweenService = variables.tweenService
+    tweenService
+        :Create(window.searchField, info or focusInfo, {
+            Size = UDim2.fromOffset(if shown then fieldOpenWidth else fieldWidth, slotHeight),
         })
         :Play()
-    variables.tweenService:Create(window.searchStroke, info, { Transparency = if shown then 0.85 else 1 }):Play()
-    variables.tweenService:Create(window.searchShadow, info, { Transparency = if shown then 0.92 else 1 }):Play()
-    variables.tweenService:Create(window.searchIcon, info, { ImageTransparency = if shown then 0.65 else 1 }):Play()
-    variables.tweenService:Create(window.searchInput, info, { TextTransparency = if shown then 0.2 else 1 }):Play()
+    if window._searchFieldShown == false then
+        return -- the window is hidden: nothing to light
+    end
+    tweenService
+        :Create(window.searchStroke, info or focusInfo, {
+            Color = if shown then theme.AccentStroke else theme.ElementStroke,
+            Transparency = if shown then 0 else 0.2,
+        })
+        :Play()
+    tweenService
+        :Create(window.searchIcon, info or focusInfo, {
+            ImageColor3 = if shown then theme.AccentStroke else theme.ContentColor,
+            ImageTransparency = if shown then 0 else 0.5,
+        })
+        :Play()
 end
 
 -- The page being searched, remembered element by element: what each says, which section
 -- header it sits under, and whether it was on screen before the search touched it - an
 -- element the dev hid with SetVisible(false) has to stay hidden whatever the query says.
+-- What a page search goes through: the tab's elements, and on a tab with sub tabs, what is on
+-- the sub tab that is open rather than the row of them as one block.
+local function pageElements(tab)
+    local elements = {}
+    for _, element in tab.elements do
+        if element.__type == "SubTabs" then
+            for _, child in (element.selected and element.selected.elements) or {} do
+                table.insert(elements, child)
+            end
+        else
+            table.insert(elements, element)
+        end
+    end
+    return elements
+end
+
 local function gatherPage(window, tab)
     window._searchTab = tab
     window._searchUnits = {}
     local section = nil
-    for _, element in tab.elements do
+    for _, element in pageElements(tab) do
         local main = element.main
         if not main then
             continue
@@ -21283,20 +24752,10 @@ function search.open(window)
         window:_jumpTo(window.searchPage)
     end
 
-    -- The tabs stay where they are in both modes: in Top mode the bar opens under the strip
-    -- (it used to take the strip's place), in Sidebar mode it sits beside the rail. Either way a
-    -- tab stays one click away, and the page search follows the player to it.
-    if window.searchHolder then
-        -- whatever the page's own geometry is right now is what it goes back to on close
-        window._searchContentBase = window._searchContentBase or window.elements.Size
-        window.searchHolder.Visible = true
-    else
-        window.searchPill.Visible = true
+    setPillShown(window, true)
+    if not window.searchInput:IsFocused() then
+        window.searchInput:CaptureFocus()
     end
-    setPillShown(window, true, swapInfo)
-    window.searchInput:CaptureFocus()
-
-    variables.tweenService:Create(window.searchAction.iconLabel, swapInfo, { ImageTransparency = iconLit }):Play()
 end
 
 -- config.showTabs: fade the tab strip back in (false when the caller hides the window).
@@ -21322,44 +24781,47 @@ function search.close(window, config)
         window:_jumpTo(target)
     end
 
-    setPillShown(window, false, swapInfo)
-    task.delay(if window.searchHolder then openInfo.Time else swapInfo.Time, function()
-        if window._searching then
-            return
-        end
-        if window.searchHolder then
-            window.searchHolder.Visible = false
-            -- the page is back at its own size; the next open measures it again
-            window._searchContentBase = nil
-        else
-            window.searchPill.Visible = false
-        end
-    end)
-
-    variables.tweenService:Create(window.searchAction.iconLabel, swapInfo, { ImageTransparency = iconRest }):Play()
+    setPillShown(window, false)
 end
 
--- Keep the pill lined up beside the rail when its width changes (the rail collapses to icons on
--- a narrow window - see Window:_applySidebarWidth). No-op in Top mode, where the pill takes the
--- full strip regardless.
-function search.railWidth(window, width: number)
-    if window.tabsMode ~= "Sidebar" or not window.searchPill then
+-- The field fading in and out with the window. A TextBox's placeholder cannot fade, so the box
+-- itself goes while the window is hidden.
+function search.setShown(window, shown: boolean, info: TweenInfo?)
+    if not window.searchField then
         return
     end
-    window.searchPill.Position = UDim2.new(0, width + searchRailGap, 0, 66)
-    window.searchPill.Size = UDim2.new(1, -(width + searchRailGap * 2), 0, 35)
+    window._searchFieldShown = shown
+    local tweenService = variables.tweenService
+    local timing = info or focusInfo
+    tweenService:Create(window.searchPill, timing, { BackgroundTransparency = if shown then 0 else 1 }):Play()
+    tweenService
+        :Create(window.searchStroke, timing, {
+            Transparency = if not shown then 1 elseif window._searching then 0 else 0.2,
+        })
+        :Play()
+    tweenService
+        :Create(window.searchIcon, timing, {
+            ImageTransparency = if not shown then 1 elseif window._searching then 0 else 0.5,
+        })
+        :Play()
+    window.searchInput.Visible = shown
 end
+
+-- Kept for callers from before the field moved into the header: there is nothing beside the rail
+-- to line up any more.
+function search.railWidth(_window, _width: number) end
 
 -- The player moved to another tab with the field open (the sidebar rail stays clickable while
 -- searching, and a hub can Select a tab itself): let the old page go and search the new one
 -- for whatever is already typed. Only the page search does this - the all-pages search has
 -- nothing to follow.
-function search.retarget(window)
+-- `refresh`: the same tab, but what is on it changed (another sub tab opened).
+function search.retarget(window, refresh: boolean?)
     if not window._searching or scopeOf(window) ~= "tab" then
         return
     end
     local tab = window.selectedTab
-    if not tab or tab == window._searchTab then
+    if not tab or (tab == window._searchTab and not refresh) then
         return
     end
     restorePage(window)
@@ -21430,16 +24892,7 @@ function search.build(window)
         Parent = window.main,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
-    -- Search pill: takes the tab strip's row in Top mode. In Sidebar mode the rail is down the
-    -- left instead, so the pill only takes the space beside it (see search.railWidth) and the
-    -- rail itself stays put rather than swapping out - live-reported as wanting the tabs to stay
-    -- visible while searching.
-    local sidebar = window.tabsMode == "Sidebar"
-    if not sidebar then
-        search._buildBar(window)
-    else
-        search._buildPill(window)
-    end
+    search._buildField(window)
 
     window:Connect(window.searchInput:GetPropertyChangedSignal("Text"), function()
         if not window._searching then
@@ -21451,159 +24904,97 @@ function search.build(window)
             applyFilter(window, window.searchInput.Text)
         end
     end)
-
-    -- Search action: last in the row (leftmost), toggles the field.
-    window.searchAction = action.new(window, {
-        name = "Search",
-        icon = constants.icons.search,
-        order = 4,
-
-        callback = function()
-            search.toggle(window)
-        end,
-    })
-    -- keep the icon lit while the field is open, the way the settings cog stays lit on its page
-    window.searchAction.isLit = function()
-        return window._searching
-    end
 end
 
--- Top mode: a bar the width of the tab strip, opening under it. The design - a rounded card
--- with a text-search glyph, revealed downward while the page slides down to make room - is
--- the search of SyncOfficialSpec's Rayfield Gen 3 Concept (MIT), on this library's own card
--- styling so it follows the theme like every element does.
-function search._buildBar(window)
-    -- the tab track is 44px tall at y = 78, 16px in (see window.luau), so the bar starts one
-    -- gap under it and spans the same inset
-    window.searchHolder = window:Create("Frame", {
-        Name = "SearchBar",
-        AnchorPoint = Vector2.new(0.5, 0),
-        Position = UDim2.new(0.5, 0, 0, 78 + 44 + barGap),
-        Size = UDim2.new(1, -32, 0, 0),
-        BackgroundTransparency = 1,
+-- The field itself, first in the header's row of actions (the leftmost, beside the settings cog).
+-- A TextButton rather than a Frame: the header's own reveal treats every Frame in the row as an
+-- icon action and fades its ImageLabel, and this has more parts than that - search.setShown fades
+-- them instead.
+function search._buildField(window)
+    local slot = window:Create("TextButton", {
+        Name = "SearchField",
+        Text = "",
+        AutoButtonColor = false,
+        Size = UDim2.fromOffset(fieldWidth, slotHeight),
+        LayoutOrder = -4,
         BorderSizePixel = 0,
-        ClipsDescendants = true,
-        Visible = false,
-        ZIndex = 10,
+        BackgroundTransparency = 1,
 
-        Parent = window.main,
+        Parent = window.actionContainer,
     })
-
-    window.searchPill = window:Create("Frame", {
+    local field = window:Create("Frame", {
         Name = "Field",
-        Size = UDim2.new(1, 0, 0, barHeight),
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        Size = UDim2.new(1, 0, 0, fieldHeight),
+        Position = UDim2.new(0, 0, 0.5, fieldDrop),
+        AnchorPoint = Vector2.new(0, 0.5),
         BorderSizePixel = 0,
-        ZIndex = 10,
+        BackgroundTransparency = 1,
 
-        Parent = window.searchHolder,
-    }, { BackgroundTransparency = "ElementTransparency" })
-
-    window.searchStroke = window:StyleElementBody(window.searchPill)
-    window.searchStroke.Transparency = 0.9
+        Parent = slot,
+    }, { BackgroundColor3 = "StatBackground" })
+    window.searchField = slot
+    window.searchPill = field
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 7), Parent = field })
+    window.searchStroke = window:Create("UIStroke", {
+        Thickness = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Transparency = 1,
+        Parent = field,
+    }, { Color = "ElementStroke" })
 
     window.searchIcon = window:Create("ImageLabel", {
-        Image = "rbxassetid://" .. tostring(constants.icons.search),
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.new(0, 21, 0.5, 0),
-        Size = UDim2.fromOffset(18, 18),
+        Name = "Glyph",
+        AnchorPoint = Vector2.new(0, 0.5),
+        Position = UDim2.new(0, 10, 0.5, 0),
+        Size = UDim2.fromOffset(14, 14),
         BackgroundTransparency = 1,
-        ZIndex = 11,
+        ImageTransparency = 1,
+        ZIndex = 2,
 
-        ImageTransparency = 1, -- shown = 0.45
-
-        Parent = window.searchPill,
+        Parent = field,
     }, { ImageColor3 = "ContentColor" })
+    image.assign(window.searchIcon, "Image", "lucide:search")
+    window:_iconGlow(window.searchIcon, 0.18)
 
     window.searchInput = window:Create("TextBox", {
         Text = "",
-        PlaceholderText = locale.t(if scopeOf(window) == "all" then "Search all pages" else "Search this page"),
-        Position = UDim2.fromOffset(42, 0),
-        Size = UDim2.new(1, -50, 1, 0),
+        PlaceholderText = locale.t("Search"),
+        Position = UDim2.fromOffset(32, 0),
+        Size = UDim2.new(1, -40, 1, 0),
         BackgroundTransparency = 1,
-        TextSize = 15,
+        TextSize = 14,
         TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
         ClearTextOnFocus = false,
         ClipsDescendants = true,
-        ZIndex = 11,
-
-        TextTransparency = 1, -- shown = 0.1
-
-        Parent = window.searchPill,
-    }, { TextColor3 = "ContentColor", FontFace = "Font", PlaceholderColor3 = "PlaceholderColor" })
-end
-
--- Sidebar mode: the pill beside the rail, as before.
-function search._buildPill(window)
-    window.searchPill = window:Create("Frame", {
-        Name = "SearchBar",
-        AnchorPoint = Vector2.new(0, 0),
-        Position = UDim2.new(0, (window.sidebarWidth or 219) + searchRailGap, 0, 66),
-        Size = UDim2.new(1, -((window.sidebarWidth or 219) + searchRailGap + searchRailGap), 0, 35),
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-        BorderSizePixel = 0,
-        ZIndex = 10,
-
-        BackgroundTransparency = 1, -- shown = 0.9
         Visible = false,
 
-        Parent = window.main,
-    })
-
-    window:Create("UICorner", {
-        CornerRadius = UDim.new(1, 0),
-        Parent = window.searchPill,
-    })
-
-    window.searchStroke = window:Create("UIStroke", {
-        Color = Color3.fromRGB(255, 255, 255),
-        Thickness = 1,
-
-        Transparency = 1, -- shown = 0.85
-
-        Parent = window.searchPill,
-    })
-
-    window.searchShadow = window:Create("UIShadow", {
-        BlurRadius = UDim.new(0, 20),
-        Color = Color3.fromRGB(255, 255, 255),
-        ZIndex = -1,
-
-        Transparency = 1, -- shown = 0.92
-
-        Parent = window.searchPill,
-    })
-
-    window.searchIcon = window:Create("ImageLabel", {
-        Image = "rbxassetid://" .. tostring(constants.icons.search),
-        AnchorPoint = Vector2.new(0, 0.5),
-        Position = UDim2.new(0, 15, 0.5, 1),
-        Size = UDim2.fromOffset(16, 16),
-        BackgroundTransparency = 1,
-        ZIndex = 10,
-
-        ImageTransparency = 1, -- shown = 0.65
-
-        Parent = window.searchPill,
-    }, { ImageColor3 = "ContentColor" })
-
-    window.searchInput = window:Create("TextBox", {
-        Text = "",
-        PlaceholderText = locale.t(if scopeOf(window) == "all" then "Search all pages" else "Search this page"),
-        AnchorPoint = Vector2.new(0, 0.5),
-        Position = UDim2.new(0, 40, 0.5, 0),
-        Size = UDim2.new(1, -110, 0, 18),
-        BackgroundTransparency = 1,
-        TextSize = 16,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ClearTextOnFocus = false,
-        ClipsDescendants = true,
-        ZIndex = 10,
-
-        TextTransparency = 1, -- shown = 0.2
-
-        Parent = window.searchPill,
+        Parent = field,
     }, { TextColor3 = "ContentColor", FontFace = "Font", PlaceholderColor3 = "PlaceholderColor" })
+
+    -- clicking into the box starts the search; leaving it empty ends it
+    window:Connect(window.searchInput.Focused, function()
+        search.open(window)
+    end)
+    window:Connect(window.searchInput.FocusLost, function()
+        if window._searching and window.searchInput.Text == "" then
+            search.close(window, { showTabs = true })
+        end
+    end)
+
+    -- the rest of the field (the glyph, the padding) toggles it, the way the old button did
+    window.searchAction = {
+        name = "Search",
+        action = slot,
+        interact = slot,
+        iconLabel = window.searchIcon,
+        isLit = function()
+            return window._searching
+        end,
+    }
+    window:Connect(slot.MouseButton1Click, function()
+        search.toggle(window)
+    end)
 end
 
 return search
@@ -25837,6 +29228,472 @@ end
 return Stepper
 ]=====]
 
+sources["components/subtabs"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- Sub tabs: a row of pills at the top of a tab, each one a whole page of its own. For a tab that
+-- holds several features side by side - a Farm tab with Mob Farm, Boss Farm and Materials - where
+-- one long scroll would bury the ones further down.
+--
+--   local mobs = farmTab:CreateSubTab({ name = "Mob Farm" })
+--   local bosses = farmTab:CreateSubTab({ name = "Boss Farm" })
+--   local row = mobs:CreateGroup({ direction = "row" })   -- a page takes anything a tab does
+--
+-- The first CreateSubTab builds the row where it is called; every later one adds its pill to it.
+-- A page is a real column Group built against a small fake host (the way Tabbox and Panel build
+-- theirs), so every CreateX works inside it. Only the selected page is visible: the pill under it
+-- fills in, and the page drops the last few pixels into place as it appears.
+
+local SubTabs = {}
+SubTabs.__index = SubTabs
+SubTabs.__type = "SubTabs"
+
+local utility = script.Parent.Parent.utility
+local variables = require(utility.variables)
+local locale = require(utility.locale)
+local image = require(utility.image)
+local hapticEngine = require(utility.HapticEngine)
+local soundEngine = require(utility.sound)
+
+local pillHeight = 32
+local pillPadX = 15
+local pillGap = 8
+local iconSize = 16
+local iconGap = 6
+-- the gap between the pill row and the page under it
+local pageGap = 12
+-- how far a page drops as it appears
+local pageDrop = 10
+-- the tab page's own top padding (see tab.luau), which the row sits under
+local pageTop = 22
+-- room under the last card for the window's bottom fade
+local pagesBottom = 33
+-- room for the first card's outward stroke at the top of the scrolling area
+local pagesTop = 3
+-- the fade over the top of the scrolling area: its height, and the scroll at which it is full
+local fadeHeight = 16
+local fadeFull = 24
+-- never a solid band: at most this strong at its top edge
+local fadeMost = 0.75
+local fadeZ = 20
+
+-- the pill's fill and its text, by state
+local states = {
+    selected = { fill = 0.92, text = 0 },
+    hover = { fill = 0.96, text = 0.25 },
+    unselected = { fill = 1, text = 0.5 },
+    hidden = { fill = 1, text = 1 },
+}
+
+local pillInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local pageInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+
+function SubTabs.new(tab)
+    local self = setmetatable({
+        tab = tab,
+        window = tab.window,
+        forgetState = tab.forgetState,
+        pages = {},
+        -- every page's Group, so the tab's teardown reaches the controls inside them
+        elements = {},
+        selected = nil,
+    }, SubTabs)
+
+    local window = self.window
+
+    -- The row stays where it is and only what is under it scrolls - the Airflow hub's shape. The
+    -- tab's own page stops scrolling, and the pages get an area of their own that fills the rest
+    -- of the window's height and scrolls, clipped right under the pills, so nothing ever goes
+    -- behind them.
+    self.main = window:Create("Frame", {
+        Name = "SubTabs",
+        Size = UDim2.new(1, 0, 0, 0),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+
+        Parent = tab.tabPage,
+    })
+    tab.tabPage.ScrollingEnabled = false
+    tab.tabPage.CanvasPosition = Vector2.zero
+
+    window:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Vertical,
+        HorizontalAlignment = Enum.HorizontalAlignment.Center,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, pageGap),
+
+        Parent = self.main,
+    })
+
+    -- scrolls sideways when there are more pills than fit
+    self.strip = window:Create("ScrollingFrame", {
+        Name = "Pills",
+        Size = UDim2.new(1, -20, 0, pillHeight),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        AutomaticCanvasSize = Enum.AutomaticSize.X,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
+        ScrollingDirection = Enum.ScrollingDirection.X,
+        ScrollBarThickness = 0,
+        LayoutOrder = 1,
+
+        Parent = self.main,
+    })
+
+    window:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, pillGap),
+
+        Parent = self.strip,
+    })
+
+    -- the scrolling area and, over its top edge, a fade the page goes under as it scrolls - the
+    -- window's own top fade, for the part of this tab that scrolls now
+    local holder = window:Create("Frame", {
+        Name = "PagesHolder",
+        Size = UDim2.new(1, 0, 1, -(pillHeight + pageGap)),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        LayoutOrder = 2,
+
+        Parent = self.main,
+    })
+    self.fade = window:Create("Frame", {
+        Name = "TopFade",
+        Size = UDim2.new(1, 0, 0, fadeHeight),
+        BackgroundTransparency = 0,
+        BorderSizePixel = 0,
+        ZIndex = fadeZ,
+
+        Parent = holder,
+    })
+    self.fadeGradient = window:Create("UIGradient", {
+        Rotation = 90,
+        Transparency = NumberSequence.new(1),
+        Parent = self.fade,
+    })
+
+    -- no layout in here: a page is placed by its Position, so it can drop into place
+    self.pageArea = window:Create("ScrollingFrame", {
+        Name = "Pages",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        CanvasSize = UDim2.new(),
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+        ScrollBarThickness = 0,
+
+        Parent = holder,
+    })
+    window:Connect(self.pageArea:GetPropertyChangedSignal("CanvasPosition"), function()
+        self:_syncFade()
+    end)
+    window:OnThemeChanged(function()
+        self:_syncFade(true)
+    end)
+    window:Create("UIPadding", {
+        PaddingTop = UDim.new(0, pagesTop),
+        PaddingBottom = UDim.new(0, pagesBottom),
+        Parent = self.pageArea,
+    })
+
+    -- the whole height the tab page shows, less its top padding
+    local function fit()
+        local height = tab.tabPage.AbsoluteWindowSize.Y
+        if height <= 0 then
+            height = tab.tabPage.AbsoluteSize.Y
+        end
+        self.main.Size = UDim2.new(1, 0, 0, math.max(height - pageTop, pillHeight + pageGap))
+    end
+    window:Connect(tab.tabPage:GetPropertyChangedSignal("AbsoluteWindowSize"), fit)
+    window:Connect(tab.tabPage:GetPropertyChangedSignal("AbsoluteSize"), fit)
+    fit()
+
+    return self
+end
+
+function SubTabs:_paint(page, stateName, animate)
+    -- nothing shows while the window is hidden, whatever the page's state
+    local state = if self._shown then states[stateName] else states.hidden
+    local fill = { BackgroundTransparency = state.fill }
+    local text = { TextTransparency = state.text }
+    local icon = { ImageTransparency = state.text }
+    if animate then
+        local tweenService = variables.tweenService
+        tweenService:Create(page.pill, pillInfo, fill):Play()
+        tweenService:Create(page.label, pillInfo, text):Play()
+        if page.icon then
+            tweenService:Create(page.icon, pillInfo, icon):Play()
+        end
+    else
+        page.pill.BackgroundTransparency = state.fill
+        page.label.TextTransparency = state.text
+        if page.icon then
+            page.icon.ImageTransparency = state.text
+        end
+    end
+end
+
+function SubTabs:Create(properties)
+    properties = if typeof(properties) == "table" then properties else {}
+    local window = self.window
+    local index = #self.pages + 1
+    local name = properties.name or properties.Name or ("Page " .. index)
+    local iconSource = properties.icon or properties.Icon
+
+    local pill = window:Create("TextButton", {
+        Name = name,
+        Text = "",
+        AutoButtonColor = false,
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.fromOffset(0, pillHeight),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        LayoutOrder = index * 10,
+
+        Parent = self.strip,
+    }, { BackgroundColor3 = "ContentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = pill })
+    window:Create("UIPadding", {
+        PaddingLeft = UDim.new(0, pillPadX),
+        PaddingRight = UDim.new(0, pillPadX),
+        Parent = pill,
+    })
+    window:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, iconGap),
+        Parent = pill,
+    })
+
+    local icon
+    if iconSource then
+        icon = window:Create("ImageLabel", {
+            Name = "Icon",
+            Size = UDim2.fromOffset(iconSize, iconSize),
+            BackgroundTransparency = 1,
+            ImageTransparency = 1,
+            LayoutOrder = 1,
+
+            Parent = pill,
+        }, { ImageColor3 = "ContentColor" })
+        image.assign(icon, "Image", iconSource)
+    end
+
+    local label = window:Create("TextLabel", {
+        Name = "Title",
+        Text = locale.resolve(name),
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.fromOffset(0, pillHeight),
+        BackgroundTransparency = 1,
+        TextSize = 15,
+        TextTransparency = 1,
+        LayoutOrder = 2,
+
+        Parent = pill,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+
+    local frame = window:Create("Frame", {
+        Name = name,
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Visible = false,
+
+        Parent = self.pageArea,
+    })
+
+    -- the fields Group.new reads off its host (see group.luau's header)
+    window:Connect(frame:GetPropertyChangedSignal("AbsoluteSize"), function()
+        if self.selected and self.selected.frame == frame then
+            self:_syncCanvas()
+        end
+    end)
+
+    local fakeHost = {
+        window = window,
+        tabPage = frame,
+        direction = Enum.FillDirection.Vertical,
+        forgetState = self.forgetState,
+    }
+    local page = require(script.Parent.group).new(fakeHost, { direction = "column" })
+    page.name = name
+    page.frame = frame
+    page.pill = pill
+    page.label = label
+    page.icon = icon
+    page.subTabs = self
+    page.Select = function(target)
+        self:Select(target)
+    end
+
+    table.insert(self.pages, page)
+    table.insert(self.elements, page)
+
+    window:Connect(pill.MouseButton1Click, function()
+        if self.selected ~= page then
+            hapticEngine.click()
+            soundEngine.click()
+            self:Select(page)
+        end
+    end)
+    window:Connect(pill.MouseEnter, function()
+        if self.selected ~= page then
+            self:_paint(page, "hover", true)
+        end
+    end)
+    window:Connect(pill.MouseLeave, function()
+        if self.selected ~= page then
+            self:_paint(page, "unselected", true)
+        end
+    end)
+
+    if not self.selected then
+        self:Select(page, true)
+    else
+        self:_paint(page, "unselected", false)
+    end
+    if self._shown then
+        page:_setShown(true, false)
+    end
+
+    return page
+end
+
+-- A page, or its name.
+function SubTabs:_resolve(target)
+    if type(target) == "string" then
+        for _, page in self.pages do
+            if page.name == target then
+                return page
+            end
+        end
+        return nil
+    end
+    return if table.find(self.pages, target) then target else nil
+end
+
+function SubTabs:Select(target, noAnimation)
+    local page = self:_resolve(target)
+    if not page or page == self.selected then
+        return false
+    end
+    local previous = self.selected
+    self.selected = page
+    local animate = not noAnimation and self._shown and self.window:_interactive()
+
+    if previous then
+        previous.frame.Visible = false
+        previous.frame.Position = UDim2.new()
+        self:_paint(previous, "unselected", animate)
+    end
+    page.frame.Visible = true
+    self:_paint(page, "selected", animate)
+    self.pageArea.CanvasPosition = Vector2.zero
+    self:_syncCanvas()
+
+    if animate then
+        page.frame.Position = UDim2.fromOffset(0, pageDrop)
+        variables.tweenService:Create(page.frame, pageInfo, { Position = UDim2.new() }):Play()
+        -- charts on the page play their entrance, as they do when their tab opens
+        self.window:_firePageShown({ tabPage = page.frame })
+    else
+        page.frame.Position = UDim2.new()
+    end
+
+    -- a page search open on this tab goes through the page now showing
+    if self.window._searchTab == self.tab then
+        require(script.Parent.search).retarget(self.window, true)
+    end
+
+    -- keep the pill in view on a row that scrolls
+    local strip = self.strip
+    local left = page.pill.AbsolutePosition.X - strip.AbsolutePosition.X + strip.CanvasPosition.X
+    local right = left + page.pill.AbsoluteSize.X
+    local width = strip.AbsoluteSize.X
+    if width > 0 and (left < strip.CanvasPosition.X or right > strip.CanvasPosition.X + width) then
+        strip.CanvasPosition = Vector2.new(math.max(0, left - pillGap), 0)
+    end
+    return true
+end
+
+-- The fade under the pills: none with the page at its top, full once it has scrolled fadeFull
+-- pixels, in the window's own colour where it sits and eased out towards its foot (the shape of
+-- the window's top fade).
+function SubTabs:_syncFade(repaint: boolean?)
+    local scrolled = math.max(self.pageArea.CanvasPosition.Y, 0)
+    local strength = math.clamp(scrolled / fadeFull, 0, 1)
+    if strength <= 0.001 then
+        self.fadeGradient.Transparency = NumberSequence.new(1)
+        self._fadeStrength = 0
+        return
+    end
+    if repaint or not self._fadeStrength or self._fadeStrength == 0 then
+        local window = self.window
+        local ok, color = pcall(function()
+            local height = window.main.AbsoluteSize.Y
+            local top = self.fade.AbsolutePosition.Y - window.main.AbsolutePosition.Y
+            local color = window:_windowColorAt(if height > 0 then top / height else 0.2)
+            -- what is actually behind the page: in Sidebar mode it sits on the content card, a
+            -- near-transparent white over the window, so the fade has to be that mix or it shows
+            -- as a darker band
+            local card = window.elements
+            if card and card.BackgroundTransparency < 1 then
+                color = color:Lerp(card.BackgroundColor3, 1 - card.BackgroundTransparency)
+            end
+            return color
+        end)
+        self.fade.BackgroundColor3 = if ok and typeof(color) == "Color3" then color else Color3.fromRGB(15, 15, 15)
+    end
+    self._fadeStrength = strength
+    local edge = 1 - strength * fadeMost
+    self.fadeGradient.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, edge),
+        NumberSequenceKeypoint.new(0.5, edge + (1 - edge) * 0.35),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+end
+
+-- The scrolling area holds as much as the page on show: nothing to scroll past its foot.
+function SubTabs:_syncCanvas()
+    local page = self.selected
+    local height = if page then page.frame.AbsoluteSize.Y else 0
+    self.pageArea.CanvasSize = UDim2.fromOffset(0, height + pagesTop + pagesBottom)
+end
+
+function SubTabs:GetSelected(): string?
+    return self.selected and self.selected.name
+end
+
+function SubTabs:_setShown(shown, animate)
+    self._shown = shown
+    for _, page in self.pages do
+        local state = if not shown then "hidden" elseif page == self.selected then "selected" else "unselected"
+        self:_paint(page, state, animate)
+        page:_setShown(shown, animate)
+    end
+end
+
+function SubTabs:_refreshTheme()
+    for _, page in self.pages do
+        if page._refreshTheme then
+            page:_refreshTheme()
+        end
+    end
+end
+
+return SubTabs
+]=====]
+
 sources["components/tab"] = [=====[
 --!nonstrict
 
@@ -25865,7 +29722,7 @@ local tabSelector = require(script.Parent.tabSelector)
 -- instances we're about to destroy.
 local function teardownElements(window, elements)
     for _, element in elements do
-        if element.__type == "Group" then
+        if element.__type == "Group" or element.__type == "SubTabs" then
             teardownElements(window, element.elements)
         else
             window:_unregisterControl(element)
@@ -25895,6 +29752,7 @@ local selectTweenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDi
 -- the settings cog turning as its page opens (see Tab:Select)
 local cogTurnInfo = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local hoverTweenInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local repaintTweenInfo = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 function Tab.new(window, properties)
     properties = if typeof(properties) == "table" then properties else {}
@@ -26048,7 +29906,7 @@ function Tab:_applyVisual(stateName, tweenInfo)
         return
     end
 
-    local mode = if self.window.tabsMode == "Sidebar" then "sidebar" else "top"
+    local mode = if self.window.railStyle then "rail" elseif self.window.tabsMode == "Sidebar" then "sidebar" else "top"
     local states = tabSelector.states[mode]
     local state = states[stateName]
     if not state then
@@ -26136,6 +29994,12 @@ function Tab:Select(noAnimation)
 
     if not self.neglectSelector and not skipAnimation then
         self:_applyVisual("selected", selectTweenInfo)
+    elseif self:_selectorShowing() then
+        -- selected while the window is still revealing its tabs: the ones already painted are
+        -- repainted now, or one painted selected a moment ago stays lit beside this one. A short
+        -- tween rather than a plain set: the reveal's own tween may still be running, and only a
+        -- new tween on the same property stops it
+        self:_applyVisual("selected", repaintTweenInfo)
     end
     tabSelector.revealSelected(self.window, not skipAnimation)
 
@@ -26159,7 +30023,15 @@ end
 function Tab:Deselect(noAnimation)
     if not self.neglectSelector and not noAnimation then
         self:_applyVisual("unselected", selectTweenInfo)
+    elseif self:_selectorShowing() then
+        self:_applyVisual("unselected", repaintTweenInfo)
     end
+end
+
+-- Whether this tab's pill, row or tile is already on screen (a window revealing its tabs shows
+-- them one by one).
+function Tab:_selectorShowing(): boolean
+    return not self.neglectSelector and self.topbarItem ~= nil and self.topbarItem.Visible and not self.window.hidden
 end
 
 -- shared tail for every CreateX: track it, order it, and reveal it if the window is
@@ -26311,6 +30183,31 @@ function Tab:CreateStackedChart(properties)
     return self:_register(require(script.Parent.stackedchart).new(self, properties))
 end
 
+-- The mob, boss or player a feature is working on - see target.luau's own header.
+function Tab:CreateTarget(properties)
+    return self:_register(require(script.Parent.target).new(self, properties))
+end
+
+-- A name and a small colour chip that opens a picker - see colorswatch.luau's own header.
+function Tab:CreateColorSwatch(properties)
+    return self:_register(require(script.Parent.colorswatch).new(self, properties))
+end
+
+-- What the hub's ESP settings draw, on the player's character - see esppreview.luau's own header.
+function Tab:CreateESPPreview(properties)
+    return self:_register(require(script.Parent.esppreview).new(self, properties))
+end
+
+-- A hub's home page in one call - see dashboard.luau's own header.
+function Tab:CreateDashboard(properties)
+    return self:_register(require(script.Parent.dashboard).new(self, properties))
+end
+
+-- A row that opens a whole page of cards to pick from - see itempicker.luau's own header.
+function Tab:CreateItemPicker(properties)
+    return self:_register(require(script.Parent.itempicker).new(self, properties))
+end
+
 -- Scroll hint: centred text + bouncing arrow, points further down a page
 function Tab:CreateScrollHint(properties)
     return self:_register(require(script.Parent.scrollhint).new(self, properties))
@@ -26384,6 +30281,20 @@ end
 
 -- Spacer: an invisible gap with a configurable height, for custom breathing room between
 -- elements/sections.
+-- Sub tabs: a row of pills at the top of the tab, each a page of its own (see subtabs.luau).
+-- The first call builds the row where it is made; returns the page, which takes any CreateX.
+function Tab:CreateSubTab(properties)
+    if not self._subTabs then
+        self._subTabs = self:_register(require(script.Parent.subtabs).new(self))
+    end
+    return self._subTabs:Create(properties)
+end
+
+-- Show a sub tab by its name (or the page CreateSubTab returned).
+function Tab:SelectSubTab(target): boolean
+    return if self._subTabs then self._subTabs:Select(target) else false
+end
+
 function Tab:CreateSpacer(properties)
     return self:_register(require(script.Parent.spacer).new(self, properties))
 end
@@ -26735,6 +30646,13 @@ tabSelector.states = {
     },
     -- the rail row sits on the window rather than on a strip, so its selected fill is lighter
     -- and an unselected row is bare text.
+    -- the Rail's tiles: a faint fill and hairline on the selected one, whose icon takes the accent
+    rail = {
+        selected = { background = 0.93, stroke = 0.9, content = 0, lit = true },
+        hover = { background = 0.965, stroke = 1, content = 0.25 },
+        unselected = { background = 1, stroke = 1, content = 0.5 },
+        hidden = { background = 1, stroke = 1, content = 1 },
+    },
     sidebar = {
         selected = { background = 0.4, stroke = 0.5, content = 0, shadow = 0.8 },
         hover = { background = 0.7, stroke = 0.8, content = 0.3, shadow = 1 },
@@ -27012,9 +30930,83 @@ local function buildRow(tab)
     addContent(tab, layout.rowIconSize, true)
 end
 
+-- A tile in the Rail: the icon over the name, centred, in a rounded square the rail's width (the
+-- Airflow hub's tabs). The selected tile's icon takes the accent, with a soft glow of its colour.
+local tileWidth, tileHeight = 84, 66
+local function buildTile(tab)
+    local window = tab.window
+    tab.topbarIsTile = true
+
+    tab.topbarItem = window:Create("Frame", {
+        Name = tab.name,
+        Size = UDim2.fromOffset(tileWidth, tileHeight),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1, -- In = the state's
+        Visible = false, -- In = true
+        LayoutOrder = tab.customOrder or 0,
+        -- over the rail's own fill, which is made after the list
+        ZIndex = 2,
+
+        Parent = window.tabList,
+    }, { BackgroundColor3 = "ContentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = tab.topbarItem })
+    tab.topbarItemStroke = window:Create("UIStroke", {
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Transparency = 1,
+        Parent = tab.topbarItem,
+    }, { Color = "ContentColor" })
+
+    tab.topbarItemInteract = window:Create("TextButton", {
+        Active = false,
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        BorderSizePixel = 0,
+        Text = "",
+        TextTransparency = 1,
+        ZIndex = 5,
+
+        Parent = tab.topbarItem,
+    })
+
+    tab.topbarItemContainer = window:Create("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = 2,
+
+        Parent = tab.topbarItem,
+    })
+    tab.topbarItemLayout = window:Create("UIListLayout", {
+        Padding = UDim.new(0, 5),
+        FillDirection = Enum.FillDirection.Vertical,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        HorizontalAlignment = Enum.HorizontalAlignment.Center,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+
+        Parent = tab.topbarItemContainer,
+    })
+
+    addContent(tab, 22, false)
+    if tab.topbarItemIcon then
+        tab.topbarItemIcon.ZIndex = 4
+        window:_iconGlow(tab.topbarItemIcon, 0.12)
+    end
+    if tab.topbarItemTitle then
+        tab.topbarItemTitle.TextSize = 13
+        tab.topbarItemTitle.TextXAlignment = Enum.TextXAlignment.Center
+        tab.topbarItemTitle.TextWrapped = false
+        tab.topbarItemTitle.ZIndex = 4
+    end
+end
+
 function tabSelector.build(tab, isSidebar: boolean)
     -- Which shape this tab wears. setRowCollapsed needs to tell them apart and cannot do it by
     -- probing fields: a pill carries topbarItem and topbarItemContainer exactly like a row does.
+    if tab.window.railStyle then
+        tab.topbarIsRow = false
+        buildTile(tab)
+        return
+    end
     tab.topbarIsRow = isSidebar
     if isSidebar then
         buildRow(tab)
@@ -27183,9 +31175,14 @@ function tabSelector.applyVisual(tab, state, tweenInfo)
     if tab.topbarPaintsContent then
         contentColor = if state.lit then Color3.fromRGB(28, 28, 28) else tab.window.theme.TabColor
     end
+    -- a Rail tile's icon takes the accent while it is the selected one
+    local iconColor = contentColor
+    if tab.topbarIsTile then
+        iconColor = if state.lit then tab.window.theme.AccentStroke else tab.window.theme.TabColor
+    end
 
     if tab.topbarItemIcon then
-        targets[tab.topbarItemIcon] = { ImageTransparency = state.content, ImageColor3 = contentColor }
+        targets[tab.topbarItemIcon] = { ImageTransparency = state.content, ImageColor3 = iconColor }
     end
     if tab.topbarItemTitle then
         targets[tab.topbarItemTitle] = { TextTransparency = state.content, TextColor3 = contentColor }
@@ -27611,6 +31608,588 @@ function Tag:Remove()
 end
 
 return Tag
+]=====]
+
+sources["components/target"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- Target: the mob, boss or player a feature is working on, at a glance - who it is, how much
+-- health it has left and whatever else the hub knows about it.
+--
+--   local target = column:CreateTarget({
+--       name = "Zentaro",
+--       subtitle = "The Thunder King",
+--       model = workspace.Mobs.Zentaro,     -- or image = "rbxassetid://...", or userId = 123
+--       health = 3000, maxHealth = 3000,
+--       stats = { { "State", "Preview" }, { "Distance", "-" }, { "Damage", 47 }, { "Spawn", "Ready" } },
+--       footer = "Drops: Flaming Thunder God 10%, Thunder Katana 5%",
+--   })
+--   target:SetHealth(1200)
+--   target:SetStat("Distance", "24m")
+--   target:Set({ name = "Akazo", model = workspace.Mobs.Akazo, health = 800, maxHealth = 800 })
+--
+-- A portrait on the left - the model itself, cloned into a viewport and framed on its head and
+-- shoulders, or an image - with the name, a subtitle and the health over a bar beside it. Under a
+-- rule, the stats in two columns, label on the left and value on the right, then a line of small
+-- print. The bar eases to a new health rather than jumping.
+
+local Target = {}
+Target.__index = Target
+Target.__type = "Target"
+
+local utility = script.Parent.Parent.utility
+local variables = require(utility.variables)
+local locale = require(utility.locale)
+local image = require(utility.image)
+local moveable = require(utility.moveable)
+
+local pad = 12
+local portraitSize = 80
+local textLeft = pad + portraitSize + 12
+local barHeight = 8
+local ruleTop = pad + portraitSize + 12
+local statsTop = ruleTop + 10
+local statStep = 22
+local statHeight = 18
+local footerGap = 6
+
+-- a head and shoulders fill the portrait at this field of view (the Concept's own framing)
+local portraitFov = 16
+local healthInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+local function commafy(value: number): string
+    local text = tostring(math.floor(value + 0.5))
+    local sign, digits = string.match(text, "^(-?)(%d+)$")
+    if not digits then
+        return text
+    end
+    local grouped = string.reverse((string.gsub(string.reverse(digits), "(%d%d%d)", "%1,")))
+    return sign .. string.gsub(grouped, "^,", "")
+end
+
+-- { { "State", "Preview" } } or { { label = "State", value = "Preview" } }
+local function readStats(raw): { { label: string, value: string } }
+    local stats = {}
+    if type(raw) ~= "table" then
+        return stats
+    end
+    for _, entry in raw do
+        if type(entry) == "table" then
+            local label = entry.label or entry.Label or entry[1]
+            local value = entry.value
+            if value == nil then
+                value = entry.Value
+            end
+            if value == nil then
+                value = entry[2]
+            end
+            if label ~= nil then
+                table.insert(stats, { label = tostring(label), value = if value == nil then "-" else tostring(value) })
+            end
+        end
+    end
+    return stats
+end
+
+function Target.new(tab, properties)
+    properties = if typeof(properties) == "table" then properties else {}
+
+    local self = setmetatable({
+        tab = assert(tab, "Missing argument #1 (Tab expected)"),
+        window = tab.window,
+        name = tostring(properties.name or properties.Name or "Target"),
+        subtitle = properties.subtitle or properties.Subtitle,
+        footer = properties.footer or properties.Footer,
+        health = tonumber(properties.health or properties.Health),
+        maxHealth = tonumber(properties.maxHealth or properties.MaxHealth),
+        stats = readStats(properties.stats or properties.Stats),
+        tooltip = properties.tooltip or properties.Tooltip,
+        forgetState = true,
+
+        statParts = {},
+        _shown = false,
+    }, Target)
+
+    self:_build()
+    self:_setPortrait(properties)
+    self:_layoutStats()
+    self:_syncText()
+    self:_syncHealth(false)
+
+    self.window:_wireTooltip(self)
+    return self
+end
+
+function Target:_build()
+    local window = self.window
+
+    self.main = window:Create("Frame", {
+        Name = self.name,
+        Size = UDim2.new(1, -20, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = 1,
+
+        Parent = self.tab.tabPage,
+    }, { BackgroundTransparency = "ElementTransparency" })
+    self.stroke = window:StyleElementBody(self.main)
+
+    -- the card grows to what it holds; this keeps the same air under the last line
+    window:Create("UIPadding", { PaddingBottom = UDim.new(0, pad), Parent = self.main })
+
+    self.portrait = window:Create("Frame", {
+        Name = "Portrait",
+        Size = UDim2.fromOffset(portraitSize, portraitSize),
+        Position = UDim2.fromOffset(pad, pad),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+        ClipsDescendants = true,
+
+        Parent = self.main,
+    }, { BackgroundColor3 = "ContentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = self.portrait })
+    self.portraitStroke = window:Create("UIStroke", {
+        Thickness = 1,
+        Transparency = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = self.portrait,
+    }, { Color = "ContentColor" })
+
+    self.title = window:Create("TextLabel", {
+        Name = "Title",
+        Size = UDim2.new(1, -(textLeft + pad), 0, 18),
+        Position = UDim2.fromOffset(textLeft, pad + 4),
+        BackgroundTransparency = 1,
+        TextSize = 16,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        TextTransparency = 1,
+
+        Parent = self.main,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+
+    self.subtitleLabel = window:Create("TextLabel", {
+        Name = "Subtitle",
+        Size = UDim2.new(1, -(textLeft + pad), 0, 16),
+        Position = UDim2.fromOffset(textLeft, pad + 25),
+        BackgroundTransparency = 1,
+        TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        TextTransparency = 1,
+
+        Parent = self.main,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+
+    local barTop = pad + portraitSize - barHeight - 6
+    self.healthLabel = window:Create("TextLabel", {
+        Name = "Health",
+        Size = UDim2.new(1, -(textLeft + pad), 0, 14),
+        Position = UDim2.fromOffset(textLeft, barTop - 19),
+        BackgroundTransparency = 1,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        TextTransparency = 1,
+
+        Parent = self.main,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+
+    self.bar = window:Create("Frame", {
+        Name = "Bar",
+        Size = UDim2.new(1, -(textLeft + pad), 0, barHeight),
+        Position = UDim2.fromOffset(textLeft, barTop),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+
+        Parent = self.main,
+    }, { BackgroundColor3 = "ContentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = self.bar })
+
+    self.fill = window:Create("Frame", {
+        Name = "Fill",
+        Size = UDim2.fromScale(1, 1),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+
+        Parent = self.bar,
+    }, { BackgroundColor3 = "AccentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = self.fill })
+    -- never narrower than it is tall: a sliver of health would otherwise be a square, not a dot
+    window:Create("UISizeConstraint", { MinSize = Vector2.new(barHeight, 0), Parent = self.fill })
+
+    self.rule = window:Create("Frame", {
+        Name = "Rule",
+        Size = UDim2.new(1, -pad * 2, 0, 1),
+        Position = UDim2.fromOffset(pad, ruleTop),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+
+        Parent = self.main,
+    }, { BackgroundColor3 = "ContentColor" })
+
+    self.footerLabel = window:Create("TextLabel", {
+        Name = "Footer",
+        Size = UDim2.new(1, -pad * 2, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        TextSize = 12,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top,
+        TextTransparency = 1,
+
+        Parent = self.main,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+end
+
+-- The portrait: a model cloned into a viewport, an image, or a player's headshot.
+function Target:_setPortrait(properties)
+    if self.viewport then
+        self.viewport:Destroy()
+        self.viewport = nil
+    end
+    if self.portraitImage then
+        self.portraitImage:Destroy()
+        self.portraitImage = nil
+    end
+
+    local model = properties.model or properties.Model
+    local picture = properties.image or properties.Image
+    local userId = tonumber(properties.userId or properties.UserId)
+    if userId and not picture then
+        picture = image.avatar(userId)
+    end
+
+    if typeof(model) == "Instance" then
+        local ok, viewport = pcall(self._buildViewport, self, model)
+        if ok and viewport then
+            self.viewport = viewport
+        end
+    end
+    if not self.viewport and picture then
+        self.portraitImage = self.window:Create("ImageLabel", {
+            Name = "Picture",
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            ScaleType = Enum.ScaleType.Crop,
+            ImageTransparency = if self._shown then 0 else 1,
+
+            Parent = self.portrait,
+        })
+        image.assign(self.portraitImage, "Image", picture)
+    end
+end
+
+function Target:_buildViewport(model: Instance)
+    local archivable = model.Archivable
+    model.Archivable = true
+    local copy = model:Clone()
+    model.Archivable = archivable
+    if not copy then
+        return nil
+    end
+
+    -- nothing in a portrait should move, make a sound or run
+    for _, descendant in copy:GetDescendants() do
+        if descendant:IsA("BaseScript") or descendant:IsA("Sound") or descendant:IsA("ParticleEmitter") then
+            descendant:Destroy()
+        elseif descendant:IsA("BasePart") then
+            descendant.Anchored = true
+        end
+    end
+
+    local viewport = self.window:Create("ViewportFrame", {
+        Name = "Viewport",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        ImageTransparency = if self._shown then 0 else 1,
+        Ambient = Color3.fromRGB(200, 200, 205),
+        LightColor = Color3.fromRGB(255, 255, 255),
+        LightDirection = Vector3.new(-0.4, -0.8, -1),
+
+        Parent = self.portrait,
+    })
+    local camera = Instance.new("Camera")
+    camera.FieldOfView = portraitFov
+    camera.Parent = viewport
+    viewport.CurrentCamera = camera
+    copy.Parent = viewport
+
+    -- face the camera: turn the model so its root looks down -Z, the way a camera at -Z sees it
+    local focus, height
+    if copy:IsA("Model") then
+        local root = copy.PrimaryPart
+            or copy:FindFirstChild("HumanoidRootPart")
+            or copy:FindFirstChild("Head")
+            or copy:FindFirstChildWhichIsA("BasePart", true)
+        if root and root:IsA("BasePart") then
+            copy:PivotTo(root.CFrame:ToObjectSpace(copy:GetPivot()))
+        end
+        local head = copy:FindFirstChild("Head")
+        if head and head:IsA("BasePart") then
+            -- head and shoulders
+            height = head.Size.Y * 3.4
+            focus = head.Position - Vector3.new(0, head.Size.Y * 0.55, 0)
+        else
+            local box, size = copy:GetBoundingBox()
+            height = math.max(size.X, size.Y) * 1.1
+            focus = box.Position
+        end
+    elseif copy:IsA("BasePart") then
+        copy.CFrame = CFrame.new()
+        height = math.max(copy.Size.X, copy.Size.Y) * 1.1
+        focus = Vector3.zero
+    else
+        viewport:Destroy()
+        return nil
+    end
+
+    local distance = (height / 2) / math.tan(math.rad(portraitFov / 2))
+    camera.CFrame = CFrame.lookAt(focus + Vector3.new(0, 0, -distance), focus)
+    return viewport
+end
+
+function Target:_layoutStats()
+    for _, part in self.statParts do
+        part.frame:Destroy()
+    end
+    self.statParts = {}
+
+    local window = self.window
+    for index, stat in self.stats do
+        local column = (index - 1) % 2
+        local row = math.floor((index - 1) / 2)
+        local frame = window:Create("Frame", {
+            Name = stat.label,
+            Size = UDim2.new(0.5, -(pad + 6), 0, statHeight),
+            Position = UDim2.new(column * 0.5, if column == 0 then pad else 6, 0, statsTop + row * statStep),
+            BackgroundTransparency = 1,
+
+            Parent = self.main,
+        })
+        local label = window:Create("TextLabel", {
+            Name = "Label",
+            Text = locale.t(stat.label),
+            Size = UDim2.fromScale(0.5, 1),
+            BackgroundTransparency = 1,
+            TextSize = 13,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextTransparency = 1,
+
+            Parent = frame,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+        local value = window:Create("TextLabel", {
+            Name = "Value",
+            Text = stat.value,
+            Size = UDim2.fromScale(0.6, 1),
+            Position = UDim2.fromScale(0.4, 0),
+            BackgroundTransparency = 1,
+            TextSize = 13,
+            TextXAlignment = Enum.TextXAlignment.Right,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            TextTransparency = 1,
+
+            Parent = frame,
+        }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+        self.statParts[stat.label] = { frame = frame, label = label, value = value, stat = stat }
+        if self._shown then
+            label.TextTransparency = 0.5
+            value.TextTransparency = 0
+        end
+    end
+
+    local rows = math.ceil(#self.stats / 2)
+    local below = if rows > 0 then statsTop + rows * statStep - (statStep - statHeight) else ruleTop
+    self.footerLabel.Position = UDim2.fromOffset(pad, below + footerGap)
+    self.rule.Visible = rows > 0 or self:_hasFooter()
+end
+
+function Target:_hasFooter(): boolean
+    return type(self.footer) == "string" and self.footer ~= ""
+end
+
+function Target:_syncText()
+    self.main.Name = self.name
+    self.title.Text = self.name
+    local subtitle = if self.subtitle ~= nil then tostring(self.subtitle) else ""
+    self.subtitleLabel.Text = subtitle
+    self.subtitleLabel.Visible = subtitle ~= ""
+    self.footerLabel.Text = if self:_hasFooter() then self.footer else ""
+    self.footerLabel.Visible = self:_hasFooter()
+    self.rule.Visible = #self.stats > 0 or self:_hasFooter()
+end
+
+function Target:_healthText(): string
+    local health, maxHealth = self.health, self.maxHealth
+    if not health then
+        return ""
+    end
+    if maxHealth and maxHealth > 0 and health < maxHealth then
+        return commafy(health) .. " / " .. commafy(maxHealth) .. " HP"
+    end
+    return commafy(health) .. " HP"
+end
+
+function Target:_syncHealth(animate: boolean?)
+    local health, maxHealth = self.health, self.maxHealth
+    local hasHealth = health ~= nil
+    self.healthLabel.Text = self:_healthText()
+    self.healthLabel.Visible = hasHealth
+    self.bar.Visible = hasHealth
+    local share = 1
+    if hasHealth and maxHealth and maxHealth > 0 then
+        share = math.clamp(health / maxHealth, 0, 1)
+    end
+    local size = UDim2.fromScale(share, 1)
+    -- no health left: no dot either
+    self.fill.Visible = share > 0
+    if animate and self._shown then
+        variables.tweenService:Create(self.fill, healthInfo, { Size = size }):Play()
+    else
+        self.fill.Size = size
+    end
+end
+
+-- Any of the fields CreateTarget takes; a model, image or userId replaces the portrait.
+function Target:Set(properties)
+    if type(properties) ~= "table" then
+        return
+    end
+    local name = properties.name or properties.Name
+    if name ~= nil then
+        self.name = tostring(name)
+    end
+    for _, key in { "subtitle", "footer" } do
+        local value = properties[key]
+        if value == nil then
+            value = properties[string.upper(string.sub(key, 1, 1)) .. string.sub(key, 2)]
+        end
+        if value ~= nil then
+            self[key] = value
+        end
+    end
+    local stats = properties.stats or properties.Stats
+    if stats ~= nil then
+        self.stats = readStats(stats)
+        self:_layoutStats()
+    end
+    if
+        properties.model
+        or properties.Model
+        or properties.image
+        or properties.Image
+        or properties.userId
+        or properties.UserId
+    then
+        self:_setPortrait(properties)
+    end
+    self:_syncText()
+
+    local health = tonumber(properties.health or properties.Health)
+    local maxHealth = tonumber(properties.maxHealth or properties.MaxHealth)
+    if health or maxHealth then
+        -- a new target at full health fills the bar at once; the same one losing health eases down
+        local newTarget = name ~= nil
+        self.health = health or self.health
+        self.maxHealth = maxHealth or self.maxHealth
+        self:_syncHealth(not newTarget)
+    end
+end
+
+function Target:SetHealth(health: number, maxHealth: number?)
+    self.health = tonumber(health) or self.health
+    if maxHealth ~= nil then
+        self.maxHealth = tonumber(maxHealth) or self.maxHealth
+    end
+    self:_syncHealth(true)
+end
+
+-- One stat's value; a label it does not have yet is added at the end.
+function Target:SetStat(label: string, value: any)
+    label = tostring(label)
+    local text = if value == nil then "-" else tostring(value)
+    local part = self.statParts[label]
+    if part then
+        part.stat.value = text
+        part.value.Text = text
+        return
+    end
+    table.insert(self.stats, { label = label, value = text })
+    self:_layoutStats()
+end
+
+function Target:SetModel(model: Instance?)
+    self:_setPortrait({ model = model })
+end
+
+function Target:Get()
+    local stats = {}
+    for _, stat in self.stats do
+        table.insert(stats, { label = stat.label, value = stat.value })
+    end
+    return {
+        name = self.name,
+        subtitle = self.subtitle,
+        health = self.health,
+        maxHealth = self.maxHealth,
+        stats = stats,
+        footer = self.footer,
+    }
+end
+
+function Target:_searchText(): string
+    local parts = { self.name, tostring(self.subtitle or "") }
+    for _, stat in self.stats do
+        table.insert(parts, stat.label)
+    end
+    return table.concat(parts, " ")
+end
+
+function Target:_setShown(shown, animate)
+    local window = self.window
+    self._shown = shown
+    if shown then
+        window:_revealCommon(self, animate)
+    else
+        window:_hideCommon(self, animate)
+    end
+    local function to(value)
+        return if shown then value else 1
+    end
+    window:_reveal(self.portrait, { BackgroundTransparency = to(0.94) }, animate)
+    window:_reveal(self.portraitStroke, { Transparency = to(0.9) }, animate)
+    window:_reveal(self.viewport, { ImageTransparency = to(0) }, animate)
+    window:_reveal(self.portraitImage, { ImageTransparency = to(0) }, animate)
+    window:_reveal(self.subtitleLabel, { TextTransparency = to(0.5) }, animate)
+    window:_reveal(self.healthLabel, { TextTransparency = to(0.5) }, animate)
+    window:_reveal(self.bar, { BackgroundTransparency = to(0.9) }, animate)
+    window:_reveal(self.fill, { BackgroundTransparency = to(0) }, animate)
+    window:_reveal(self.rule, { BackgroundTransparency = to(0.92) }, animate)
+    window:_reveal(self.footerLabel, { TextTransparency = to(0.5) }, animate)
+    for _, part in self.statParts do
+        window:_reveal(part.label, { TextTransparency = to(0.5) }, animate)
+        window:_reveal(part.value, { TextTransparency = to(0) }, animate)
+    end
+end
+
+function Target:_minWidth(): number
+    return 240
+end
+
+function Target:Remove()
+    self.main:Destroy()
+end
+
+moveable(Target)
+
+return Target
 ]=====]
 
 sources["components/themegallery"] = [=====[
@@ -28757,6 +33336,33 @@ function Toggle.new(tab, properties)
     -- flex-positioned compact one, since functionContainer's own position tracks either way)
     self.lockIcon = self.window:_buildLockIcon(self.functionContainer, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
     self.prohibitedIcon = self.window:_buildProhibitedIcon(self.container)
+
+    -- `color`: a colour chip beside the switch that opens a small picker (the Airflow hub's ESP
+    -- rows - "Name", "Box", "Tracer", each with the colour it draws in). Saved under
+    -- `colorFlag` (default: the toggle's own flag and "Color").
+    local color = properties.color or properties.Color
+    if color ~= nil and not self.compact then
+        local colorSwatch = require(script.Parent.Parent.utility.colorSwatch)
+        self.swatch = colorSwatch.new(self.window, self, {
+            color = color,
+            parent = self.main,
+            position = UDim2.new(1, -(15 + 58 + 8), 0.5, 0),
+            anchor = Vector2.new(1, 0.5),
+            zIndex = 11, -- over the row's own click area
+            flag = properties.colorFlag or properties.ColorFlag or (if self.flag then self.flag .. "Color" else nil),
+            forgetState = self.forgetState,
+            callback = properties.colorCallback or properties.ColorCallback,
+        })
+        self.color = self.swatch.value
+        local own = self.swatch.callback
+        self.swatch.callback = function(value)
+            self.color = value
+            if own then
+                own(value)
+            end
+        end
+        self.window:_fitRowTitle(self, 15 + 58 + 8 + colorSwatch.width + 10)
+    end
     self:_applyLocked(false)
 
     self.window:_wireTooltip(self)
@@ -29249,8 +33855,19 @@ local toggleGlowReveal = TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.E
 -- in the order it's actually built: track, then the knob sitting on it, then its glow.
 local toggleStateReveal = TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out, 0, false, 0.12)
 
+-- The colour chip's colour, when the toggle has one.
+function Toggle:SetColor(color, skipCallback)
+    if self.swatch then
+        self.swatch:Set(color, skipCallback)
+        self.color = self.swatch.value
+    end
+end
+
 function Toggle:_setShown(shown, animate)
     local w = self.window
+    if self.swatch then
+        self.swatch:_setShown(shown, animate)
+    end
     if shown then
         w:_revealCommon(self, animate)
         -- carry the state colours here too, so revealing on a tab switch also picks up the theme
@@ -30457,12 +35074,19 @@ function Window.new(properties)
     -- half-configured).
     self._showUnloadButton = properties.showUnloadButton or properties.ShowUnloadButton or false
     self.notifySide = properties.notifySide or properties.NotifySide or "Right"
-    -- "Top" (default, everything this file always did) or "Sidebar" - a vertical tab list down
-    -- the left edge instead of the horizontal strip under the header, for a section list too
-    -- long to read comfortably as a single scrolling row of pills. Dev-only, set once at
-    -- CreateWindow (Fluent's own TabsMode) - not a runtime/player Settings toggle, since
-    -- switching layout live would mean re-deriving every position below from scratch anyway.
-    self.tabsMode = properties.tabsMode or properties.TabsMode or "Top"
+    -- "Rail" (default, see below), "Sidebar" - a plain vertical tab list down the left edge - or
+    -- "Top", the horizontal strip of pills under the header. Dev-only, set once at CreateWindow
+    -- (Fluent's own TabsMode) - not a runtime/player Settings toggle, since switching layout live
+    -- would mean re-deriving every position below from scratch anyway.
+    self.tabsMode = properties.tabsMode or properties.TabsMode or "Rail"
+    -- "Rail": the Sidebar's layout in the Airflow hub's shape - a narrow rail down the whole left
+    -- edge with the hub's mark at its top, the tabs as icon-over-name tiles and the player under
+    -- them (see Window:_applyRail). Everything else about the Sidebar layout holds, so it runs as
+    -- one with a flag.
+    if string.lower(tostring(self.tabsMode)) == "rail" then
+        self.railStyle = true
+        self.tabsMode = "Sidebar"
+    end
     -- "tab" (default): the search filters the page the player is on. "all": every page at once.
     self.searchScope = if (properties.searchScope or properties.SearchScope) == "all" then "all" else "tab"
     -- The line under the player's name in the sidebar's profile chip ("Premium", a rank, a
@@ -30640,6 +35264,10 @@ function Window.new(properties)
     -- the rim of SyncOfficialSpec's Rayfield Gen 3 Concept. Revealed with the window (_firstShow),
     -- then Hide and Show move it between the two strengths.
     self._rimOpen, self._rimPill = 0.93, 0.45
+    if properties.ambient ~= false and properties.Ambient ~= false then
+        self:_buildAmbient()
+    end
+
     self._hasRim = not self._showBorder and not self._squircleCorners
     if self._hasRim then
         self:Create("UIGradient", {
@@ -30964,6 +35592,12 @@ function Window.new(properties)
     self.sidebarFullWidth = 219
     self.sidebarCollapsedWidth = 64
     self.sidebarCollapseBelow = 589
+    -- the rail is narrow already: one width, never collapsed
+    if self.railStyle then
+        self.sidebarFullWidth = constants.railWidth
+        self.sidebarCollapsedWidth = constants.railWidth
+        self.sidebarCollapseBelow = 0
+    end
     -- nil = follow the window's own width; true/false pins it either way (also settable live
     -- via Window:SetSidebarCollapsed).
     self._sidebarCollapsedOverride = if properties.sidebarCollapsed ~= nil
@@ -31414,6 +36048,10 @@ function Window.new(properties)
         }, { TextColor3 = "TitlingColor", FontFace = "Font" })
     end
 
+    if self.railStyle then
+        self:_applyRail()
+    end
+
     -- No shared sliding indicator anymore - ported from upstream Rayfield Gen2 1.2, each tab row/
     -- pill owns and fades its own background/stroke/shadow (see tabSelector.luau and Tab's own
     -- _applyVisual) instead of one pill sliding between them.
@@ -31571,6 +36209,11 @@ function Window.new(properties)
 
     -- The hub's own version, and where to look for a newer one (see updatecheck.luau). Nothing
     -- runs without updateCheck.
+    -- the sidebar's width is known by now: the light along the foot centres on the page
+    if self._ambientGlows then
+        self:_layoutAmbient()
+    end
+
     self.version = properties.version or properties.Version
     self._updateCheck =
         require(script.Parent.updatecheck).new(self, properties.updateCheck or properties.UpdateCheck, self.version)
@@ -32057,7 +36700,7 @@ function Window:_quickRestore()
         self.resize.grip.Visible = self.settings.resizeGripEnabled
         if self.profile then
             self.profile.Visible = self.settings.showProfile
-            self.tabList.Size = UDim2.new(1, 0, 1, if self.settings.showProfile then -self._tabListFooterReserve else 0)
+            self.tabList.Size = self:_tabListSize(self.settings.showProfile)
         end
         self.topbar.Visible = true
         self.tabList.Visible = true
@@ -32085,6 +36728,9 @@ function Window:_quickRestore()
                 variables.tweenService:Create(action.ImageLabel, fadeInfo, { ImageTransparency = 0.6 }):Play()
             end
         end
+        -- the search field is in the same row but not an icon action: it fades its own parts
+        require(script.Parent.search).setShown(self, true, fadeInfo)
+        self:_setAmbientShown(not self.minimised, fadeInfo)
 
         -- if we were hidden with the settings page open, bring its cog back lit (its open
         -- state) rather than the default resting brightness the loop above just set
@@ -32532,6 +37178,12 @@ function Window:_firstShow()
                 :Play()
         end
     end
+    require(script.Parent.search).setShown(
+        self,
+        true,
+        TweenInfo.new(0.4, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
+    )
+    self:_setAmbientShown(true, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
 
     for _, tag in self.tags do
         tag:_setShown(true, TweenInfo.new(0.4, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out))
@@ -33519,6 +38171,450 @@ function Window:_firePageShown(tab)
     end
 end
 
+-- How tall the tab list is: the rail's own shape leaves room for its mark and its footer; the
+-- Sidebar's leaves room for the profile chip.
+function Window:_tabListSize(withProfile: boolean?): UDim2
+    if self.railStyle then
+        return UDim2.new(1, 0, 1, -(self._railTop + (if withProfile then constants.railFooter else 0)))
+    end
+    return UDim2.new(1, 0, 1, if withProfile then -self._tabListFooterReserve else 0)
+end
+
+-- tabsMode = "Rail": the Airflow hub's rail. Runs once the Sidebar's parts exist and reshapes
+-- them: the dock becomes a full-height rail with a faint fill of its own and a hairline on its
+-- right edge, the hub's mark sits at its top in the accent, the tabs become tiles (see
+-- tabSelector's buildTile), and the profile chip stands in a column at the foot - the player's
+-- picture in an accent ring, the name, and the dev's line under it (`profile` on CreateWindow,
+-- the game's name say). The title moves to the right of the rail, where the page is.
+function Window:_applyRail()
+    local dock = self.tabDock
+    local railZ = 2
+    self._railTop = if self.icon then constants.railTop else 20
+
+    -- the rail's fill, rounded on the window's corners only: it is wider than the dock by a
+    -- radius, and the dock clips its right side off
+    self.railFill = self:Create("Frame", {
+        Name = "RailFill",
+        Size = UDim2.new(1, 32, 1, 0),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+        ZIndex = 1,
+        Parent = dock,
+    }, { BackgroundColor3 = "ContentColor" })
+    self:Create("UICorner", { Parent = self.railFill }, { CornerRadius = "CornerRoundness" })
+    self.railEdge = self:Create("Frame", {
+        Name = "RailEdge",
+        Size = UDim2.new(0, 1, 1, 0),
+        Position = UDim2.new(1, -1, 0, 0),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 1,
+        ZIndex = railZ,
+        Parent = dock,
+    }, { BackgroundColor3 = "ContentColor" })
+
+    if self.icon then
+        self.railLogo = self:Create("ImageLabel", {
+            Name = "HubMark",
+            Image = self.icon,
+            Size = UDim2.fromOffset(46, 46),
+            Position = UDim2.new(0.5, 0, 0, 18),
+            AnchorPoint = Vector2.new(0.5, 0),
+            BackgroundTransparency = 1,
+            ImageTransparency = 1,
+            ZIndex = railZ + 1,
+            Parent = dock,
+        }, { ImageColor3 = "AccentStroke" })
+        self:Create("UIGradient", {
+            Rotation = 90,
+            Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(205, 205, 212)),
+            Parent = self.railLogo,
+        })
+        self:_iconGlow(self.railLogo, 0.12)
+    end
+
+    -- the title and its icon move off the rail: the mark is at its top already
+    if self.topbarIcon then
+        self.topbarIcon.Visible = false
+    end
+    self.topContainer.Position = UDim2.new(0, constants.railWidth + 20, 0.5, 0)
+
+    -- the player, in a column at the foot
+    if self.profile then
+        local profileZ = constants.zIndex.bottomFade + 1
+        self.profileFooterHeight = constants.railFooter
+        self.railDivider = self:Create("Frame", {
+            Name = "Divider",
+            Size = UDim2.new(1, -28, 0, 1),
+            Position = UDim2.fromOffset(14, 0),
+            BorderSizePixel = 0,
+            BackgroundTransparency = 1,
+            ZIndex = profileZ,
+            Parent = self.profile,
+        }, { BackgroundColor3 = "ContentColor" })
+        self.profileContainer.AnchorPoint = Vector2.zero
+        self.profileLayout.FillDirection = Enum.FillDirection.Vertical
+        self.profileLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        self.profileLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+        self.profileLayout.Padding = UDim.new(0, 7)
+        self.profileAvatar.Size = UDim2.fromOffset(40, 40)
+        self.railRing = self:Create("UIStroke", {
+            Thickness = 1.5,
+            Transparency = 1,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+            Parent = self.profileAvatar,
+        }, { Color = "AccentStroke" })
+        self.profileLabels.Size = UDim2.new(1, -12, 0, 0)
+        self.profileLabels.AutomaticSize = Enum.AutomaticSize.Y
+        local labelsLayout = self.profileLabels:FindFirstChildWhichIsA("UIListLayout")
+        if labelsLayout then
+            labelsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        end
+        for _, label in { self.profileName, self.profileSubtitle } do
+            if label then
+                label.AutomaticSize = Enum.AutomaticSize.None
+                label.Size = UDim2.new(1, 0, 0, if label == self.profileName then 16 else 14)
+                label.TextXAlignment = Enum.TextXAlignment.Center
+                label.TextTruncate = Enum.TextTruncate.AtEnd
+                label.TextWrapped = false
+            end
+        end
+        self.profileName.TextSize = 14
+        if self.profileSubtitle then
+            self.profileSubtitle.TextSize = 12
+            self.profileSubtitle.TextTransparency = 0.45
+        end
+    end
+
+    self:_layoutRail()
+end
+
+-- The rail's geometry, again whenever the Sidebar would have re-derived its own.
+function Window:_layoutRail()
+    local width = constants.railWidth
+    self.tabDock.Position = UDim2.new(0, 0, 0, 0)
+    self.tabDock.Size = UDim2.new(0, width, 1, 0)
+    self.tabList.Position = UDim2.new(0, 0, 0, self._railTop)
+    local showProfile = self.profile ~= nil and (self.settings == nil or self.settings.showProfile ~= false)
+    self.tabList.Size = self:_tabListSize(showProfile)
+    if self.profile then
+        self.profile.Size = UDim2.fromOffset(width, constants.railFooter)
+        self.profileContainer.Position = UDim2.fromOffset(0, 14)
+        self.profileContainer.Size = UDim2.new(1, 0, 1, -14)
+        self.profileLabels.Visible = true
+    end
+end
+
+-- The rail's own parts fading with the window.
+function Window:_setRailShown(shown: boolean, info: TweenInfo?)
+    if not self.railStyle then
+        return
+    end
+    local parts = {
+        { self.railFill, "BackgroundTransparency", 0.975 },
+        { self.railEdge, "BackgroundTransparency", 0.93 },
+        { self.railLogo, "ImageTransparency", 0 },
+        { self.railDivider, "BackgroundTransparency", 0.92 },
+        { self.railRing, "Transparency", 0.35 },
+    }
+    for _, part in parts do
+        local instance, property, value = part[1], part[2], part[3]
+        if instance then
+            local target = if shown then value else 1
+            if info then
+                variables.tweenService:Create(instance, info, { [property] = target }):Play()
+            else
+                instance[property] = target
+            end
+        end
+    end
+end
+
+-- Ambient light: soft glows of the theme's accent spilling in from the window's edges - the Airflow
+-- hub's background. They sit in a layer made before anything else in the window, so every other
+-- part draws over them; they fade in and out with the window, follow its transparency and its
+-- theme, and go while it is rolled up. `ambient = false` on CreateWindow leaves them out.
+--
+-- The Airflow hub's own four, measured on its 705x602 window and kept in proportion: a wide one
+-- rising from the foot of the page, a small one at the bottom-left corner, a faint wide one from
+-- the top right and a small one at the top-left. The wide one is centred on the page rather than
+-- the window, since this sidebar is wider than that one.
+--
+-- Clipping is only ever rectangular here (a CanvasGroup, the one rounded clip Roblox has, clips
+-- nothing on the test executor), and a glow reaching a rounded corner lit the little square of
+-- game just past it. So each glow is drawn in clipping bands that tile the window without
+-- overlapping: the middle, a strip along the top and the bottom between the corners, and in each
+-- corner a stack of 1px slices, each as wide as the rounded corner is at that height - the curve
+-- followed pixel by pixel (2px steps showed as a staircase under the brightest glow).
+local ambientGlows = {
+    -- centre and size as fractions of the window (or pixels), how strong it is, and the corners
+    -- it reaches
+    {
+        centre = "page",
+        y = 1.045,
+        width = 1.135,
+        height = 0.432,
+        strength = 0.19,
+        corners = { "BL", "BR" },
+    },
+    -- by the player: exactly where the Airflow hub has it - centred 10px left of the window's
+    -- edge and 3px below its foot, so only its upper-right quarter shows, behind the profile (a
+    -- little larger than its 140x60: this window is bigger, and at that size it fell short)
+    {
+        pixelX = -10,
+        pixelY = 3,
+        fromBottom = true,
+        pixelWidth = 190,
+        pixelHeight = 84,
+        strength = 0.29,
+        -- over the bottom fade by the player's chip, where there is nothing else to cover
+        overFade = "rail",
+        corners = { "BL" },
+    },
+    { x = 0.973, y = 0.02, width = 1.02, height = 0.5, strength = 0.08, corners = { "TR" } },
+    { x = 0.006, y = -0.008, pixelWidth = 80, pixelHeight = 200, strength = 0.27, corners = { "TL" } },
+}
+local sliceHeight = 1
+
+function Window:_buildAmbient()
+    local layer = self:Create("Frame", {
+        Name = "Ambient",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        ZIndex = 1,
+        Parent = self.main,
+    })
+    self.ambient = layer
+
+    local function clip(name: string)
+        return self:Create("Frame", {
+            Name = name,
+            BackgroundTransparency = 1,
+            ClipsDescendants = true,
+            ZIndex = 1,
+            Parent = layer,
+        })
+    end
+
+    -- the corner square is a whole number of slices
+    local _, _, radius = self:_ambientFrame()
+    local slices = math.ceil(radius / sliceHeight)
+    self._ambientSlices = slices
+    self._ambientBands = { Middle = clip("Middle"), Top = clip("Top"), Bottom = clip("Bottom") }
+    self._ambientCorners = {}
+    for _, corner in { "TL", "TR", "BL", "BR" } do
+        local rows = {}
+        for row = 1, slices do
+            rows[row] = clip(corner .. row)
+        end
+        self._ambientCorners[corner] = rows
+    end
+
+    self._ambientGlows = {}
+    for _, spec in ambientGlows do
+        local part = { spec = spec, strength = spec.strength, copies = {}, gradients = {}, placements = {} }
+        local function copy(frame, key)
+            local glow = self:Create("ImageLabel", {
+                Name = "Glow",
+                Image = "rbxassetid://8992230677",
+                AnchorPoint = Vector2.new(0.5, 0.5),
+                BackgroundTransparency = 1,
+                ImageTransparency = 1,
+                -- Under everything, so the page's cards and controls draw over the light. The one by
+                -- the player goes over the window's bottom fade instead (which would cover it), but
+                -- only beside a rail: there it lies under the profile chip and nothing else, while in
+                -- the Top layout that corner is the page's.
+                ZIndex = if spec.overFade == "rail" and self.tabsMode == "Sidebar"
+                    then constants.zIndex.bottomFade + 1
+                    else 1,
+                Parent = frame,
+            })
+            table.insert(part.copies, glow)
+            table.insert(part.gradients, self:Create("UIGradient", { Rotation = 90, Parent = glow }))
+            table.insert(part.placements, { glow = glow, frame = frame, key = key })
+        end
+        for _, name in { "Middle", "Top", "Bottom" } do
+            copy(self._ambientBands[name], name)
+        end
+        for _, corner in spec.corners or {} do
+            for _, frame in self._ambientCorners[corner] do
+                copy(frame, corner)
+            end
+        end
+        part.glow = part.copies[1]
+        part.gradient = part.gradients[1]
+        table.insert(self._ambientGlows, part)
+    end
+
+    self:_layoutAmbient()
+    self:Connect(self.main:GetPropertyChangedSignal("AbsoluteSize"), function()
+        self:_layoutAmbient()
+    end)
+    self:_paintAmbient()
+    self:OnThemeChanged(function()
+        self:_paintAmbient()
+    end)
+end
+
+-- The window's size in its own units (what an Offset inside it measures), and the side of the
+-- square each rounded corner sits in (its radius, rounded up to whole slices).
+function Window:_ambientFrame(): (number, number, number, number)
+    local size = self.main.Size
+    local width = if size.X.Scale == 0 then size.X.Offset else self.main.AbsoluteSize.X
+    local height = if size.Y.Scale == 0 then size.Y.Offset else self.main.AbsoluteSize.Y
+    local radius = 24
+    if self.windowCorner then
+        local corner = self.windowCorner.CornerRadius
+        radius = corner.Offset + corner.Scale * math.min(width, height)
+    end
+    local square = math.ceil(radius / sliceHeight) * sliceHeight
+    return width, height, square, radius
+end
+
+function Window:_layoutAmbient()
+    local width, height, square, radius = self:_ambientFrame()
+    if width <= 0 or height <= 0 then
+        return
+    end
+    local slices = self._ambientSlices
+    square = math.min(slices * sliceHeight, math.floor(math.min(width, height) / 2))
+    local rowHeight = square / slices
+
+    local function place(frame, x: number, y: number, w: number, h: number)
+        frame.Position = UDim2.fromOffset(x, y)
+        frame.Size = UDim2.fromOffset(math.max(w, 0), math.max(h, 0))
+    end
+    local bands = self._ambientBands
+    place(bands.Middle, 0, square, width, height - square * 2)
+    place(bands.Top, square, 0, width - square * 2, square)
+    place(bands.Bottom, square, height - square, width - square * 2, square)
+
+    -- each slice: from where the curve is at its middle height to the corner square's inner edge
+    for row = 1, slices do
+        local fromEdge = (row - 1) * rowHeight
+        local depth = radius - (fromEdge + rowHeight / 2)
+        local curve = if depth > 0 then radius - math.sqrt(math.max(radius * radius - depth * depth, 0)) else 0
+        -- whole pixels, and the width taken from them: an Offset drops its fraction, which left a
+        -- one-pixel gap between a slice and the strip beside it
+        local inset = math.floor(curve + 0.5)
+        local sliceWidth = square - inset
+        local corners = self._ambientCorners
+        place(corners.TL[row], inset, fromEdge, sliceWidth, rowHeight)
+        place(corners.TR[row], width - square, fromEdge, sliceWidth, rowHeight)
+        place(corners.BL[row], inset, height - fromEdge - rowHeight, sliceWidth, rowHeight)
+        place(corners.BR[row], width - square, height - fromEdge - rowHeight, sliceWidth, rowHeight)
+    end
+
+    -- where the page starts: the glow along the foot is centred on it
+    local pageLeft = if self.tabsMode == "Sidebar" then (self.sidebarWidth or 0) else 0
+    for _, part in self._ambientGlows do
+        local spec = part.spec
+        local x = if spec.centre == "page" then (pageLeft + width) / 2 else (spec.pixelX or spec.x * width)
+        local y = if spec.fromBottom then height + spec.pixelY else spec.y * height
+        local glowWidth = spec.pixelWidth or spec.width * width
+        local glowHeight = spec.pixelHeight or spec.height * height
+        for _, placement in part.placements do
+            -- a glow is placed in the window's own coordinates, less where its clip starts
+            local frame = placement.frame
+            local origin = frame.Position
+            placement.glow.Position = UDim2.fromOffset(x - origin.X.Offset, y - origin.Y.Offset)
+            placement.glow.Size = UDim2.fromOffset(glowWidth, glowHeight)
+        end
+    end
+end
+
+-- The accent's light shade, white at the top of each glow and the accent itself at its foot.
+function Window:_paintAmbient()
+    local accent = self.theme.AccentStroke or self.theme.AccentColor
+    if typeof(accent) ~= "Color3" then
+        return
+    end
+    for _, part in self._ambientGlows or {} do
+        for index, glow in part.copies do
+            -- white leaning towards the accent, the way the Airflow hub tints its light
+            glow.ImageColor3 = accent:Lerp(Color3.new(1, 1, 1), 0.52)
+            part.gradients[index].Color = ColorSequence.new(Color3.new(1, 1, 1), accent)
+        end
+    end
+end
+
+-- keepRail: the light goes but the rail stays (rolling up, where its top is still in the bar)
+function Window:_setAmbientShown(shown: boolean, info: TweenInfo?, keepRail: boolean?)
+    -- the rail's parts come and go at the same moments as the light
+    if not keepRail then
+        self:_setRailShown(shown, info)
+    end
+    if not self._ambientGlows then
+        return
+    end
+    -- a see-through window gets a fainter light, so the game behind is not tinted
+    local opacity = self.windowOpacity or 1
+    for _, part in self._ambientGlows do
+        local target = if shown then 1 - part.strength * opacity else 1
+        for _, glow in part.copies do
+            if info then
+                variables.tweenService:Create(glow, info, { ImageTransparency = target }):Play()
+            else
+                glow.ImageTransparency = target
+            end
+        end
+    end
+end
+
+-- A soft round light behind an icon, in the icon's own colour and twice its size - the glow the
+-- Airflow hub's UI gives its accent icons. It follows the icon: as the icon fades in or out with
+-- its element, and as it changes colour (a field lighting up), so no reveal code has to know it
+-- exists. `strength` is how strong it is with the icon fully shown (0-1, default 0.14).
+function Window:_iconGlow(icon: ImageLabel, strength: number?)
+    local amount = strength or 0.14
+    local glow = self:Create("ImageLabel", {
+        Name = "Glow",
+        Image = "rbxassetid://8992230677",
+        Size = UDim2.fromScale(2.2, 2.2),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ImageColor3 = icon.ImageColor3,
+        ImageTransparency = 1 - (1 - icon.ImageTransparency) * amount,
+        ZIndex = icon.ZIndex - 1,
+        Parent = icon,
+    })
+    self:Connect(icon:GetPropertyChangedSignal("ImageTransparency"), function()
+        glow.ImageTransparency = 1 - (1 - icon.ImageTransparency) * amount
+    end)
+    self:Connect(icon:GetPropertyChangedSignal("ImageColor3"), function()
+        glow.ImageColor3 = icon.ImageColor3
+    end)
+    return glow
+end
+
+-- A search box waking up the Airflow way: while it has focus its edge and its glyph take the
+-- accent, and they settle back when it lets go. restIcon is the glyph's transparency at rest.
+function Window:_wireFieldFocus(input: TextBox, stroke: UIStroke?, icon: ImageLabel?, restIcon: number?)
+    local info = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    local function paint(focused: boolean)
+        local theme = self.theme
+        if stroke then
+            variables.tweenService
+                :Create(stroke, info, { Color = if focused then theme.AccentStroke else theme.ElementStroke })
+                :Play()
+        end
+        if icon then
+            variables.tweenService
+                :Create(icon, info, {
+                    ImageColor3 = if focused then theme.AccentStroke else theme.ContentColor,
+                    ImageTransparency = if focused then 0 else (restIcon or 0.5),
+                })
+                :Play()
+        end
+    end
+    self:Connect(input.Focused, function()
+        paint(true)
+    end)
+    self:Connect(input.FocusLost, function()
+        paint(false)
+    end)
+end
+
 -- An empty state: a faint icon over a centred line of text, in the room the element keeps for it.
 --
 -- Every list-shaped element used to say it was empty with one line of grey text hugging the left
@@ -34461,21 +39557,47 @@ end
 -- Fixed at the source instead of just avoiding the value: self.main, self.tabDock, and every
 -- card (via Window:StyleElementBody, or directly where a component styles its own card outside
 -- that helper) now set Active = true explicitly, so they stay clickable at any transparency.
+--
+-- It no longer goes through ChangeTheme: that started a tween on every themed property of every
+-- instance in the window and refreshed every element, once per step of the slider - dragging it
+-- froze the game. Only what is bound to ElementTransparency is set now, directly, and the full
+-- element refresh (for the few cards that read the value when they are revealed) runs once, a
+-- moment after the last change.
 function Window:SetTransparency(percent)
-    percent = math.clamp(percent, 0, 100)
+    percent = math.clamp(tonumber(percent) or 0, 0, 100)
     self.windowOpacity = 1 - percent / 100
+    local transparency = 1 - self.windowOpacity
+    self.theme.ElementTransparency = transparency
 
-    self:ChangeTheme({ ElementTransparency = 1 - self.windowOpacity })
+    for instance, properties in self.themeProperties do
+        for property, binding in properties do
+            if binding == "ElementTransparency" then
+                instance[property] = transparency
+            elseif typeof(binding) == "table" and binding[1] == "ElementTransparency" then
+                instance[property] = binding[2](transparency)
+            end
+        end
+    end
 
-    local info = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    local stamp = (self._transparencyStamp or 0) + 1
+    self._transparencyStamp = stamp
+    task.delay(0.25, function()
+        if self._transparencyStamp == stamp and not self.unloaded and not self.hidden then
+            self:_refreshElementThemes()
+        end
+    end)
+
     local target, prop = self:_mainVisual()
-    variables.tweenService:Create(target, info, { [prop] = 1 - self.windowOpacity }):Play()
-    -- Sidebar mode's own visible fill lives on tabDockCard now, not tabDock itself (see its own
-    -- construction comment) - tabDock there stays permanently transparent as a plain structural
-    -- container, so tweening it directly would visibly do nothing.
-    variables.tweenService
-        :Create(self.tabDockCard or self.tabDock, info, { BackgroundTransparency = 1 - 0.8 * self.windowOpacity })
-        :Play()
+    target[prop] = transparency
+    if not self.hidden and not self.minimised then
+        self:_setAmbientShown(true)
+    end
+    -- The Top mode track is the one dock with a fill (0.2 at a solid window). The Sidebar rail has
+    -- none - its tabs sit on the window - so it is left alone: it used to be given the Top track's
+    -- fill here, which put a panel behind the rail that never went away.
+    if self.tabsMode ~= "Sidebar" then
+        self.tabDock.BackgroundTransparency = 1 - 0.8 * self.windowOpacity
+    end
 end
 
 -- Acrylic: frosts the game behind the window, and only behind it (see acrylic.luau). intensity
@@ -34749,6 +39871,12 @@ end
 -- so SetSidebarWidth/OnSidebarWidthChanged/CreateTab's own re-application still have a real,
 -- harmless method to call instead of erroring.
 function Window:_applySidebarWidth(_width: number?)
+    if self.railStyle then
+        self.sidebarWidth = self.sidebarFullWidth
+        self.elements.Size = UDim2.new(1, -self.sidebarWidth, 1, -70)
+        self:_layoutRail()
+        return
+    end
     -- The window's own width is the only input: narrow enough and the rail collapses to icons
     -- (upstream's railCollapseBelow/railCollapsedWidth), otherwise it's the full rail.
     local windowWidth = self.size and self.size.X.Offset or self.main.AbsoluteSize.X
@@ -35571,6 +40699,8 @@ function Window:Hide()
             variables.tweenService:Create(action.ImageLabel, fadeInfo, { ImageTransparency = 1 }):Play()
         end
     end
+    require(script.Parent.search).setShown(self, false, fadeInfo)
+    self:_setAmbientShown(false, fadeInfo)
 
     for _, tag in self.tags do
         tag:_setShown(false, fadeInfo)
@@ -35723,11 +40853,12 @@ function Window:ToggleMinimise()
         self.tabDock.Visible = true
         if self.profile then
             self.profile.Visible = self.settings.showProfile
-            self.tabList.Size = UDim2.new(1, 0, 1, if self.settings.showProfile then -self._tabListFooterReserve else 0)
+            self.tabList.Size = self:_tabListSize(self.settings.showProfile)
         end
         self:_setTabSectionsVisible(true)
         ts:Create(self.bottomFade, edgeFadeInfo, { BackgroundTransparency = 0 }):Play()
         ts:Create(self.topFade, edgeFadeInfo, { BackgroundTransparency = 0 }):Play()
+        self:_setAmbientShown(true, edgeFadeInfo)
 
         rollTo(self.size.Y.Offset, position.Y.Offset + shift)
 
@@ -35749,6 +40880,12 @@ function Window:ToggleMinimise()
         -- the content's bottom fade would otherwise ride up into the bar as the edge passes
         ts:Create(self.bottomFade, edgeFadeInfo, { BackgroundTransparency = 1 }):Play()
         ts:Create(self.topFade, edgeFadeInfo, { BackgroundTransparency = 1 }):Play()
+        self:_setAmbientShown(false, edgeFadeInfo, true)
+        -- the profile chip hangs off the window's foot, so it rode up with the edge over the bar for
+        -- the whole roll: it goes at once instead
+        if self.profile then
+            self.profile.Visible = false
+        end
 
         rollTo(barHeight, position.Y.Offset - shift)
 
@@ -35759,7 +40896,9 @@ function Window:ToggleMinimise()
             -- out of sight under the bar: out of the input and render path too
             self.elements.Visible = false
             self.tabList.Visible = false
-            self.tabDock.Visible = false
+            -- the Rail keeps its top in the bar: the hub's mark stays in the corner, the hairline
+            -- between it and the title (the tiles are gone with the list)
+            self.tabDock.Visible = self.railStyle == true
             -- the profile chip is parented to main, so it needs hiding by hand alongside the dock
             if self.profile then
                 self.profile.Visible = false
@@ -36538,7 +41677,7 @@ function Window:_buildSettingsUI()
                 self.profile.Visible = state
                 -- Give the rows back the height the profile isn't using (and vice versa), so a
                 -- hidden profile leaves no dead strip at the base of the rail.
-                self.tabList.Size = UDim2.new(1, 0, 1, if state then -self._tabListFooterReserve else 0)
+                self.tabList.Size = self:_tabListSize(state)
                 self:SaveSettings()
             end,
         })
@@ -37856,10 +42995,15 @@ export type WindowProps = {
     -- what the Search action looks through: "tab" (default) filters the page the player is on,
     -- following them to another tab with the query; "all" gathers every page into one list
     searchScope: string?,
+    -- "Rail" (default): a narrow rail with the hub's mark, icon-over-name tabs
+    -- and the player at its foot. "Sidebar": a plain vertical list. "Top": pills under the header
+    tabsMode: string?,
     -- the hub's own version, e.g. "v1.0.2" - what updateCheck compares against
     version: string?,
     -- looks for a newer version in the background and tells the player once per session
     updateCheck: UpdateCheckProps?,
+    -- soft glows of the theme's accent from the window's edges (default true)
+    ambient: boolean?,
     -- the photo tool for thumbnails: a Settings button and F8 (off by default; needs the Rayfield
     -- Photo program on the PC - window:TakePhoto() works either way)
     photo: boolean?,
@@ -37988,6 +43132,15 @@ export type TabboxProps = {
     name: string?,
 }
 
+export type SubTabProps = {
+    name: string?,
+    icon: (string | number)?,
+}
+
+export type SubTab = Group & {
+    Select: (self: SubTab) -> (),
+}
+
 export type TabboxPage = Group -- a Tabbox page is a column Group; every CreateX works on it
 
 export type Tabbox = Moveable & {
@@ -38055,6 +43208,11 @@ export type ToggleProps = {
     locked: boolean?,
     forgetState: boolean?,
     callback: ((value: boolean) -> ())?,
+    -- a small colour chip beside the switch that opens a picker; saved under colorFlag (default
+    -- the toggle's flag and "Color")
+    color: (Color3 | string)?,
+    colorFlag: string?,
+    colorCallback: ((color: Color3) -> ())?,
 }
 
 -- A compact alternative to Toggle: same flag/config/description contract, a check box instead
@@ -38249,6 +43407,8 @@ export type GridItem = {
     image: (string | number)?, -- a real thumbnail; takes over from `icon` when both are given
     color: Color3?, -- the card's edge while unselected: a rarity/category tint
     tag: string?, -- what the chips and Filter({ tags = ... }) narrow on
+    subtitle: string?, -- list layout: the small print under the name (where it drops)
+    value: (string | number)?, -- list layout: the value on the right (a drop chance)
 }
 
 -- One filter chip. A bare string is its own tag and label.
@@ -38303,6 +43463,10 @@ export type ItemGridProps = {
     search: (boolean | string)?,
     filters: { GridFilterChip }?, -- the chip row; the dev owns the tag set
     imageLayout: ("left" | "top")?, -- thumbnail beside the name, or above it. Default "left"
+    -- "list": one row per item - picture, the name in its `color`, the subtitle under it, the value
+    -- on the right. Default "grid"
+    layout: ("grid" | "list")?,
+    selectable: boolean?, -- default true; false for a list only to read (clicks do nothing)
     onFilterChanged: ((filter: { text: string, tags: { string } }) -> ())?,
     callback: ((selected: { string }) -> ())?,
 }
@@ -38744,6 +43908,30 @@ export type StackedChartProps = {
     suffix: string?,
 }
 
+export type TargetStat = { string | number } | { label: string, value: (string | number)? }
+
+export type TargetProps = {
+    name: string?, -- who it is
+    subtitle: string?,
+    model: Instance?, -- cloned into the portrait, framed on its head and shoulders
+    image: (string | number)?, -- a picture instead of a model
+    userId: number?, -- a player's headshot
+    health: number?,
+    maxHealth: number?,
+    stats: { TargetStat }?, -- label and value, two to a row
+    footer: string?, -- the small print at the bottom (drops, notes)
+    tooltip: string?,
+}
+
+export type Target = Moveable & {
+    Set: (self: Target, props: TargetProps) -> (),
+    SetHealth: (self: Target, health: number, maxHealth: number?) -> (),
+    SetStat: (self: Target, label: string, value: any) -> (),
+    SetModel: (self: Target, model: Instance?) -> (),
+    Get: (self: Target) -> TargetProps,
+    Remove: (self: Target) -> (),
+}
+
 export type StackedChart = Moveable & {
     Set: (self: StackedChart, rows: { StackedChartRow }) -> (),
     Get: (self: StackedChart) -> { StackedChartRow },
@@ -38822,6 +44010,8 @@ export type Toggle = Moveable & {
     -- Managed and error-isolated per tick - see toggle.luau's own comment on why this beats a
     -- hand-rolled while loop in the toggle's own callback.
     Loop: (self: Toggle, fn: (toggle: any) -> number?, interval: number?) -> (),
+    color: Color3?, -- the chip's colour, when it has one
+    SetColor: (self: Toggle, color: Color3 | string, skipCallback: boolean?) -> (),
 }
 
 export type Checkbox = Moveable & {
@@ -38884,6 +44074,8 @@ export type ItemGrid = Moveable & {
     ToggleTag: (self: ItemGrid, tag: string) -> (), -- the programmatic half of clicking a chip
     GetFilter: (self: ItemGrid) -> { text: string, tags: { string } },
     Refresh: (self: ItemGrid, items: { string | GridItem }, skipCallback: boolean?) -> (),
+    -- list layout: one row's value on the right, without rebuilding the list; nil removes it
+    SetValue: (self: ItemGrid, id: string, value: (string | number)?) -> boolean,
     SetHeight: (self: ItemGrid, height: number?) -> (),
     SetMaxHeight: (self: ItemGrid, height: number?) -> (),
     SetColumns: (self: ItemGrid, columns: number, fixed: boolean?) -> (),
@@ -38892,6 +44084,125 @@ export type ItemGrid = Moveable & {
     Lock: (self: ItemGrid, reason: string?) -> (),
     Unlock: (self: ItemGrid) -> (),
     IsLocked: (self: ItemGrid) -> boolean,
+}
+
+export type ColorSwatchProps = {
+    name: string?,
+    icon: (string | number)?,
+    description: string?,
+    tooltip: string?,
+    color: (Color3 | string)?, -- a Color3 or a hex string
+    flag: string?,
+    forgetState: boolean?,
+    callback: ((color: Color3) -> ())?,
+}
+
+export type ColorSwatch = Moveable & {
+    value: Color3,
+    Get: (self: ColorSwatch) -> Color3,
+    Set: (self: ColorSwatch, color: Color3 | string, skipCallback: boolean?) -> (),
+    Open: (self: ColorSwatch) -> (),
+    Remove: (self: ColorSwatch) -> (),
+}
+
+export type ESPPreviewProps = {
+    title: string?,
+    height: number?, -- the stage's height (default 170)
+    character: Model?, -- the model to show; default the player's own, following a respawn
+    autoRotate: boolean?, -- default true
+    animateHealth: boolean?, -- the health rising and falling by itself (default true)
+    box: (string | boolean)?, -- "Full", "Corner" or false
+    name: boolean?,
+    distance: boolean?,
+    weapon: boolean?,
+    healthBar: boolean?,
+    healthText: boolean?,
+    tracer: boolean?,
+    chams: boolean?,
+    chamsTransparency: number?, -- 0-1
+    -- a colour per piece: box, name, distance, weapon, healthText, tracer, chams, health
+    colors: { [string]: Color3 }?,
+}
+
+export type ESPPreview = Moveable & {
+    Set: (self: ESPPreview, props: ESPPreviewProps) -> (),
+    Get: (self: ESPPreview) -> { [string]: any },
+    SetCharacter: (self: ESPPreview, model: Model?) -> boolean,
+    SetAutoRotate: (self: ESPPreview, on: boolean) -> (),
+    SetAnimateHealth: (self: ESPPreview, on: boolean) -> (),
+    Remove: (self: ESPPreview) -> (),
+}
+
+export type DashboardLink = {
+    title: string?,
+    text: string?, -- the line under the title; also what is copied when `copy` is not given
+    icon: (string | number)?,
+    button: string?, -- the button's label, e.g. "Copy Invite"
+    copy: string?, -- what the button copies
+    callback: (() -> ())?,
+}
+
+export type DashboardProps = {
+    -- the pill on the player's card: a word (the key's tier) and a line under it, which can be a
+    -- function called every second (the key's time left)
+    badge: (string | { text: string?, icon: (string | number)?, subtitle: (string | (() -> string))? })?,
+    hubName: string?, -- shown for the player's name while it is hidden; default the window's name
+    hubIcon: (string | number)?, -- shown for their picture while it is hidden; default the window's icon
+    links: { DashboardLink }?,
+    executor: boolean?, -- the executor card; default true
+    executorText: string?,
+    loader: string?, -- run again after Rejoin or a server hop (queue_on_teleport)
+}
+
+export type Dashboard = Moveable & {
+    SetHideName: (self: Dashboard, hidden: boolean) -> (),
+    SetHideAvatar: (self: Dashboard, hidden: boolean) -> (),
+    Rejoin: (self: Dashboard) -> boolean,
+    ServerHop: (self: Dashboard, lowest: boolean?) -> boolean,
+    Remove: (self: Dashboard) -> (),
+}
+
+export type PickerItem = string | {
+    id: string?, -- defaults to `name`
+    name: string?,
+    image: (string | number)?,
+    color: Color3?, -- the rarity's colour: its dot and its label
+    rarity: string?, -- the label beside the dot; also what a chip narrows on when `tag` is not given
+    tag: string?,
+    value: (string | number)?, -- on the right of the card (a drop chance)
+    subtitle: string?, -- the small print at the foot (where it drops)
+}
+
+export type ItemPickerProps = {
+    name: string?, -- the row's label
+    title: string?, -- the picker's heading; default "Select " .. name
+    icon: (string | number)?,
+    description: string?,
+    tooltip: string?,
+    flag: string?,
+    forgetState: boolean?,
+    items: { PickerItem }?,
+    filters: { GridFilterChip }?, -- a chip each, after "All"
+    search: (boolean | string)?, -- the placeholder
+    multiSelect: boolean?, -- default true
+    value: (string | { string })?,
+    emptyText: string?,
+    callback: ((selected: { string }) -> ())?,
+}
+
+export type ItemPicker = Moveable & {
+    value: { string },
+    Get: (self: ItemPicker) -> { string },
+    Set: (self: ItemPicker, ids: string | { string }, skipCallback: boolean?) -> (),
+    Toggle: (self: ItemPicker, id: string, skipCallback: boolean?) -> boolean,
+    SelectAll: (self: ItemPicker, skipCallback: boolean?) -> (),
+    Clear: (self: ItemPicker, skipCallback: boolean?) -> (),
+    SetFilter: (self: ItemPicker, tag: string?) -> (),
+    Refresh: (self: ItemPicker, items: { PickerItem }, skipCallback: boolean?) -> (),
+    Open: (self: ItemPicker) -> (),
+    Close: (self: ItemPicker) -> (),
+    IsOpen: (self: ItemPicker) -> boolean,
+    Remove: (self: ItemPicker) -> (),
 }
 
 export type ReorderList = Moveable & {
@@ -39028,6 +44339,11 @@ export type Collapsible = Moveable & {
     CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,
     CreateChart: (self: Collapsible, props: ChartProps) -> Chart,
     CreateStackedChart: (self: Collapsible, props: StackedChartProps) -> StackedChart,
+    CreateTarget: (self: Collapsible, props: TargetProps) -> Target,
+    CreateItemPicker: (self: Collapsible, props: ItemPickerProps) -> ItemPicker,
+    CreateDashboard: (self: Collapsible, props: DashboardProps?) -> Dashboard,
+    CreateESPPreview: (self: Collapsible, props: ESPPreviewProps?) -> ESPPreview,
+    CreateColorSwatch: (self: Collapsible, props: ColorSwatchProps) -> ColorSwatch,
     CreateCountdown: (self: Collapsible, props: CountdownProps) -> Countdown,
     CreateFAQ: (self: Collapsible, props: FAQProps) -> FAQ,
     CreateTable: (self: Collapsible, props: TableProps) -> Table,
@@ -39077,6 +44393,11 @@ export type Group = Moveable & {
     CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,
     CreateChart: (self: Group, props: ChartProps) -> Chart,
     CreateStackedChart: (self: Group, props: StackedChartProps) -> StackedChart,
+    CreateTarget: (self: Group, props: TargetProps) -> Target,
+    CreateItemPicker: (self: Group, props: ItemPickerProps) -> ItemPicker,
+    CreateDashboard: (self: Group, props: DashboardProps?) -> Dashboard,
+    CreateESPPreview: (self: Group, props: ESPPreviewProps?) -> ESPPreview,
+    CreateColorSwatch: (self: Group, props: ColorSwatchProps) -> ColorSwatch,
     CreateCountdown: (self: Group, props: CountdownProps) -> Countdown,
     CreateFAQ: (self: Group, props: FAQProps) -> FAQ,
     CreateTable: (self: Group, props: TableProps) -> Table,
@@ -39107,6 +44428,11 @@ export type Tab = {
     CreateListPicker: (self: Tab, props: ListPickerProps) -> ListPicker,
     CreateTabbox: (self: Tab, props: TabboxProps) -> Tabbox,
     CreatePanel: (self: Tab, props: PanelProps) -> Panel,
+    -- a row of pills at the top of the tab, each a page of its own; returns the page (a column
+    -- Group: every CreateX works on it)
+    CreateSubTab: (self: Tab, props: SubTabProps) -> SubTab,
+    -- show a sub tab by its name or its page
+    SelectSubTab: (self: Tab, target: string | SubTab) -> boolean,
     CreateInput: (self: Tab, props: InputProps) -> Input,
     CreateKeybind: (self: Tab, props: KeybindProps) -> Keybind,
     CreateColorPicker: (self: Tab, props: ColorPickerProps) -> ColorPicker,
@@ -39121,6 +44447,11 @@ export type Tab = {
     CreateConsole: (self: Tab, props: ConsoleProps) -> Console,
     CreateChart: (self: Tab, props: ChartProps) -> Chart,
     CreateStackedChart: (self: Tab, props: StackedChartProps) -> StackedChart,
+    CreateTarget: (self: Tab, props: TargetProps) -> Target,
+    CreateItemPicker: (self: Tab, props: ItemPickerProps) -> ItemPicker,
+    CreateDashboard: (self: Tab, props: DashboardProps?) -> Dashboard,
+    CreateESPPreview: (self: Tab, props: ESPPreviewProps?) -> ESPPreview,
+    CreateColorSwatch: (self: Tab, props: ColorSwatchProps) -> ColorSwatch,
     CreateCountdown: (self: Tab, props: CountdownProps) -> Countdown,
     CreateFAQ: (self: Tab, props: FAQProps) -> FAQ,
     CreateTable: (self: Tab, props: TableProps) -> Table,
@@ -40255,6 +45586,331 @@ end
 return clipboard
 ]=====]
 
+sources["utility/colorSwatch"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- A colour swatch: a small rounded chip of a colour that opens a little picker when clicked - the
+-- Airflow hub's ESP rows, where each toggle carries its own colour beside the switch ("Name",
+-- "Box", "Tracer"), and a row can be just a name and its chip ("Chams Outline").
+--
+-- The picker floats over the window just under the chip: the Saturation/Value square and the hue
+-- rail every picker in this library shares (hsvEditor), and the colour's hex, which can be typed.
+-- One picker is open at a time; clicking outside it, the chip again, or Escape closes it.
+--
+-- A chip with a flag saves its colour in the config like any control (as a hex string).
+
+local colorSwatch = {}
+
+local utility = script.Parent
+local variables = require(utility.variables)
+local constants = require(utility.constants)
+local hsvEditor = require(utility.hsvEditor)
+local hapticEngine = require(utility.HapticEngine)
+local soundEngine = require(utility.sound)
+
+colorSwatch.width = 30
+colorSwatch.height = 18
+
+local squareSize = 136
+local hueHeight = 12
+local pad = 10
+local hexHeight = 24
+-- over the window's content and its bottom fade, under notifications and toasts
+local popoverZ = constants.zIndex.bottomFade + 20
+
+local openInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+
+-- A colour from a Color3 or a hex string, or the fallback.
+function colorSwatch.coerce(value, fallback: Color3): Color3
+    if typeof(value) == "Color3" then
+        return value
+    end
+    if type(value) == "string" then
+        local hex = string.match(value, "^%s*#?(%x%x%x%x%x%x)%s*$")
+        if hex then
+            local ok, color = pcall(Color3.fromHex, hex)
+            if ok then
+                return color
+            end
+        end
+    end
+    return fallback
+end
+
+-- Build a chip. opts: { color, parent, position, anchor, layoutOrder, flag, forgetState, callback }.
+-- Returns the chip: { frame, value, Set(color, skipCallback), Open(), Close(), _setShown(shown,
+-- animate) }.
+function colorSwatch.new(window, owner, opts)
+    opts = opts or {}
+    local chip: any = {
+        window = window,
+        -- the element it belongs to: a callback that throws marks that element
+        owner = owner,
+        value = colorSwatch.coerce(opts.color, Color3.fromRGB(255, 255, 255)),
+        callback = opts.callback or function() end,
+        flag = opts.flag,
+        forgetState = opts.forgetState,
+        _shown = false,
+    }
+
+    chip.frame = window:Create("TextButton", {
+        Name = "Swatch",
+        Text = "",
+        AutoButtonColor = false,
+        Size = UDim2.fromOffset(colorSwatch.width, colorSwatch.height),
+        Position = opts.position or UDim2.new(),
+        AnchorPoint = opts.anchor or Vector2.zero,
+        BackgroundColor3 = chip.value,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        LayoutOrder = opts.layoutOrder or 0,
+        ZIndex = opts.zIndex or 3,
+        Parent = opts.parent,
+    })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 5), Parent = chip.frame })
+    chip.stroke = window:Create("UIStroke", {
+        Color = Color3.new(0, 0, 0),
+        Transparency = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = chip.frame,
+    })
+
+    function chip.Set(_, color, skipCallback)
+        chip.value = colorSwatch.coerce(color, chip.value)
+        chip.frame.BackgroundColor3 = chip.value
+        if window._openSwatch == chip and window._swatchPopover then
+            local h, s, v = chip.value:ToHSV()
+            window._swatchPopover.editor:SetColor(h, s, v, false)
+            window._swatchPopover.hex.Text = "#" .. string.upper(chip.value:ToHex())
+        end
+        if not skipCallback then
+            window:_runGuarded(owner, chip.callback, chip.value)
+            if chip.control then
+                chip.control.value = chip.value:ToHex()
+                window:_persist(chip.control)
+            end
+        end
+    end
+
+    function chip.Open()
+        colorSwatch._open(window, chip)
+    end
+
+    function chip.Close()
+        if window._openSwatch == chip then
+            colorSwatch.close(window)
+        end
+    end
+
+    function chip._setShown(_, shown, animate)
+        chip._shown = shown
+        window:_reveal(chip.frame, { BackgroundTransparency = if shown then 0 else 1 }, animate)
+        window:_reveal(chip.stroke, { Transparency = if shown then 0.6 else 1 }, animate)
+        if not shown then
+            chip.Close()
+        end
+    end
+
+    window:ConnectFor(owner, chip.frame.MouseButton1Click, function()
+        if owner.locked then
+            return
+        end
+        hapticEngine.click()
+        soundEngine.click()
+        if window._openSwatch == chip then
+            colorSwatch.close(window)
+        else
+            chip.Open()
+        end
+    end)
+
+    -- saved like any control: the colour as hex
+    if chip.flag and chip.flag ~= "" and not chip.forgetState then
+        local control = { flag = chip.flag, value = chip.value:ToHex() }
+        function control.Set(_, value)
+            chip:Set(colorSwatch.coerce(value, chip.value), true)
+            control.value = chip.value:ToHex()
+            window:_runGuarded(owner, chip.callback, chip.value)
+        end
+        window:_registerControl(control)
+        chip.flag = control.flag
+        chip.control = control
+        window:_restoreLate(control)
+    end
+
+    return chip
+end
+
+-- The one floating picker a window has, built on first use.
+local function popover(window)
+    if window._swatchPopover then
+        return window._swatchPopover
+    end
+    local width = squareSize + pad * 2
+    local height = pad + squareSize + 10 + hueHeight + 10 + hexHeight + pad
+
+    local frame = window:Create("Frame", {
+        Name = "SwatchPicker",
+        Size = UDim2.fromOffset(width, height),
+        BorderSizePixel = 0,
+        Visible = false,
+        ZIndex = popoverZ,
+        Parent = window.main,
+    }, { BackgroundColor3 = "StatBackground" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = frame })
+    window:Create("UIStroke", {
+        Transparency = 0.85,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = frame,
+    }, { Color = "ContentColor" })
+
+    local popoverState: any = { frame = frame }
+
+    popoverState.editor = hsvEditor.build(window, popoverState, frame, {
+        position = UDim2.fromOffset(pad, pad),
+        squareSize = squareSize,
+        hueHeight = hueHeight,
+        gap = 10,
+        onChange = function(h, s, v)
+            local chip = window._openSwatch
+            if chip then
+                local color = Color3.fromHSV(h, s, v)
+                chip.value = color
+                chip.frame.BackgroundColor3 = color
+                popoverState.hex.Text = "#" .. string.upper(color:ToHex())
+                window:_runGuarded(chip.owner, chip.callback, color)
+            end
+        end,
+        onCommit = function()
+            local chip = window._openSwatch
+            if chip and chip.control then
+                chip.control.value = chip.value:ToHex()
+                window:_persist(chip.control)
+            end
+        end,
+    })
+    -- the editor builds its parts under the window's own layer; lift them over the page
+    for _, part in popoverState.editor.root:GetDescendants() do
+        if part:IsA("GuiObject") then
+            part.ZIndex = popoverZ + 1 + (part.ZIndex or 1)
+        end
+    end
+    popoverState.editor.root.ZIndex = popoverZ + 1
+    popoverState.editor:SetVisible(true, false)
+
+    popoverState.hex = window:Create("TextBox", {
+        Name = "Hex",
+        Text = "",
+        ClearTextOnFocus = false,
+        Size = UDim2.new(1, -pad * 2, 0, hexHeight),
+        Position = UDim2.new(0, pad, 1, -pad),
+        AnchorPoint = Vector2.new(0, 1),
+        BackgroundTransparency = 0.94,
+        TextSize = 13,
+        ZIndex = popoverZ + 2,
+        Parent = frame,
+    }, { BackgroundColor3 = "ContentColor", TextColor3 = "ContentColor", FontFace = "Font" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = popoverState.hex })
+    window:Connect(popoverState.hex.FocusLost, function()
+        local chip = window._openSwatch
+        if chip then
+            local color = colorSwatch.coerce(popoverState.hex.Text, chip.value)
+            chip:Set(color)
+        end
+    end)
+
+    -- outside it, or Escape: closed
+    window:Connect(variables.userInputService.InputBegan, function(input)
+        if not window._openSwatch then
+            return
+        end
+        if input.KeyCode == Enum.KeyCode.Escape then
+            colorSwatch.close(window)
+            return
+        end
+        local kind = input.UserInputType
+        if kind ~= Enum.UserInputType.MouseButton1 and kind ~= Enum.UserInputType.Touch then
+            return
+        end
+        local point = Vector2.new(input.Position.X, input.Position.Y)
+        local function inside(gui)
+            local at, size = gui.AbsolutePosition, gui.AbsoluteSize
+            return point.X >= at.X and point.X <= at.X + size.X and point.Y >= at.Y and point.Y <= at.Y + size.Y
+        end
+        if not inside(frame) and not inside(window._openSwatch.frame) then
+            colorSwatch.close(window)
+        end
+    end)
+
+    window._swatchPopover = popoverState
+    return popoverState
+end
+
+function colorSwatch._open(window, chip)
+    local state = popover(window)
+    window._openSwatch = chip
+    local h, s, v = chip.value:ToHSV()
+    state.editor:SetColor(h, s, v, false)
+    state.hex.Text = "#" .. string.upper(chip.value:ToHex())
+
+    colorSwatch._place(window, chip)
+    -- the page scrolling (or the window moving) carries the chip: the picker goes with it
+    if state.follow then
+        state.follow:Disconnect()
+    end
+    state.follow = chip.frame:GetPropertyChangedSignal("AbsolutePosition"):Connect(function()
+        if window._openSwatch == chip then
+            colorSwatch._place(window, chip)
+        end
+    end)
+    state.frame.Visible = true
+    state.frame.BackgroundTransparency = 1
+    variables.tweenService:Create(state.frame, openInfo, { BackgroundTransparency = 0 }):Play()
+end
+
+-- Under the chip, its right edge on the chip's, kept inside the window; over it when there is no
+-- room under it.
+function colorSwatch._place(window, chip)
+    local state = window._swatchPopover
+    local main = window.main
+    local scale = if main.Size.X.Offset > 0 then main.AbsoluteSize.X / main.Size.X.Offset else 1
+    scale = if scale > 0 then scale else 1
+    local chipAt = (chip.frame.AbsolutePosition - main.AbsolutePosition) / scale
+    local chipSize = chip.frame.AbsoluteSize / scale
+    local size = state.frame.Size
+    local width, height = size.X.Offset, size.Y.Offset
+    local mainWidth, mainHeight = main.AbsoluteSize.X / scale, main.AbsoluteSize.Y / scale
+    local x = math.clamp(chipAt.X + chipSize.X - width, 8, math.max(mainWidth - width - 8, 8))
+    local y = chipAt.Y + chipSize.Y + 6
+    if y + height > mainHeight - 8 then
+        y = chipAt.Y - height - 6 -- no room under it: over it
+    end
+    state.frame.Position = UDim2.fromOffset(x, math.max(y, 8))
+end
+
+function colorSwatch.close(window)
+    window._openSwatch = nil
+    local state = window._swatchPopover
+    if state then
+        if state.follow then
+            state.follow:Disconnect()
+            state.follow = nil
+        end
+        state.frame.Visible = false
+        if state.hex:IsFocused() then
+            state.hex:ReleaseFocus()
+        end
+    end
+end
+
+return colorSwatch
+]=====]
+
 sources["utility/colors"] = [=====[
 --!strict
 
@@ -40332,6 +45988,11 @@ constants.elementIconSize = 18
 -- title after it: the Gen 3 Concept's 16 and 10, which sit the icon clear of the card's edge and
 -- give the title room to breathe instead of butting up against its glyph
 constants.elementInset = 16
+-- tabsMode = "Rail": the rail's width, the room its hub mark takes at the top and the player's
+-- footer at the bottom
+constants.railWidth = 112
+constants.railTop = 82
+constants.railFooter = 104
 constants.elementIconGap = 10
 
 -- Every built-in icon Rayfield ships, by name. Single source of truth: secure mode caches
@@ -43858,6 +49519,8 @@ type SettingsWindow = {
         -- per "window name/chip key" - same shape as windowPositions, same file
         collapsedPositions: { [string]: { X: number, Y: number } }?,
         hudPositions: { [string]: { X: number, Y: number } }?,
+        -- a Dashboard's switches and run count, per window name
+        dashboards: { [string]: { [string]: any } }?,
         theme: string?,
     },
 }
@@ -43877,6 +49540,7 @@ type DecodedSettings = {
     windowPositions: { [unknown]: unknown }?,
     collapsedPositions: { [unknown]: unknown }?,
     hudPositions: { [unknown]: unknown }?,
+    dashboards: { [unknown]: unknown }?,
     theme: unknown?,
 }
 
@@ -43931,6 +49595,7 @@ function persistenceSettings.saveSettings(window: SettingsWindow): boolean
         windowPositions = window.settings.windowPositions,
         collapsedPositions = window.settings.collapsedPositions,
         hudPositions = window.settings.hudPositions,
+        dashboards = window.settings.dashboards,
     }
 
     local ok, encoded = pcall(variables.httpService.JSONEncode, variables.httpService, data)
@@ -44047,6 +49712,22 @@ function persistenceSettings.loadSettings(window: SettingsWindow): boolean
     window.settings.collapsedPositions = readPositionMap(settings.collapsedPositions)
         or window.settings.collapsedPositions
     window.settings.hudPositions = readPositionMap(settings.hudPositions) or window.settings.hudPositions
+
+    -- per window name: { executions = n, hideName = bool, hideAvatar = bool }, only what reads right
+    if type(settings.dashboards) == "table" then
+        local dashboards = {}
+        for name, state in settings.dashboards do
+            if type(name) == "string" and type(state) == "table" then
+                local saved = state :: any
+                dashboards[name] = {
+                    executions = if type(saved.executions) == "number" then saved.executions else nil,
+                    hideName = saved.hideName == true,
+                    hideAvatar = saved.hideAvatar == true,
+                }
+            end
+        end
+        window.settings.dashboards = dashboards
+    end
 
     if type(settings.customWindowSize) == "table" then
         local x, y = settings.customWindowSize.X, settings.customWindowSize.Y
