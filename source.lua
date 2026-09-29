@@ -14207,7 +14207,10 @@ function Hud:_wireDrag()
     -- brightens the stroke while held, same tactile cue drag.luau's own bar uses, so the chip
     -- doesn't just silently teleport around with nothing acknowledging the grab
     local function setGrabbed(grabbed)
-        variables.tweenService:Create(self.stroke, dragStrokeInfo, { Transparency = grabbed and 0.35 or 0.8 }):Play()
+        local rest, held = self._strokeRest or 0.8, self._strokeHeld or 0.35
+        variables.tweenService
+            :Create(self.stroke, dragStrokeInfo, { Transparency = if grabbed then held else rest })
+            :Play()
     end
 
     self.window:ConnectFor(self, self.main.InputBegan, function(input, processed)
@@ -34796,6 +34799,492 @@ end
 return updateCheck
 ]=====]
 
+sources["components/watermark"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- Watermark: the hub's card on screen for the whole session, over the game and apart from the
+-- window - the kind executor hubs float at the top of the screen, here after the Angel hub's.
+--
+--   local watermark = Window:CreateWatermark({
+--       title = "Moon Hub",              -- default: the window's name
+--       version = "v1.0.0",              -- default: the window's version; nil leaves the pill out
+--       subtitle = "@" .. player.Name,   -- the default
+--       icon = "rbxassetid://...",       -- default: the window's icon
+--   })
+--   watermark:SetVisible(false)
+--
+-- From the left: the hub's mark on a soft light of the theme's accent, its name with the version
+-- in an accent pill and a line under it, and the player's headshot in an accent ring. Under a rule,
+-- the frame rate and the ping - each in green, amber or red by how good it is - and how long the
+-- session has run. It is dragged anywhere and comes back to that corner next session (the same
+-- memory the HUD chip uses), stays up while the window is hidden, and follows the theme.
+
+local Watermark = {}
+Watermark.__index = function(self, key)
+    -- dragging, the remembered corner and SetVisible/SetPosition are the HUD chip's own
+    return Watermark[key] or require(script.Parent.hud)[key]
+end
+Watermark.__type = "Watermark"
+
+local utility = script.Parent.Parent.utility
+local variables = require(utility.variables)
+local functions = require(utility.functions)
+local image = require(utility.image)
+
+local pad = 10
+local markSize = 28
+local avatarSize = 28
+local height = 76
+local minWidth = 210
+-- over the window and its popovers
+local baseZ = 150
+
+local revealInfo = TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+-- how good a reading is: green, amber, red
+local good = Color3.fromRGB(126, 226, 168)
+local fair = Color3.fromRGB(243, 203, 102)
+local poor = Color3.fromRGB(242, 119, 131)
+
+local function fpsColor(fps: number): Color3
+    return if fps >= 50 then good elseif fps >= 30 then fair else poor
+end
+
+local function pingColor(ping: number): Color3
+    return if ping <= 90 then good elseif ping <= 170 then fair else poor
+end
+Watermark.fpsColor = fpsColor
+Watermark.pingColor = pingColor
+
+-- 4:05, 1:02:09
+local function clock(seconds: number): string
+    seconds = math.max(math.floor(seconds), 0)
+    local hours = math.floor(seconds / 3600)
+    local minutes = math.floor(seconds % 3600 / 60)
+    if hours > 0 then
+        return string.format("%d:%02d:%02d", hours, minutes, seconds % 60)
+    end
+    return string.format("%d:%02d", minutes, seconds % 60)
+end
+Watermark.clock = clock
+
+-- The stats line: the labels quiet, the numbers bold in the colour of how good they are.
+local function statsText(fps: number, ping: number): string
+    return string.format(
+        '<font transparency="0.5">FPS</font> <b><font color="#%s">%d</font></b>'
+            .. '<font transparency="0.7">   ·   </font>'
+            .. '<font transparency="0.5">PING</font> <b><font color="#%s">%d</font></b>'
+            .. '<font transparency="0.5"> ms</font>',
+        fpsColor(fps):ToHex(),
+        fps,
+        pingColor(ping):ToHex(),
+        ping
+    )
+end
+Watermark.statsText = statsText
+
+-- Rendered width, or a guess from the length where there is no renderer to ask.
+local function textWidth(label: TextLabel, size: number): number
+    local ok, bounds = pcall(function()
+        return label.TextBounds
+    end)
+    if ok and typeof(bounds) == "Vector2" and bounds.X > 0 then
+        return math.ceil(bounds.X)
+    end
+    local text = string.gsub(label.Text, "<[^>]->", "")
+    return math.ceil((utf8.len(text) or #text) * size * 0.56)
+end
+
+function Watermark.new(window, properties)
+    properties = if typeof(properties) == "table" then properties else {}
+    local player = variables.localPlayer
+
+    local self = setmetatable({
+        window = window,
+        title = tostring(properties.title or properties.Title or window.name or "Hub"),
+        version = properties.version or properties.Version or window.version,
+        subtitle = properties.subtitle or properties.Subtitle or (if player then "@" .. player.Name else nil),
+        icon = properties.icon or properties.Icon or window.icon,
+        showAvatar = properties.avatar ~= false and properties.Avatar ~= false and player ~= nil,
+        showTime = properties.time ~= false and properties.Time ~= false,
+        startedAt = os.clock(),
+        fps = 0,
+        ping = 0,
+        _frames = 0,
+        _lastSample = os.clock(),
+        _fades = {},
+        _positionChangedCallbacks = {},
+        -- the HUD's drag lights the edge this much while held
+        _strokeRest = 0.86,
+        _strokeHeld = 0.55,
+    }, Watermark)
+    self.positionKey = tostring(properties.name or properties.Name or "Watermark")
+    self.rememberPosition = properties.rememberPosition ~= false and properties.RememberPosition ~= false
+
+    local start = properties.position or properties.Position or UDim2.fromOffset(20, 20)
+    if self.rememberPosition then
+        start = window:_savedHudPosition(self.positionKey) or start
+    end
+
+    local function fade(instance, property, shown)
+        table.insert(self._fades, { instance, property, shown })
+        return instance
+    end
+
+    self.main = window:Create("Frame", {
+        Name = "Watermark",
+        Size = UDim2.fromOffset(minWidth, height),
+        Position = start,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Active = true,
+        ZIndex = baseZ,
+        Parent = window.screenGui,
+    })
+    fade(self.main, "BackgroundTransparency", 0.04)
+    window:Create("UIGradient", {
+        Rotation = 90,
+        Parent = self.main,
+    }, { Color = { "WindowColor", functions.toColorSequence } })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = self.main })
+    self.stroke = window:Create("UIStroke", {
+        Thickness = 1,
+        Transparency = 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = self.main,
+    }, { Color = "ContentColor" })
+    fade(self.stroke, "Transparency", self._strokeRest)
+
+    -- the theme's accent, washing in from the left and gone by the middle
+    self.tint = window:Create("Frame", {
+        Name = "Tint",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = baseZ,
+        Parent = self.main,
+    }, { BackgroundColor3 = "AccentColor" })
+    fade(self.tint, "BackgroundTransparency", 0)
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = self.tint })
+    window:Create("UIGradient", {
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.82),
+            NumberSequenceKeypoint.new(0.55, 1),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Parent = self.tint,
+    })
+
+    -- the hub's mark, on a soft light of the accent
+    self.markGlow = window:Create("ImageLabel", {
+        Name = "Glow",
+        Image = "rbxassetid://8992230677",
+        Size = UDim2.fromOffset(markSize * 2.4, markSize * 2.4),
+        Position = UDim2.fromOffset(pad + markSize / 2, pad + markSize / 2),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+        ZIndex = baseZ + 1,
+        Parent = self.main,
+    }, { ImageColor3 = "AccentStroke" })
+    fade(self.markGlow, "ImageTransparency", 0.72)
+    self.mark = window:Create("ImageLabel", {
+        Name = "Mark",
+        Size = UDim2.fromOffset(markSize, markSize),
+        Position = UDim2.fromOffset(pad, pad),
+        BackgroundTransparency = 1,
+        ImageTransparency = 1,
+        ScaleType = Enum.ScaleType.Fit,
+        ZIndex = baseZ + 2,
+        Parent = self.main,
+    })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.mark })
+    if self.icon then
+        image.assign(self.mark, "Image", self.icon)
+    end
+    fade(self.mark, "ImageTransparency", 0)
+
+    local textLeft = pad + markSize + 10
+    self.titleLabel = window:Create("TextLabel", {
+        Name = "Title",
+        Text = self.title,
+        Size = UDim2.fromOffset(0, 17),
+        AutomaticSize = Enum.AutomaticSize.X,
+        Position = UDim2.fromOffset(textLeft, pad - 1),
+        BackgroundTransparency = 1,
+        TextSize = 15,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTransparency = 1,
+        ZIndex = baseZ + 2,
+        Parent = self.main,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    fade(self.titleLabel, "TextTransparency", 0)
+
+    self.pill = window:Create("Frame", {
+        Name = "Version",
+        Size = UDim2.fromOffset(0, 16),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = baseZ + 2,
+        Parent = self.main,
+    }, { BackgroundColor3 = "AccentColor" })
+    fade(self.pill, "BackgroundTransparency", 0.72)
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = self.pill })
+    self.pillLabel = window:Create("TextLabel", {
+        Text = tostring(self.version or ""),
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        TextSize = 11,
+        TextTransparency = 1,
+        ZIndex = baseZ + 3,
+        Parent = self.pill,
+    }, { TextColor3 = "AccentStroke", FontFace = "TitleFont" })
+    fade(self.pillLabel, "TextTransparency", 0)
+
+    self.subtitleLabel = window:Create("TextLabel", {
+        Name = "Subtitle",
+        Text = tostring(self.subtitle or ""),
+        Size = UDim2.fromOffset(0, 14),
+        AutomaticSize = Enum.AutomaticSize.X,
+        Position = UDim2.fromOffset(textLeft, pad + 17),
+        BackgroundTransparency = 1,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTransparency = 1,
+        ZIndex = baseZ + 2,
+        Parent = self.main,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    fade(self.subtitleLabel, "TextTransparency", 0.45)
+
+    if self.showAvatar then
+        self.avatar = window:Create("ImageLabel", {
+            Name = "Avatar",
+            Image = ("rbxthumb://type=AvatarHeadShot&id=%d&w=48&h=48"):format(player.UserId),
+            Size = UDim2.fromOffset(avatarSize, avatarSize),
+            AnchorPoint = Vector2.new(1, 0),
+            BackgroundTransparency = 1,
+            ImageTransparency = 1,
+            ZIndex = baseZ + 2,
+            Parent = self.main,
+        }, { BackgroundColor3 = "StatBackground" })
+        fade(self.avatar, "ImageTransparency", 0)
+        fade(self.avatar, "BackgroundTransparency", 0)
+        window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = self.avatar })
+        self.avatarRing = window:Create("UIStroke", {
+            Thickness = 1.5,
+            Transparency = 1,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+            Parent = self.avatar,
+        }, { Color = "AccentStroke" })
+        fade(self.avatarRing, "Transparency", 0.15)
+    end
+
+    local ruleY = pad + markSize + 8
+    self.rule = window:Create("Frame", {
+        Name = "Rule",
+        Size = UDim2.new(1, -pad * 2, 0, 1),
+        Position = UDim2.fromOffset(pad, ruleY),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = baseZ + 1,
+        Parent = self.main,
+    }, { BackgroundColor3 = "ContentColor" })
+    fade(self.rule, "BackgroundTransparency", 0.9)
+
+    local statsY = ruleY + 8
+    self.statsLabel = window:Create("TextLabel", {
+        Name = "Stats",
+        Text = statsText(0, 0),
+        RichText = true,
+        Size = UDim2.new(1, -pad * 2, 0, 13),
+        Position = UDim2.fromOffset(pad, statsY),
+        BackgroundTransparency = 1,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTransparency = 1,
+        ZIndex = baseZ + 2,
+        Parent = self.main,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    fade(self.statsLabel, "TextTransparency", 0)
+
+    if self.showTime then
+        self.timeLabel = window:Create("TextLabel", {
+            Name = "Time",
+            Text = clock(0),
+            Size = UDim2.fromOffset(60, 13),
+            AnchorPoint = Vector2.new(1, 0),
+            BackgroundTransparency = 1,
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Right,
+            TextTransparency = 1,
+            ZIndex = baseZ + 2,
+            Parent = self.main,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+        fade(self.timeLabel, "TextTransparency", 0.3)
+        self.timeIcon = window:Create("ImageLabel", {
+            Name = "Clock",
+            Size = UDim2.fromOffset(12, 12),
+            AnchorPoint = Vector2.new(1, 0),
+            BackgroundTransparency = 1,
+            ImageTransparency = 1,
+            ZIndex = baseZ + 2,
+            Parent = self.main,
+        }, { ImageColor3 = "AccentStroke" })
+        image.assign(self.timeIcon, "Image", "lucide:clock")
+        fade(self.timeIcon, "ImageTransparency", 0)
+    end
+    self._statsY = statsY
+
+    self:_layout()
+    self:_reveal()
+    self:_wireDrag()
+    self:_wireClock()
+    task.defer(function()
+        if self.main.Parent then
+            self:_layout()
+            self:_clampToScreen()
+        end
+    end)
+    return self
+end
+
+-- Every part to where it shows.
+function Watermark:_reveal()
+    local tweenService = variables.tweenService
+    for _, entry in self._fades do
+        tweenService:Create(entry[1], revealInfo, { [entry[2]] = entry[3] }):Play()
+    end
+end
+
+-- The card as wide as its widest line: the name and pill, or the stats and the clock.
+function Watermark:_layout()
+    local textLeft = pad + markSize + 10
+    local titleWidth = textWidth(self.titleLabel, 15)
+    local hasPill = self.version ~= nil and tostring(self.version) ~= ""
+    self.pill.Visible = hasPill
+    local pillWidth = if hasPill then textWidth(self.pillLabel, 11) + 14 else 0
+    self.pill.Size = UDim2.fromOffset(pillWidth, 16)
+    self.pill.Position = UDim2.fromOffset(textLeft + titleWidth + 7, pad)
+    local subtitleWidth = if self.subtitle then textWidth(self.subtitleLabel, 12) else 0
+    self.subtitleLabel.Visible = self.subtitle ~= nil and self.subtitle ~= ""
+
+    local header = math.max(textLeft + titleWidth + (if hasPill then 7 + pillWidth else 0), textLeft + subtitleWidth)
+    if self.avatar then
+        header += 14 + avatarSize
+    end
+    header += pad
+
+    -- the stats at their widest, so the card does not twitch as the numbers change
+    local sample = self.statsLabel.Text
+    self.statsLabel.Text = statsText(144, 999)
+    local statsWidth = textWidth(self.statsLabel, 12)
+    self.statsLabel.Text = sample
+    local timeWidth = 0
+    if self.timeLabel then
+        local current = self.timeLabel.Text
+        self.timeLabel.Text = "0:00:00"
+        timeWidth = textWidth(self.timeLabel, 12)
+        self.timeLabel.Text = current
+    end
+    local stats = pad + statsWidth + (if self.timeLabel then 18 + 16 + timeWidth else 0) + pad
+
+    local width = math.max(minWidth, header, stats)
+    self.main.Size = UDim2.fromOffset(width, height)
+    if self.avatar then
+        self.avatar.Position = UDim2.fromOffset(width - pad, pad)
+    end
+    if self.timeLabel then
+        self.timeLabel.Size = UDim2.fromOffset(timeWidth + 2, 13)
+        self.timeLabel.Position = UDim2.fromOffset(width - pad, self._statsY)
+        self:_placeClock()
+    end
+end
+
+-- The clock glyph just left of the time as it reads now - not of the room kept for the longest one,
+-- which left it floating a gap away from "2:22".
+function Watermark:_placeClock()
+    if not self.timeLabel then
+        return
+    end
+    local width = self.main.Size.X.Offset
+    local textNow = textWidth(self.timeLabel, 12)
+    self.timeIcon.Position = UDim2.fromOffset(width - pad - textNow - 5, self._statsY + 0.5)
+end
+
+-- Frames counted every frame, the readings refreshed once a second while it is up.
+function Watermark:_wireClock()
+    local window = self.window
+    window:ConnectFor(self, variables.runService.RenderStepped, function()
+        self._frames += 1
+        local now = os.clock()
+        if now - self._lastSample < 1 then
+            return
+        end
+        self.fps = math.floor(self._frames / (now - self._lastSample) + 0.5)
+        self._frames, self._lastSample = 0, now
+        if not self.main.Visible then
+            return
+        end
+        self.ping = self:_readPing()
+        self.statsLabel.Text = statsText(self.fps, self.ping)
+        if self.timeLabel then
+            self.timeLabel.Text = clock(now - self.startedAt)
+            self:_placeClock()
+        end
+    end)
+end
+
+-- The ping in milliseconds: the network stats' own reading, or the player's round trip.
+function Watermark:_readPing(): number
+    local ok, value = pcall(function()
+        return game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()
+    end)
+    if ok and type(value) == "number" then
+        return math.floor(value + 0.5)
+    end
+    local player = variables.localPlayer
+    local okPlayer, seconds = pcall(function()
+        return player:GetNetworkPing()
+    end)
+    if okPlayer and type(seconds) == "number" then
+        return math.floor(seconds * 2000 + 0.5)
+    end
+    return 0
+end
+
+function Watermark:SetTitle(text: string)
+    self.title = tostring(text)
+    self.titleLabel.Text = self.title
+    self:_layout()
+end
+
+-- nil or "" drops the pill.
+function Watermark:SetVersion(text: string?)
+    self.version = text
+    self.pillLabel.Text = tostring(text or "")
+    self:_layout()
+end
+
+-- nil or "" leaves the name on its own.
+function Watermark:SetSubtitle(text: string?)
+    self.subtitle = text
+    self.subtitleLabel.Text = tostring(text or "")
+    self:_layout()
+end
+
+function Watermark:GetStats(): { fps: number, ping: number, session: number }
+    return { fps = self.fps, ping = self.ping, session = os.clock() - self.startedAt }
+end
+
+return Watermark
+]=====]
+
 sources["components/window"] = [=====[
 --!nonstrict
 
@@ -39615,6 +40104,11 @@ function Window:SetAcrylic(enabled, intensity)
         intensity = math.clamp(intensity / 24, 0, 1)
     end
     self._acrylic = self._acrylic or acrylic.new(self.main, self.screenGui)
+    -- nothing to frost behind the "Tap to show" pill: a rectangle of glass behind a shape that
+    -- round only shows its corners
+    self._acrylic.paused = function()
+        return self.hidden == true
+    end
     self._acrylic:SetEnabled(enabled, intensity)
 
     local current = math.floor((1 - (self.windowOpacity or 1)) * 100 + 0.5)
@@ -39852,6 +40346,11 @@ end
 -- handle with :SetText(text) and :Destroy().
 function Window:CreateHUD(properties)
     return require(script.Parent.hud).new(self, properties)
+end
+
+-- The hub's card on screen for the session - see watermark.luau's own header.
+function Window:CreateWatermark(properties)
+    return require(script.Parent.watermark).new(self, properties)
 end
 
 function Window:CreateHiddenTab(properties)
@@ -43631,6 +44130,32 @@ export type StatusCardProps = {
     rows: { StatusCardRow }?,
 }
 
+export type WatermarkProps = {
+    title: string?, -- default the window's name
+    version: string?, -- the accent pill beside it; default the window's version
+    subtitle: string?, -- the line under it; default "@" and the player's name
+    icon: (string | number)?, -- default the window's icon
+    avatar: boolean?, -- the player's headshot on the right (default true)
+    time: boolean?, -- how long the session has run, beside the stats (default true)
+    position: UDim2?, -- where it starts; a corner the player dragged it to wins
+    name: string?, -- what that corner is remembered under (default "Watermark")
+    rememberPosition: boolean?,
+}
+
+export type Watermark = {
+    main: Frame,
+    fps: number,
+    ping: number,
+    SetTitle: (self: Watermark, text: string) -> (),
+    SetVersion: (self: Watermark, text: string?) -> (),
+    SetSubtitle: (self: Watermark, text: string?) -> (),
+    SetVisible: (self: Watermark, visible: boolean) -> (),
+    SetPosition: (self: Watermark, position: UDim2) -> (),
+    OnPositionChanged: (self: Watermark, callback: (position: UDim2) -> ()) -> (),
+    GetStats: (self: Watermark) -> { fps: number, ping: number, session: number },
+    Destroy: (self: Watermark) -> (),
+}
+
 export type UpdateCheckProps = {
     url: string, -- answers { "version": "1.0.3", "notes": "...", "loader": "..." } or just "1.0.3"
     interval: number?, -- seconds between checks (default 600, never under 60)
@@ -44485,6 +45010,8 @@ export type Window = {
     -- of upstream Rayfield Gen2 1.2 (was off).
     SetHaptics: (self: Window, enabled: boolean) -> (),
     CreateTag: (self: Window, props: TagProps) -> Tag,
+    -- the hub's card floating over the game: mark, name, version, player, FPS, ping, session
+    CreateWatermark: (self: Window, props: WatermarkProps?) -> Watermark,
     Notify: (self: Window, props: NotifyProps) -> (),
     Toast: (self: Window, props: ToastProps) -> (),
     Popup: (self: Window, props: PopupProps) -> Popup,
@@ -44718,6 +45245,7 @@ sources["utility/acrylic"] = [=====[
 --
 --   local frost = acrylic.new(window.main, window.screenGui)
 --   frost:SetEnabled(true)
+--   frost.paused = function() return collapsed end -- no glass while this answers true
 --   frost:Destroy()
 --
 -- Every piece is this library's own and uniquely named, so it never touches an effect the game
@@ -44757,7 +45285,9 @@ function acrylic:_attach()
     part.Name = "__RayfieldAcrylic"
     part.Material = Enum.Material.Glass
     part.Transparency = 0.98
-    part.Reflectance = 1
+    -- no reflection: a reflective pane mirrors the sky, which on a daytime map is a white sheet
+    -- behind the window the moment it is see-through
+    part.Reflectance = 0
     part.Color = Color3.fromRGB(0, 0, 0)
     part.CastShadow = false
     part.Anchored = true
@@ -44788,6 +45318,24 @@ function acrylic:_attach()
     return true
 end
 
+-- Whether the frame's AbsolutePosition is measured from the top of the viewport or from under the
+-- top bar. That is decided by the outermost ScreenGui it sits in, not its own: an executor's
+-- gethui() is a ScreenGui inside CoreGui.RobloxGui, which keeps the inset, so a gui there that
+-- sets IgnoreGuiInset still reports positions from under the bar (its own AbsolutePosition is
+-- (0, -58)) - read as viewport space, the glass sat a top bar's height above the window.
+function acrylic.ignoresInset(frame: Instance, fallback: ScreenGui?): boolean
+    local root = nil
+    local node = frame
+    while node do
+        if node:IsA("ScreenGui") then
+            root = node
+        end
+        node = node.Parent
+    end
+    root = root or fallback
+    return root == nil or (root :: ScreenGui).IgnoreGuiInset
+end
+
 -- Lay the glass over the frame's rectangle on screen, on the camera's near plane.
 function acrylic:_fit()
     local camera = workspace.CurrentCamera
@@ -44798,7 +45346,7 @@ function acrylic:_fit()
     if part.Parent ~= camera then
         part.Parent = camera
     end
-    if not frame.Parent or not frame.Visible then
+    if not frame.Parent or not frame.Visible or (self.paused and self.paused()) then
         mesh.Scale = Vector3.zero
         return
     end
@@ -44807,7 +45355,7 @@ function acrylic:_fit()
     local bottomRight = topLeft + frame.AbsoluteSize
     -- a gui that ignores the top inset is laid out in viewport space; one that does not, in
     -- screen space below the inset - each has its own ray
-    local ignoresInset = self.screenGui == nil or self.screenGui.IgnoreGuiInset
+    local ignoresInset = acrylic.ignoresInset(frame, self.screenGui)
     local toRay = if ignoresInset then camera.ViewportPointToRay else camera.ScreenPointToRay
     local ray0 = toRay(camera, topLeft.X, topLeft.Y, 1)
     local ray1 = toRay(camera, bottomRight.X, bottomRight.Y, 1)
