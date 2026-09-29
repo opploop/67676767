@@ -14281,6 +14281,876 @@ end
 return Hud
 ]=====]
 
+sources["components/inbox"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- Inbox: the notifications worth keeping, behind a bell in the header between the search field
+-- and the settings cog. A toast is gone in a few seconds; what went into the inbox stays - across
+-- sessions - until the player has read it, and a dot with the count on the bell says there is
+-- something new. Opening the inbox reads everything in it and the dot goes; the next thing saved
+-- brings it back.
+--
+-- Not every notification is kept: only one sent with `save`, anything added with AddToInbox, and
+-- the update check's "new version" (with its Rejoin now). `inbox = { saveAll = true }` on
+-- CreateWindow keeps every notification instead, and the chips at the top - All, Updates,
+-- Important - keep the ones that matter findable among them.
+--
+--   Window:Notify({ title = "Raids are back", content = "...", save = "important" })
+--   Window:AddToInbox({ title = "Welcome", content = "Thanks for using Moon Hub", icon = "lucide:sparkles" })
+--   Window:OpenInbox(); Window:GetInbox(); Window:ClearInbox()
+--
+-- Entries live in the library's settings file, per window name, newest first, at most `max`
+-- (default 40); past that the oldest goes, the general ones before the important ones.
+
+local Inbox = {}
+Inbox.__index = Inbox
+
+local utility = script.Parent.Parent.utility
+local variables = require(utility.variables)
+local functions = require(utility.functions)
+local constants = require(utility.constants)
+local image = require(utility.image)
+local locale = require(utility.locale)
+local hapticEngine = require(utility.HapticEngine)
+local soundEngine = require(utility.sound)
+
+local panelWidth = 340
+local panelMaxList = 330
+local headerHeight = 48
+local chipsHeight = 34
+local pad = 14
+local defaultMax = 40
+local panelZ = constants.zIndex.bottomFade + 30
+
+local openInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local hoverInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local badgeInfo = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+-- what each kind looks like: its default icon and the colour of its tile
+local kinds = {
+    update = { icon = "lucide:download", label = "Update" },
+    important = { icon = "lucide:megaphone", label = "Important" },
+    general = { icon = "lucide:bell", label = "General" },
+}
+local importantColor = Color3.fromRGB(243, 203, 102)
+
+-- 45s ago -> "now", then "4m", "3h", "2d", then the date.
+function Inbox.ago(seconds: number, at: number?): string
+    seconds = math.max(math.floor(seconds), 0)
+    if seconds < 60 then
+        return "now"
+    elseif seconds < 3600 then
+        return math.floor(seconds / 60) .. "m"
+    elseif seconds < 86400 then
+        return math.floor(seconds / 3600) .. "h"
+    elseif seconds < 86400 * 7 then
+        return math.floor(seconds / 86400) .. "d"
+    end
+    return os.date("%d %b", at or (os.time() - seconds)) :: string
+end
+
+-- The kind an entry is filed under: "update", "important" or "general".
+function Inbox.kind(value: any): string
+    if value == "update" or value == "important" then
+        return value
+    end
+    return "general"
+end
+
+-- A saved entry as it reads back from disk, or nil when it is not one.
+function Inbox.clean(raw: any): any
+    if type(raw) ~= "table" or type(raw.title) ~= "string" then
+        return nil
+    end
+    return {
+        id = if type(raw.id) == "string" then raw.id else tostring(raw.time or os.time()) .. raw.title,
+        key = if type(raw.key) == "string" then raw.key else nil,
+        title = raw.title,
+        content = if type(raw.content) == "string" then raw.content else "",
+        icon = if type(raw.icon) == "string" then raw.icon else nil,
+        kind = Inbox.kind(raw.kind),
+        version = if type(raw.version) == "string" then raw.version else nil,
+        time = if type(raw.time) == "number" then raw.time else os.time(),
+        read = raw.read == true,
+    }
+end
+
+function Inbox.new(window, config)
+    config = if type(config) == "table" then config else {}
+    local self = setmetatable({
+        window = window,
+        saveAll = config.saveAll == true or config.SaveAll == true,
+        max = tonumber(config.max or config.Max) or defaultMax,
+        filter = "all",
+        open = false,
+        entries = {},
+        _counter = 0,
+    }, Inbox)
+    self:_load()
+    self:_buildBell()
+    self:_paintBadge(false)
+    return self
+end
+
+-- Entries from the settings file, for this window.
+function Inbox:_load()
+    local settings = self.window.settings :: any
+    local saved = settings and settings.inboxes and settings.inboxes[self.window.name]
+    if type(saved) ~= "table" then
+        return
+    end
+    for _, raw in saved do
+        local entry = Inbox.clean(raw)
+        if entry then
+            table.insert(self.entries, entry)
+        end
+    end
+    table.sort(self.entries, function(a, b)
+        return a.time > b.time
+    end)
+end
+
+function Inbox:_save()
+    local window = self.window
+    local settings = window.settings :: any
+    if not settings then
+        return
+    end
+    settings.inboxes = settings.inboxes or {}
+    local out = {}
+    for _, entry in self.entries do
+        table.insert(out, {
+            id = entry.id,
+            key = entry.key,
+            title = entry.title,
+            content = entry.content,
+            icon = entry.icon,
+            kind = entry.kind,
+            version = entry.version,
+            time = entry.time,
+            read = entry.read,
+        })
+    end
+    settings.inboxes[window.name] = out
+    if window.SaveSettings then
+        pcall(window.SaveSettings, window)
+    end
+end
+
+function Inbox:Unread(): number
+    local count = 0
+    for _, entry in self.entries do
+        if not entry.read then
+            count += 1
+        end
+    end
+    return count
+end
+
+-- Keep an entry. props: { title, content, icon, kind/category, key, version }. An entry with a key
+-- replaces the one already there under that key - the same update is not kept twice - and comes
+-- back unread only if what it says changed.
+function Inbox:Add(props)
+    props = if type(props) == "table" then props else {}
+    local title = props.title or props.Title
+    if type(title) ~= "string" or title == "" then
+        return nil
+    end
+    local content = tostring(props.content or props.Content or props.description or props.Description or "")
+    local key = props.key or props.Key
+    local kind = Inbox.kind(props.kind or props.category or props.Category)
+    local icon = props.icon or props.Icon
+    if type(icon) ~= "string" then
+        icon = nil -- only a name or an asset string can be saved to disk
+    end
+
+    if key then
+        for index, entry in self.entries do
+            if entry.key == key then
+                local changed = entry.title ~= title or entry.content ~= content
+                entry.title, entry.content, entry.icon, entry.kind = title, content, icon, kind
+                if changed then
+                    entry.read = false
+                    entry.time = os.time()
+                    table.remove(self.entries, index)
+                    table.insert(self.entries, 1, entry)
+                end
+                self:_changed(changed)
+                return entry
+            end
+        end
+    end
+
+    self._counter += 1
+    local entry = {
+        id = tostring(os.time()) .. "-" .. tostring(self._counter) .. "-" .. tostring(math.random(1000, 9999)),
+        key = key,
+        title = title,
+        content = content,
+        icon = icon,
+        kind = kind,
+        version = props.version,
+        time = os.time(),
+        read = false,
+    }
+    table.insert(self.entries, 1, entry)
+    self:_trim()
+    self:_changed(true)
+    return entry
+end
+
+-- Past the ceiling the oldest goes, the general ones before the others.
+function Inbox:_trim()
+    while #self.entries > self.max do
+        local drop = #self.entries
+        for index = #self.entries, 1, -1 do
+            if self.entries[index].kind == "general" then
+                drop = index
+                break
+            end
+        end
+        table.remove(self.entries, drop)
+    end
+end
+
+function Inbox:_changed(fresh: boolean)
+    self:_save()
+    self:_paintBadge(fresh)
+    if self.open then
+        self:_render()
+    end
+end
+
+function Inbox:MarkAllRead()
+    local any = false
+    for _, entry in self.entries do
+        if not entry.read then
+            entry.read = true
+            any = true
+        end
+    end
+    if any then
+        self:_save()
+        self:_paintBadge(false)
+    end
+end
+
+function Inbox:Clear()
+    table.clear(self.entries)
+    self:_changed(false)
+end
+
+function Inbox:Get(): { any }
+    local out = {}
+    for _, entry in self.entries do
+        table.insert(out, table.clone(entry))
+    end
+    return out
+end
+
+-- The bell in the header, between the search field and the settings cog, and its count.
+function Inbox:_buildBell()
+    local window = self.window
+    self.action = require(script.Parent.action).new(window, {
+        name = "Notifications",
+        icon = constants.icons.settings, -- replaced by the bell below
+        order = 4,
+        callback = function()
+            self:Toggle()
+        end,
+    })
+    image.assign(self.action.iconLabel, "Image", "lucide:bell")
+    self.action.isLit = function()
+        return self.open
+    end
+
+    self.badge = window:Create("Frame", {
+        Name = "Badge",
+        Size = UDim2.fromOffset(16, 16),
+        Position = UDim2.new(1, -3, 0, 3),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BorderSizePixel = 0,
+        Visible = false,
+        ZIndex = 5,
+        Parent = self.action.action,
+    }, { BackgroundColor3 = "AccentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = self.badge })
+    window:Create("UIStroke", {
+        Thickness = 2,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = self.badge,
+    }, { Color = "StatBackground" })
+    self.badgeScale = window:Create("UIScale", { Scale = 1, Parent = self.badge })
+    self.badgeLabel = window:Create("TextLabel", {
+        Text = "",
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 10,
+        ZIndex = 6,
+        Parent = self.badge,
+    }, { FontFace = "TitleFont" })
+end
+
+-- The count on the bell: gone at none, "9+" past nine, a pop when something new came in.
+function Inbox:_paintBadge(pop: boolean)
+    if not self.badge then
+        return
+    end
+    local unread = self:Unread()
+    self.badge.Visible = unread > 0
+    self.badgeLabel.Text = if unread > 9 then "9+" else tostring(unread)
+    self.badge.Size = UDim2.fromOffset(if unread > 9 then 20 else 16, 16)
+    if pop and unread > 0 then
+        self.badgeScale.Scale = 0.4
+        variables.tweenService:Create(self.badgeScale, badgeInfo, { Scale = 1 }):Play()
+    end
+end
+
+function Inbox:Toggle()
+    if self.open then
+        self:Close()
+    else
+        self:Open()
+    end
+end
+
+-- Open the panel under the bell. What was new is shown as new this once, and is read from here on.
+function Inbox:Open()
+    if self.open then
+        return
+    end
+    local window = self.window
+    if window.hidden or window.unloaded then
+        return
+    end
+    self:_ensurePanel()
+    self.open = true
+    self._freshIds = {}
+    for _, entry in self.entries do
+        if not entry.read then
+            self._freshIds[entry.id] = true
+        end
+    end
+    self:_render()
+    self:_place()
+    local panel = self.panel
+    panel.Visible = true
+    local target = panel.Position
+    panel.Position = target - UDim2.fromOffset(0, 6)
+    self.panelScale.Scale = 0.97
+    variables.tweenService:Create(panel, openInfo, { Position = target }):Play()
+    variables.tweenService:Create(self.panelScale, openInfo, { Scale = 1 }):Play()
+    self:MarkAllRead()
+end
+
+function Inbox:Close()
+    if not self.open then
+        return
+    end
+    self.open = false
+    if self.panel then
+        self.panel.Visible = false
+    end
+    self._freshIds = nil
+    -- the bell lit while the panel was up
+    variables.tweenService:Create(self.action.iconLabel, hoverInfo, { ImageTransparency = 0.6 }):Play()
+end
+
+-- Under the bell, its right edge a little past the bell's, kept inside the window.
+function Inbox:_place()
+    local window, panel = self.window, self.panel
+    local main = window.main
+    local scale = if main.Size.X.Offset > 0 then main.AbsoluteSize.X / main.Size.X.Offset else 1
+    scale = if scale > 0 then scale else 1
+    local bell = self.action.action
+    local bellAt = (bell.AbsolutePosition - main.AbsolutePosition) / scale
+    local bellSize = bell.AbsoluteSize / scale
+    local mainWidth = main.AbsoluteSize.X / scale
+    local right = math.clamp(bellAt.X + bellSize.X + 60, panelWidth + 8, mainWidth - 8)
+    panel.Position = UDim2.fromOffset(right, bellAt.Y + bellSize.Y + 8)
+end
+
+function Inbox:_ensurePanel()
+    if self.panel then
+        return
+    end
+    local window = self.window
+
+    local panel = window:Create("Frame", {
+        Name = "Inbox",
+        Size = UDim2.fromOffset(panelWidth, headerHeight + chipsHeight + 120),
+        AnchorPoint = Vector2.new(1, 0),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BorderSizePixel = 0,
+        Visible = false,
+        Active = true,
+        ZIndex = panelZ,
+        Parent = window.main,
+    })
+    self.panel = panel
+    self.panelScale = window:Create("UIScale", { Scale = 1, Parent = panel })
+    window:Create("UIGradient", {
+        Rotation = 90,
+        Parent = panel,
+    }, { Color = { "WindowColor", functions.toColorSequence } })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 14), Parent = panel })
+    window:Create("UIStroke", {
+        Transparency = 0.86,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = panel,
+    }, { Color = "ContentColor" })
+    window:CreateGlow(panel, "ShadowColor", 18, 0.45)
+
+    -- the accent washing down from the top, the watermark's
+    local tint = window:Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 120),
+        BackgroundTransparency = 0,
+        BorderSizePixel = 0,
+        ZIndex = panelZ,
+        Parent = panel,
+    }, { BackgroundColor3 = "AccentColor" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 14), Parent = tint })
+    window:Create("UIGradient", {
+        Rotation = 90,
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.86),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        Parent = tint,
+    })
+
+    -- the header: the title, the count of new ones, mark all read, clear
+    self.titleLabel = window:Create("TextLabel", {
+        Text = locale.resolve("Notifications"),
+        Size = UDim2.fromOffset(0, 20),
+        AutomaticSize = Enum.AutomaticSize.X,
+        Position = UDim2.fromOffset(pad, 15),
+        BackgroundTransparency = 1,
+        TextSize = 16,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = panelZ + 2,
+        Parent = panel,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+
+    local function headerButton(icon: string, tip: string, x: number, onClick)
+        local button = window:Create("ImageButton", {
+            Name = tip,
+            Size = UDim2.fromOffset(28, 28),
+            Position = UDim2.new(1, x, 0, 11),
+            AnchorPoint = Vector2.new(1, 0),
+            BackgroundTransparency = 1,
+            AutoButtonColor = false,
+            ZIndex = panelZ + 2,
+            Parent = panel,
+        }, { BackgroundColor3 = "ContentColor" })
+        window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = button })
+        local glyph = window:Create("ImageLabel", {
+            Size = UDim2.fromOffset(16, 16),
+            Position = UDim2.fromScale(0.5, 0.5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundTransparency = 1,
+            ImageTransparency = 0.45,
+            ZIndex = panelZ + 3,
+            Parent = button,
+        }, { ImageColor3 = "ContentColor" })
+        image.assign(glyph, "Image", icon)
+        window:Connect(button.MouseEnter, function()
+            variables.tweenService:Create(button, hoverInfo, { BackgroundTransparency = 0.9 }):Play()
+            variables.tweenService:Create(glyph, hoverInfo, { ImageTransparency = 0.05 }):Play()
+        end)
+        window:Connect(button.MouseLeave, function()
+            variables.tweenService:Create(button, hoverInfo, { BackgroundTransparency = 1 }):Play()
+            variables.tweenService:Create(glyph, hoverInfo, { ImageTransparency = 0.45 }):Play()
+        end)
+        window:Connect(button.MouseButton1Click, function()
+            hapticEngine.click()
+            soundEngine.click()
+            onClick()
+        end)
+        return button
+    end
+    self.clearButton = headerButton("lucide:trash-2", "Clear", -pad + 4, function()
+        self:Clear()
+    end)
+    self.readButton = headerButton("lucide:check-check", "Mark all read", -pad - 28, function()
+        self._freshIds = {}
+        self:MarkAllRead()
+        self:_render()
+    end)
+
+    -- the chips: All, Updates, Important
+    self.chips = {}
+    local chipX = pad
+    for _, spec in { { "all", "All" }, { "update", "Updates" }, { "important", "Important" } } do
+        local chip = window:Create("TextButton", {
+            Text = "",
+            Size = UDim2.fromOffset(0, 24),
+            AutomaticSize = Enum.AutomaticSize.X,
+            Position = UDim2.fromOffset(chipX, headerHeight),
+            BackgroundTransparency = 0.92,
+            AutoButtonColor = false,
+            BorderSizePixel = 0,
+            ZIndex = panelZ + 2,
+            Parent = panel,
+        }, { BackgroundColor3 = "ContentColor" })
+        window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = chip })
+        window:Create("UIPadding", {
+            PaddingLeft = UDim.new(0, 11),
+            PaddingRight = UDim.new(0, 11),
+            Parent = chip,
+        })
+        local label = window:Create("TextLabel", {
+            Text = locale.resolve(spec[2]),
+            Size = UDim2.new(0, 0, 1, 0),
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            TextSize = 12,
+            TextTransparency = 0.4,
+            ZIndex = panelZ + 3,
+            Parent = chip,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+        local width = 0
+        local ok, bounds = pcall(function()
+            return label.TextBounds
+        end)
+        width = if ok and typeof(bounds) == "Vector2" and bounds.X > 0 then bounds.X else #spec[2] * 7
+        chipX += math.ceil(width) + 22 + 6
+        local filter = spec[1]
+        window:Connect(chip.MouseButton1Click, function()
+            hapticEngine.click()
+            soundEngine.click()
+            self.filter = filter
+            self:_render()
+        end)
+        self.chips[filter] = { button = chip, label = label }
+    end
+
+    self.list = window:Create("ScrollingFrame", {
+        Name = "List",
+        Size = UDim2.new(1, -pad * 2 + 6, 0, 120),
+        Position = UDim2.fromOffset(pad, headerHeight + chipsHeight),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+        ScrollBarThickness = 2,
+        ScrollBarImageTransparency = 0.7,
+        ZIndex = panelZ + 1,
+        Parent = panel,
+    }, { ScrollBarImageColor3 = "ContentColor" })
+    self.listLayout = window:Create("UIListLayout", {
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 6),
+        Parent = self.list,
+    })
+    window:Create("UIPadding", {
+        PaddingBottom = UDim.new(0, pad),
+        PaddingRight = UDim.new(0, 6),
+        Parent = self.list,
+    })
+    window:Connect(self.listLayout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
+        self:_fit()
+    end)
+
+    -- outside it (and not on the bell), or Escape: closed
+    window:Connect(variables.userInputService.InputBegan, function(input)
+        if not self.open then
+            return
+        end
+        if input.KeyCode == Enum.KeyCode.Escape then
+            self:Close()
+            return
+        end
+        local kind = input.UserInputType
+        if kind ~= Enum.UserInputType.MouseButton1 and kind ~= Enum.UserInputType.Touch then
+            return
+        end
+        local point = Vector2.new(input.Position.X, input.Position.Y)
+        local function inside(gui)
+            local at, size = gui.AbsolutePosition, gui.AbsoluteSize
+            return point.X >= at.X and point.X <= at.X + size.X and point.Y >= at.Y and point.Y <= at.Y + size.Y
+        end
+        if not inside(panel) and not inside(self.action.action) then
+            self:Close()
+        end
+    end)
+end
+
+-- The panel as tall as its list, up to a ceiling past which the list scrolls.
+function Inbox:_fit()
+    if not self.panel then
+        return
+    end
+    local size = self.listLayout.AbsoluteContentSize
+    local content = (if typeof(size) == "Vector2" then size.Y else 0) + pad
+    local listHeight = math.clamp(content, 96, panelMaxList)
+    self.list.Size = UDim2.new(1, -pad * 2 + 6, 0, listHeight)
+    self.panel.Size = UDim2.fromOffset(panelWidth, headerHeight + chipsHeight + listHeight)
+end
+
+function Inbox:_visible(): { any }
+    local out = {}
+    for _, entry in self.entries do
+        if self.filter == "all" or entry.kind == self.filter then
+            table.insert(out, entry)
+        end
+    end
+    return out
+end
+
+-- The list, afresh: the chips lit for the filter, the entries, or the empty state.
+function Inbox:_render()
+    local window = self.window
+    if not self.list then
+        return
+    end
+    for filter, chip in self.chips do
+        local on = filter == self.filter
+        chip.button.BackgroundTransparency = if on then 0.8 else 0.94
+        chip.label.TextTransparency = if on then 0 else 0.45
+    end
+    for _, row in self._rows or {} do
+        row:Destroy()
+    end
+    self._rows = {}
+
+    local visible = self:_visible()
+    if #visible == 0 then
+        self:_empty()
+    else
+        for order, entry in visible do
+            self:_row(entry, order)
+        end
+    end
+    self:_fit()
+    self.clearButton.Visible = #self.entries > 0
+    self.readButton.Visible = #self.entries > 0
+    return window
+end
+
+function Inbox:_empty()
+    local window = self.window
+    local holder = window:Create("Frame", {
+        Name = "Empty",
+        LayoutOrder = 1,
+        Size = UDim2.new(1, 0, 0, 96),
+        BackgroundTransparency = 1,
+        ZIndex = panelZ + 2,
+        Parent = self.list,
+    })
+    table.insert(self._rows, holder)
+    local glyph = window:Create("ImageLabel", {
+        Size = UDim2.fromOffset(26, 26),
+        Position = UDim2.new(0.5, 0, 0, 16),
+        AnchorPoint = Vector2.new(0.5, 0),
+        BackgroundTransparency = 1,
+        ImageTransparency = 0.55,
+        ZIndex = panelZ + 2,
+        Parent = holder,
+    }, { ImageColor3 = "ContentColor" })
+    image.assign(glyph, "Image", "lucide:bell-off")
+    window:Create("TextLabel", {
+        Text = locale.resolve("You're all caught up"),
+        Size = UDim2.new(1, 0, 0, 16),
+        Position = UDim2.fromOffset(0, 50),
+        BackgroundTransparency = 1,
+        TextSize = 13,
+        TextTransparency = 0.2,
+        ZIndex = panelZ + 2,
+        Parent = holder,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    window:Create("TextLabel", {
+        Text = locale.resolve("New versions and important news will show up here."),
+        Size = UDim2.new(1, 0, 0, 14),
+        Position = UDim2.fromOffset(0, 69),
+        BackgroundTransparency = 1,
+        TextSize = 11,
+        TextTransparency = 0.55,
+        ZIndex = panelZ + 2,
+        Parent = holder,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+end
+
+-- One entry: its tile, its title and when, what it says, and for a newer version, Rejoin now.
+function Inbox:_row(entry, order: number)
+    local window = self.window
+    local fresh = self._freshIds and self._freshIds[entry.id] == true
+    local kind = kinds[entry.kind] or kinds.general
+
+    local row = window:Create("Frame", {
+        Name = entry.id,
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = if fresh then 0.9 else 0.95,
+        BorderSizePixel = 0,
+        LayoutOrder = order,
+        ZIndex = panelZ + 2,
+        Parent = self.list,
+    }, { BackgroundColor3 = if fresh then "AccentColor" else "ContentColor" })
+    table.insert(self._rows, row)
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = row })
+    window:Create("UIPadding", {
+        PaddingTop = UDim.new(0, 10),
+        PaddingBottom = UDim.new(0, 10),
+        PaddingLeft = UDim.new(0, 10),
+        PaddingRight = UDim.new(0, 10),
+        Parent = row,
+    })
+
+    local tile = window:Create("Frame", {
+        Size = UDim2.fromOffset(30, 30),
+        BackgroundTransparency = if entry.kind == "general" then 0.9 else 0.78,
+        BorderSizePixel = 0,
+        ZIndex = panelZ + 3,
+        Parent = row,
+    }, if entry.kind == "update" then { BackgroundColor3 = "AccentColor" } else nil)
+    if entry.kind == "important" then
+        tile.BackgroundColor3 = importantColor
+    elseif entry.kind == "general" then
+        tile.BackgroundColor3 = Color3.new(1, 1, 1)
+    end
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 9), Parent = tile })
+    local glyph = window:Create("ImageLabel", {
+        Size = UDim2.fromOffset(16, 16),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        ZIndex = panelZ + 4,
+        Parent = tile,
+    }, if entry.kind == "update" then { ImageColor3 = "AccentStroke" } else { ImageColor3 = "ContentColor" })
+    if entry.kind == "important" then
+        glyph.ImageColor3 = importantColor
+    end
+    image.assign(glyph, "Image", entry.icon or kind.icon)
+
+    local body = window:Create("Frame", {
+        Size = UDim2.new(1, -40, 0, 0),
+        Position = UDim2.fromOffset(40, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        ZIndex = panelZ + 3,
+        Parent = row,
+    })
+    window:Create("UIListLayout", {
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 3),
+        Parent = body,
+    })
+
+    local titleRow = window:Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 16),
+        BackgroundTransparency = 1,
+        LayoutOrder = 1,
+        ZIndex = panelZ + 3,
+        Parent = body,
+    })
+    window:Create("TextLabel", {
+        Text = entry.title,
+        Size = UDim2.new(1, -(if fresh then 60 else 44), 1, 0),
+        BackgroundTransparency = 1,
+        TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ZIndex = panelZ + 4,
+        Parent = titleRow,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    window:Create("TextLabel", {
+        Text = Inbox.ago(os.time() - entry.time, entry.time),
+        Size = UDim2.new(0, 40, 1, 0),
+        Position = UDim2.new(1, if fresh then -14 else 0, 0, 0),
+        AnchorPoint = Vector2.new(1, 0),
+        BackgroundTransparency = 1,
+        TextSize = 11,
+        TextTransparency = 0.55,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        ZIndex = panelZ + 4,
+        Parent = titleRow,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    if fresh then
+        local dot = window:Create("Frame", {
+            Size = UDim2.fromOffset(7, 7),
+            Position = UDim2.new(1, 0, 0.5, 0),
+            AnchorPoint = Vector2.new(1, 0.5),
+            BorderSizePixel = 0,
+            ZIndex = panelZ + 4,
+            Parent = titleRow,
+        }, { BackgroundColor3 = "AccentStroke" })
+        window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = dot })
+    end
+
+    if entry.content ~= "" then
+        window:Create("TextLabel", {
+            Text = entry.content,
+            Size = UDim2.new(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+            BackgroundTransparency = 1,
+            TextSize = 12,
+            TextWrapped = true,
+            TextTransparency = 0.35,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextYAlignment = Enum.TextYAlignment.Top,
+            LayoutOrder = 2,
+            ZIndex = panelZ + 4,
+            Parent = body,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    end
+
+    -- a newer version than this copy: Rejoin now, right here
+    local check = window._updateCheck
+    if
+        entry.kind == "update"
+        and entry.version
+        and check
+        and check.Rejoin
+        and require(script.Parent.updatecheck).compare(entry.version, check.version) > 0
+    then
+        local button = window:Create("TextButton", {
+            Text = "",
+            Size = UDim2.fromOffset(112, 26),
+            BackgroundTransparency = 0,
+            AutoButtonColor = false,
+            BorderSizePixel = 0,
+            LayoutOrder = 3,
+            ZIndex = panelZ + 4,
+            Parent = body,
+        }, { BackgroundColor3 = "AccentColor" })
+        window:Create("UICorner", { CornerRadius = UDim.new(0, 7), Parent = button })
+        local label = window:Create("TextLabel", {
+            Text = locale.resolve("Rejoin now"),
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            TextColor3 = Color3.new(1, 1, 1),
+            TextSize = 12,
+            ZIndex = panelZ + 5,
+            Parent = button,
+        }, { FontFace = "TitleFont" })
+        window:Connect(button.MouseButton1Click, function()
+            hapticEngine.click()
+            soundEngine.click()
+            label.Text = locale.resolve("Rejoining...")
+            pcall(check.Rejoin, check)
+        end)
+    end
+    return row
+end
+
+function Inbox:Destroy()
+    if self.panel then
+        self.panel:Destroy()
+        self.panel = nil
+    end
+end
+
+return Inbox
+]=====]
+
 sources["components/input"] = [=====[
 --!nonstrict
 
@@ -24919,7 +25789,7 @@ function search._buildField(window)
         Text = "",
         AutoButtonColor = false,
         Size = UDim2.fromOffset(fieldWidth, slotHeight),
-        LayoutOrder = -4,
+        LayoutOrder = -5, -- left of the inbox's bell (-4) and the settings cog (-3)
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
 
@@ -35304,6 +36174,16 @@ function updateCheck:_announce(remote: string, notes: string?)
     if window.unloaded then
         return
     end
+    -- kept after the card has gone, with its own Rejoin now, and only once per version
+    if window.inbox then
+        window.inbox:Add({
+            title = "Version " .. remote .. " is out",
+            content = notes or "Rejoin to start using it.",
+            kind = "update",
+            key = "update:" .. remote,
+            version = remote,
+        })
+    end
     -- one card in the notification stack: the versions, the notes, Rejoin now and Later
     self.card = require(script.Parent.updatecard).new(window, {
         from = self.version,
@@ -36182,6 +37062,9 @@ function Window.new(properties)
     -- tier) - Sidebar tabsMode only, see the profile block built below. Ported from upstream
     -- Rayfield Gen2 1.2's own sidebar profile subtitle; nil means the name stands on its own.
     self.profileText = properties.profile or properties.Profile
+    -- the bell in the header and what it keeps (see inbox.luau): true (default), false, or
+    -- { saveAll = true, max = 40 }
+    self.inboxConfig = if properties.inbox ~= nil then properties.inbox else properties.Inbox
     -- The hub's mark (the rail's top, the watermark): rounded corners by default - a mark is often
     -- a square picture - and its own colours unless logoTint paints it in the theme's accent.
     self.logoRounded = properties.logoRounded ~= false and properties.LogoRounded ~= false
@@ -37257,6 +38140,9 @@ function Window.new(properties)
     }
 
     self:LoadSettings()
+    if self.inboxConfig ~= false then
+        self.inbox = require(script.Parent.inbox).new(self, self.inboxConfig)
+    end
     self.contentScale.Scale = self.settings.uiScale / 100
 
     -- Devlog 8 corner grip: a size saved from a previous session becomes the new basis for every
@@ -41390,7 +42276,48 @@ function Window:Notify(properties)
         return -- nothing to parent into once the ScreenGui is gone
     end
     self:_notificationStack()
+    -- save = true / "important" / "update" keeps it in the inbox; inbox = { saveAll = true } keeps
+    -- every one
+    if self.inbox and type(properties) == "table" then
+        local save = properties.save or properties.Save
+        if save or self.inbox.saveAll then
+            self.inbox:Add({
+                title = properties.title or properties.Title,
+                content = properties.content or properties.Content or properties.description or properties.Description,
+                icon = properties.icon or properties.Icon,
+                kind = if type(save) == "string" then save else properties.category or properties.Category,
+                key = properties.key or properties.Key,
+            })
+        end
+    end
     return require(script.Parent.notification).new(self, properties)
+end
+
+-- The inbox behind the bell in the header - see inbox.luau. Keeps an entry without a toast.
+function Window:AddToInbox(properties)
+    return if self.inbox then self.inbox:Add(properties) else nil
+end
+
+function Window:OpenInbox()
+    if self.inbox then
+        self.inbox:Open()
+    end
+end
+
+function Window:CloseInbox()
+    if self.inbox then
+        self.inbox:Close()
+    end
+end
+
+function Window:GetInbox(): { any }
+    return if self.inbox then self.inbox:Get() else {}
+end
+
+function Window:ClearInbox()
+    if self.inbox then
+        self.inbox:Clear()
+    end
 end
 
 -- Notify, but silently no-ops if the same `key` fired within `cooldownSeconds` - a loop that
@@ -41732,6 +42659,7 @@ function Window:Hide()
     if self.animating or self.hidden then
         return
     end
+    self:CloseInbox()
 
     -- drop out of search first so we grow back into the normal tab view on next show. tabList
     -- stays hidden here since the collapse hides it anyway; Show re-enables it.
@@ -41930,6 +42858,7 @@ function Window:ToggleMinimise()
     if self.animating or self.hidden then
         return
     end
+    self:CloseInbox()
 
     -- minimising drops out of search back to the tab view first, so it grows back normally
     if self._searching then
@@ -44121,6 +45050,9 @@ export type WindowProps = {
     updateCheck: UpdateCheckProps?,
     -- soft glows of the theme's accent from the window's edges (default true)
     ambient: boolean?,
+    -- the bell in the header and the notifications it keeps (default true); false leaves it out,
+    -- { saveAll = true } keeps every notification, max = how many (default 40)
+    inbox: (boolean | { saveAll: boolean?, max: number? })?,
     -- the hub's mark (top of the rail, the watermark): rounded corners (default true)
     logoRounded: boolean?,
     -- the hub's mark painted in the theme's accent instead of its own colours (default false)
@@ -44795,6 +45727,23 @@ export type NotifyProps = {
     -- must call :Destroy() on the returned handle themselves. Pair with :SetProgress/
     -- :ChangeTitle/:ChangeDescription for a long job's in-place progress card.
     persist: boolean?,
+    -- keep it in the inbox behind the bell: true, or the kind it is filed under ("important",
+    -- "update"); without it only inbox = { saveAll = true } keeps it
+    save: (boolean | string)?,
+    category: string?,
+    key: string?, -- an entry with the same key is replaced rather than kept twice
+}
+
+export type InboxEntry = {
+    id: string,
+    key: string?,
+    title: string,
+    content: string,
+    icon: string?,
+    kind: string, -- "update", "important" or "general"
+    version: string?,
+    time: number, -- os.time() when it came in
+    read: boolean,
 }
 
 export type ToastAction = {
@@ -45654,6 +46603,12 @@ export type Window = {
     TakePhoto: (self: Window) -> boolean,
     -- check the updateCheck url now; yields; (hasUpdate, remoteVersion, notes)
     CheckForUpdate: (self: Window) -> (boolean, string?, string?),
+    -- the inbox behind the bell: keep an entry without a toast, open it, read it, empty it
+    AddToInbox: (self: Window, props: NotifyProps) -> InboxEntry?,
+    OpenInbox: (self: Window) -> (),
+    CloseInbox: (self: Window) -> (),
+    GetInbox: (self: Window) -> { InboxEntry },
+    ClearInbox: (self: Window) -> (),
     SetLocale: (self: Window, localeId: string) -> (),
     SetTranslator: (self: Window, translator: Translator?) -> (),
     RegisterTranslations: (self: Window, translations: Translations) -> (),
@@ -50691,6 +51646,8 @@ type SettingsWindow = {
         hudPositions: { [string]: { X: number, Y: number } }?,
         -- a Dashboard's switches and run count, per window name
         dashboards: { [string]: { [string]: any } }?,
+        -- the inbox's entries, per window name - see inbox.luau
+        inboxes: { [string]: { any } }?,
         theme: string?,
     },
 }
@@ -50711,6 +51668,7 @@ type DecodedSettings = {
     collapsedPositions: { [unknown]: unknown }?,
     hudPositions: { [unknown]: unknown }?,
     dashboards: { [unknown]: unknown }?,
+    inboxes: { [unknown]: unknown }?,
     theme: unknown?,
 }
 
@@ -50766,6 +51724,7 @@ function persistenceSettings.saveSettings(window: SettingsWindow): boolean
         collapsedPositions = window.settings.collapsedPositions,
         hudPositions = window.settings.hudPositions,
         dashboards = window.settings.dashboards,
+        inboxes = window.settings.inboxes,
     }
 
     local ok, encoded = pcall(variables.httpService.JSONEncode, variables.httpService, data)
@@ -50882,6 +51841,17 @@ function persistenceSettings.loadSettings(window: SettingsWindow): boolean
     window.settings.collapsedPositions = readPositionMap(settings.collapsedPositions)
         or window.settings.collapsedPositions
     window.settings.hudPositions = readPositionMap(settings.hudPositions) or window.settings.hudPositions
+
+    -- per window name: a list of entries, each one checked by the inbox as it reads it back
+    if type(settings.inboxes) == "table" then
+        local inboxes = {}
+        for name, entries in settings.inboxes :: any do
+            if type(name) == "string" and type(entries) == "table" then
+                inboxes[name] = entries
+            end
+        end
+        window.settings.inboxes = inboxes
+    end
 
     -- per window name: { executions = n, hideName = bool, hideAvatar = bool }, only what reads right
     if type(settings.dashboards) == "table" then
