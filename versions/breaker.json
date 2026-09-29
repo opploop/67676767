@@ -1,4 +1,1 @@
-{
-    "version": "v1.0.4",
-    "notes": ""
-}
+{ "version": "v1.0.4", "notes": "New Rail layout, watermark card and Dashboard\nFarm tab: Maps dropdown, full-page Mobs picker and a live Target card\nPages reorganised into sub tabs with two columns side by side" }
