@@ -4300,6 +4300,7 @@ function ColorPicker:_open()
     end)
 
     self:_render("animate")
+    self.window:_scrollExpandedIntoView(self, self._openHeight)
 end
 
 function ColorPicker:_close()
@@ -8715,9 +8716,12 @@ end
 
 -- The visible selection is always the intent narrowed to options that currently exist.
 local function intersectWithOptions(value, options)
-    local out = {}
+    local out, available = {}, {}
+    for _, option in options do
+        available[option] = true
+    end
     for _, v in value do
-        if table.find(options, v) then
+        if available[v] then
             table.insert(out, v)
         end
     end
@@ -8728,8 +8732,12 @@ local function sameSelection(a, b)
     if #a ~= #b then
         return false
     end
+    local selected = {}
+    for _, v in b do
+        selected[v] = true
+    end
     for _, v in a do
-        if not table.find(b, v) then
+        if not selected[v] then
             return false
         end
     end
@@ -9068,7 +9076,7 @@ function Dropdown.new(tab, properties)
 
         image.assign(data.checkIcon, "Image", if selected then checkIcon else dotIcon)
 
-        if animate then
+        if animate and not self._virtual then
             local info = TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
             variables.tweenService:Create(data.frame, info, { BackgroundTransparency = bgT }):Play()
             variables.tweenService:Create(data.title, info, { TextTransparency = titleT }):Play()
@@ -9102,6 +9110,7 @@ function Dropdown.new(tab, properties)
     self._updateSelectedLabel = updateSelectedLabel
 
     local function buildOption(optionName)
+        local data = { name = optionName }
         local frame = self.window:Create("Frame", {
             Size = UDim2.new(1, -12, 0, optionRowHeight),
             BorderSizePixel = 0,
@@ -9113,7 +9122,7 @@ function Dropdown.new(tab, properties)
             BackgroundColor3 = {
                 "AccentColor",
                 function(color)
-                    return if isOptionSelected(optionName) then color else self.window.theme.FieldBackground
+                    return if isOptionSelected(data.name) then color else self.window.theme.FieldBackground
                 end,
             },
         })
@@ -9169,7 +9178,7 @@ function Dropdown.new(tab, properties)
         }, { ImageColor3 = "ContentColor" })
 
         local title = self.window:Create("TextLabel", {
-            Text = optionName,
+            Text = data.name,
             Size = UDim2.new(1, -24, 0, 16),
             BorderSizePixel = 0,
             BackgroundTransparency = 1,
@@ -9183,8 +9192,8 @@ function Dropdown.new(tab, properties)
             Parent = container,
         }, { TextColor3 = "ContentColor", FontFace = "Font" })
 
-        local data = {
-            name = optionName,
+        local built = {
+            name = data.name,
             frame = frame,
             interact = interact,
             title = title,
@@ -9195,6 +9204,9 @@ function Dropdown.new(tab, properties)
             -- tracked per option so a rebuild tears them down with the frame
             connections = {},
         }
+        for key, value in built do
+            data[key] = value
+        end
 
         table.insert(
             data.connections,
@@ -9202,7 +9214,12 @@ function Dropdown.new(tab, properties)
                 if not self._isOpen or not self.window:_interactive() then
                     return
                 end
-                if isOptionSelected(optionName) then
+                if isOptionSelected(data.name) then
+                    return
+                end
+                if self._virtual then
+                    frame.BackgroundTransparency = 0.9
+                    title.TextTransparency = 0.15
                     return
                 end
                 variables.tweenService
@@ -9216,7 +9233,7 @@ function Dropdown.new(tab, properties)
                     :Create(
                         title,
                         TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-                        { TextTransparency = 0.15 }
+                        { TextTransparency = math.max(0, self.window.theme.SecondaryTextTransparency - 0.15) }
                     )
                     :Play()
             end)
@@ -9228,7 +9245,11 @@ function Dropdown.new(tab, properties)
                 if not self._isOpen then
                     return
                 end
-                if isOptionSelected(optionName) then
+                if isOptionSelected(data.name) then
+                    return
+                end
+                if self._virtual then
+                    self._renderOptionState(data, false)
                     return
                 end
                 variables.tweenService
@@ -9242,7 +9263,7 @@ function Dropdown.new(tab, properties)
                     :Create(
                         title,
                         TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-                        { TextTransparency = 0.3 }
+                        { TextTransparency = self.window.theme.SecondaryTextTransparency }
                     )
                     :Play()
             end)
@@ -9259,14 +9280,14 @@ function Dropdown.new(tab, properties)
                 end
                 hapticEngine.click()
                 soundEngine.click()
-                local sel = isOptionSelected(optionName)
+                local sel = isOptionSelected(data.name)
 
                 if not self.multiSelect then
                     if sel then
                         self:_close()
                         return
                     end
-                    self:Set({ optionName })
+                    self:Set({ data.name })
                     task.wait(0.1)
                     self:_close()
                     return
@@ -9274,12 +9295,12 @@ function Dropdown.new(tab, properties)
 
                 local newValue = table.clone(self.value)
                 if sel then
-                    local idx = table.find(newValue, optionName)
+                    local idx = table.find(newValue, data.name)
                     if idx then
                         table.remove(newValue, idx)
                     end
                 else
-                    table.insert(newValue, optionName)
+                    table.insert(newValue, data.name)
                 end
 
                 self:Set(newValue)
@@ -9323,7 +9344,13 @@ function Dropdown.new(tab, properties)
     -- option) from self.options/self._sectionStarts, in order. Doesn't paint open/closed state
     -- or resize anything - callers (the initial build below, and Refresh) do that themselves
     -- afterward since they need it at different points in their own sequence.
+    self._buildHeader = buildHeader
     local function buildAllOptions()
+        self:_configureOptionList(#self.options >= 100)
+        if self._virtual then
+            self:_rebuildVirtual("")
+            return
+        end
         for _, opt in self.options do
             local sectionName = self._sectionStarts[opt]
             if sectionName then
@@ -9334,10 +9361,25 @@ function Dropdown.new(tab, properties)
         end
     end
     self._buildAllOptions = buildAllOptions
+    self.window:ConnectFor(self, self.list:GetPropertyChangedSignal("CanvasPosition"), function()
+        if self._virtual then
+            self:_renderVirtualRows()
+        end
+    end)
+    self.window:ConnectFor(self, self.list:GetPropertyChangedSignal("AbsoluteWindowSize"), function()
+        if self._virtual then
+            self:_renderVirtualRows()
+        end
+    end)
 
     buildAllOptions()
 
     updateSelectedLabel()
+    self.window:ConnectFor(self, self.main:GetPropertyChangedSignal("AbsoluteSize"), function()
+        if not self._removed then
+            self:_fitTitle()
+        end
+    end)
     self:_updateCorners()
 
     -- Function
@@ -9358,6 +9400,9 @@ function Dropdown.new(tab, properties)
     -- elements, the header's stroke transparency also has to track open/close, so leaving hover
     -- out of it keeps those two animations from fighting over the same property).
     self.window:ConnectFor(self, self.main.MouseEnter, function()
+        if self.locked or not self.window:_interactive() then
+            return
+        end
         if self.locked or self._isOpen or not self.window:_interactive() then
             return
         end
@@ -9414,6 +9459,142 @@ end
 -- list below just flexes down as it grows.
 -- what the dev's callback receives. multiSelect hands out a copy: the live table is our
 -- selection state, and a dev who keeps or mutates it would corrupt the dropdown.
+
+-- Large lists keep their complete data but only a bounded set of GUI rows. Filtering is
+-- literal and case insensitive; scrolling just rebinds those rows without creating more.
+function Dropdown:_configureOptionList(virtual)
+    self._virtual = virtual
+    if virtual then
+        if self.listLayout then
+            self.window:DestroySubtree(self.listLayout)
+            self.listLayout = nil
+        end
+        self.list.AutomaticCanvasSize = Enum.AutomaticSize.None
+    else
+        self.list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        self.list.CanvasSize = UDim2.new()
+        if not self.listLayout then
+            self.listLayout = self.window:Create("UIListLayout", {
+                Padding = UDim.new(0, 5),
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                HorizontalAlignment = Enum.HorizontalAlignment.Center,
+                Parent = self.list,
+            })
+        end
+        self.emptyLabel.Position = UDim2.new()
+    end
+end
+
+function Dropdown:_rebuildVirtual(query)
+    -- Preallocate the bounded pool once, so scrolling/filtering never creates GUI objects.
+    for index = #self._optionFrames + 1, 16 do
+        self._optionFrames[index] = self._buildOption(self.options[1])
+    end
+    local firstSection = self._sectionOf[self.options[1]]
+    if firstSection then
+        for index = #self._headerFrames + 1, 16 do
+            self._headerFrames[index] = self._buildHeader(firstSection)
+        end
+    end
+    local rows, names, offset, previousSection = {}, {}, 0, nil
+    local height = math.max(28, 36 + self.window:GetDensityMetrics().rowHeight - 44)
+    self._virtualRowHeight = height
+    self._lowerOptions = self._lowerOptions or {}
+    for _, name in self.options do
+        local lowered = self._lowerOptions[name]
+        if not lowered then
+            lowered = string.lower(name)
+            self._lowerOptions[name] = lowered
+        end
+        if query == "" or string.find(lowered, query, 1, true) then
+            local section = self._sectionOf[name]
+            if section ~= previousSection and section ~= nil then
+                table.insert(rows, { name = section, header = true, y = offset, height = 24 })
+                offset += 24 + rowGap
+            end
+            previousSection = section
+            table.insert(names, name)
+            table.insert(rows, { name = name, y = offset, height = height })
+            offset += height + rowGap
+        end
+    end
+    self._filteredOptions, self._virtualRows = names, rows
+    self._virtualContentHeight = if #rows == 0 then height + 2 else offset - rowGap + 2
+    self.emptyLabel.Visible = #rows == 0
+    self.emptyLabel.Position = UDim2.fromOffset(6, 0)
+    self.list.CanvasSize = UDim2.fromOffset(0, self._virtualContentHeight)
+    self.list.CanvasPosition = Vector2.new(0, 0)
+    self:_renderVirtualRows()
+end
+
+function Dropdown:_renderVirtualRows()
+    if self._renderingVirtual or self._removed or self.window.unloaded then
+        return
+    end
+    self._renderingVirtual = true
+    local rows = self._virtualRows or {}
+    local viewport = self.list.AbsoluteWindowSize.Y
+    if viewport <= 0 then
+        viewport = 4 * (self._virtualRowHeight + rowGap)
+    end
+    local content = self._virtualContentHeight or 0
+    local y = math.clamp(self.list.CanvasPosition.Y, 0, math.max(0, content - viewport))
+    local lo, hi = 1, #rows
+    while lo <= hi do
+        local mid = math.floor((lo + hi) / 2)
+        if rows[mid].y + rows[mid].height < y then
+            lo = mid + 1
+        else
+            hi = mid - 1
+        end
+    end
+    local first = math.max(1, lo - 1)
+    local usedOptions, usedHeaders = 0, 0
+    for index = first, math.min(#rows, first + 15) do
+        local row = rows[index]
+        if row.y > y + viewport + self._virtualRowHeight + rowGap then
+            break
+        end
+        local pool = if row.header then self._headerFrames else self._optionFrames
+        local slot
+        if row.header then
+            usedHeaders += 1
+            slot = usedHeaders
+        else
+            usedOptions += 1
+            slot = usedOptions
+        end
+        local data = pool[slot]
+        if not data then
+            data = if row.header then self._buildHeader(row.name) else self._buildOption(row.name)
+            pool[slot] = data
+        end
+        data.name = row.name
+        data.frame.Visible = true
+        data.frame.Position = UDim2.fromOffset(6, row.y)
+        data.frame.Size = UDim2.new(1, -12, 0, row.height)
+        if row.header then
+            self.window:_bindLocale(data.label, "Text", row.name)
+            data.label.TextTruncate = Enum.TextTruncate.AtEnd
+        else
+            data.title.Text = row.name
+            self._renderOptionState(data, false)
+            local before, after = rows[index - 1], rows[index + 1]
+            local top = if not before or before.header then roundRadius else flatRadius
+            local bottom = if not after or after.header then roundRadius else flatRadius
+            data.corner.TopLeftRadius, data.corner.TopRightRadius = top, top
+            data.corner.BottomLeftRadius, data.corner.BottomRightRadius = bottom, bottom
+        end
+    end
+    for i = usedOptions + 1, #self._optionFrames do
+        self._optionFrames[i].frame.Visible = false
+    end
+    for i = usedHeaders + 1, #self._headerFrames do
+        self._headerFrames[i].frame.Visible = false
+    end
+    self._renderingVirtual = false
+end
+
 function Dropdown:_callbackValue()
     if self.multiSelect then
         return table.clone(self.value)
@@ -9534,7 +9715,9 @@ function Dropdown:_expandSearch()
         :Play()
     variables.tweenService:Create(self.searchStroke, searchTween, { Transparency = 0.86 }):Play()
     variables.tweenService:Create(self.searchShadow, searchTween, { Transparency = 0.92 }):Play()
-    variables.tweenService:Create(self.searchInput, searchTween, { TextTransparency = 0.3 }):Play()
+    variables.tweenService
+        :Create(self.searchInput, searchTween, { TextTransparency = self.window.theme.SecondaryTextTransparency })
+        :Play()
 
     self.searchInput:CaptureFocus()
 end
@@ -9672,11 +9855,28 @@ function Dropdown:_afterValueChanged()
     self.window:_persist(self)
 end
 
-function Dropdown:_selectAllVisible()
-    local changed = false
+function Dropdown:_filteredNames()
+    if self._virtual then
+        return self._filteredOptions
+    end
+    local out = {}
     for _, data in self._optionFrames do
-        if data.frame.Visible and not table.find(self.value, data.name) then
-            table.insert(self.value, data.name)
+        if data.frame.Visible then
+            table.insert(out, data.name)
+        end
+    end
+    return out
+end
+
+function Dropdown:_selectAllVisible()
+    local chosen, changed = {}, false
+    for _, name in self.value do
+        chosen[name] = true
+    end
+    for _, name in self:_filteredNames() do
+        if not chosen[name] then
+            chosen[name] = true
+            table.insert(self.value, name)
             changed = true
         end
     end
@@ -9686,22 +9886,28 @@ function Dropdown:_selectAllVisible()
 end
 
 function Dropdown:_clearVisible()
-    local changed = false
-    for _, data in self._optionFrames do
-        if data.frame.Visible then
-            local idx = table.find(self.value, data.name)
-            if idx then
-                table.remove(self.value, idx)
-                changed = true
-            end
+    local filtered, remaining = {}, {}
+    for _, name in self:_filteredNames() do
+        filtered[name] = true
+    end
+    for _, name in self.value do
+        if not filtered[name] then
+            table.insert(remaining, name)
         end
     end
-    if changed then
+    if #remaining ~= #self.value then
+        self.value = remaining
         self:_afterValueChanged()
     end
 end
 
 function Dropdown:_applyFilter(query)
+    self._filterQuery = string.lower(query or "")
+    if self._virtual then
+        self:_rebuildVirtual(self._filterQuery)
+        self:_resizeToOptions()
+        return
+    end
     query = string.lower(query or "")
     local anyOptionVisible = false
     for _, data in self._optionFrames do
@@ -9727,6 +9933,12 @@ end
 
 -- match the panel to whats visible. only while open: closed height is the header alone.
 function Dropdown:_resizeToOptions()
+    if self._virtual then
+        local height = math.max(28, 36 + self.window:GetDensityMetrics().rowHeight - 44)
+        if self._virtualRowHeight ~= height then
+            self:_rebuildVirtual(self._filterQuery or "")
+        end
+    end
     local rowHeight = math.max(28, 36 + self.window:GetDensityMetrics().rowHeight - 44)
     for _, data in self._optionFrames do
         data.frame.Size = UDim2.new(1, -12, 0, rowHeight)
@@ -9744,6 +9956,9 @@ end
 -- section header breaks the run too (self._sectionStarts), so each section rounds off on its
 -- own instead of reading as one continuous block across a header.
 function Dropdown:_updateCorners()
+    if self._virtual then
+        return
+    end
     local visible = {}
     for _, data in self._optionFrames do
         if data.frame.Visible then
@@ -9789,7 +10004,9 @@ function Dropdown:_openHeight()
     if self.emptyLabel and self.emptyLabel.Visible then
         n += 1 -- the "no results" row takes the same space a normal option row would
     end
-    local rows = n * optionRowHeight + h * 24 + math.max(0, n + h - 1) * rowGap + 2
+    local rows = if self._virtual
+        then self._virtualContentHeight
+        else n * optionRowHeight + h * 24 + math.max(0, n + h - 1) * rowGap + 2
     -- the header, the gap under it and the search row; the Clear row is always built now
     local base = elementHeight + 54 + quickActionsRowHeight + quickActionsRowGap
     return math.min(base + capRowsHeight, base + rows)
@@ -9800,6 +10017,9 @@ function Dropdown:_open()
         return
     end
     self._isOpen = true
+    if self._virtual then
+        self:_renderVirtualRows()
+    end
 
     if self._outsideClickConn then
         self.window:Disconnect(self._outsideClickConn)
@@ -9895,35 +10115,7 @@ end
 -- Walks up to the nearest ScrollingFrame ancestor rather than assuming self.tab.tabPage directly
 -- - a dropdown nested in a Group/Collapsible sits inside a plain Frame, not the tab's own page.
 function Dropdown:_scrollIntoView(targetHeight)
-    local page = self.main:FindFirstAncestorWhichIsA("ScrollingFrame")
-    if not page then
-        return
-    end
-
-    local viewTop = page.AbsolutePosition.Y
-    local viewBottom = viewTop + page.AbsoluteWindowSize.Y
-    local dropdownTop = self.main.AbsolutePosition.Y
-    local dropdownBottom = dropdownTop + targetHeight
-
-    local overflow = dropdownBottom - viewBottom
-    if overflow <= 0 then
-        return
-    end
-
-    -- No manual max-scroll clamp: page.CanvasSize can still read stale/zero right after a tab
-    -- switch (AutomaticCanvasSize hasn't caught up to the just-shown content yet - live-caught
-    -- this capping every scroll to 0). Roblox already clamps CanvasPosition itself when it's set
-    -- past what the canvas actually has, so handing it a generous target is safe either way.
-    local margin = 10
-    local targetY = page.CanvasPosition.Y + overflow + margin
-
-    variables.tweenService
-        :Create(
-            page,
-            TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-            { CanvasPosition = Vector2.new(page.CanvasPosition.X, targetY) }
-        )
-        :Play()
+    self.window:_scrollExpandedIntoView(self, targetHeight)
 end
 
 function Dropdown:_close()
@@ -10023,6 +10215,7 @@ end
 -- API this doesn't attempt to be.
 function Dropdown:Refresh(newOptions)
     self.options = dedupStrings(newOptions or {})
+    self._lowerOptions = nil
     self._sectionStarts = {}
     self._sectionOf = {}
 
@@ -10234,7 +10427,12 @@ function Dropdown:_fitTitle()
     if not self.container or not self.selectedLabel then
         return
     end
-    local valueWidth = math.min(functions.textWidth(self.window.theme.Font, 15, self.selectedLabel.Text), 168)
+    local cardWidth = self.main.AbsoluteSize.X
+    local maximum = if cardWidth > 0 then math.max(24, math.min(168, cardWidth * 0.4)) else 168
+    local valueWidth = math.min(functions.textWidth(self.window.theme.Font, 15, self.selectedLabel.Text), maximum)
+    self.selectedLabel.Size = UDim2.fromOffset(valueWidth, 18)
+    self.selectedLabel.TextWrapped = false
+    self.selectedLabel.TextTruncate = Enum.TextTruncate.AtEnd
     self.window:_fitRowTitle(self, 41 + valueWidth + 10)
 end
 
@@ -12931,6 +13129,7 @@ function GradientPicker:_open()
     self.hexField:SetVisible(true)
     self.positionField:SetVisible(true)
     self:_render("animate")
+    self.window:_scrollExpandedIntoView(self, self._openHeight)
 end
 
 function GradientPicker:_close()
@@ -15457,6 +15656,11 @@ function Input.new(tab, properties)
     end
 
     self:_sizeBox(false) -- initial hug, no animation
+    self.window:ConnectFor(self, self.main:GetPropertyChangedSignal("AbsoluteSize"), function()
+        if not self._removed then
+            self:_sizeBox(false)
+        end
+    end)
 
     return self
 end
@@ -15465,7 +15669,9 @@ end
 -- readable pill and capped so a long value can't run over the title
 function Input:_sizeBox(animate)
     local shown = self.input.Text ~= "" and self.input.Text or self.placeholder
-    local width = math.clamp(functions.textWidth(self.window.theme.Font, 15, shown) + 30, 70, 220)
+    local cardWidth = self.main.AbsoluteSize.X
+    local maximum = if cardWidth > 0 then math.max(70, math.min(220, cardWidth * 0.48)) else 220
+    local width = math.clamp(functions.textWidth(self.window.theme.Font, 15, shown) + 30, 70, maximum)
     if animate then
         variables.tweenService:Create(self.box, resizeInfo, { Size = UDim2.fromOffset(width, 30) }):Play()
     else
@@ -22548,6 +22754,7 @@ function Popup:_build()
     -- card grows a few pixels a moment after it shows, as the brand font's glyphs finish loading
     -- and AutomaticSize re-measures the text - reads as the font "settling" after the reveal.
     local headerHeight = self:_measureHeader(hasIcon)
+    self:_measureFooter()
     if viewport.Y >= 200 then
         self.contentCeiling = math.max(
             32,
@@ -22558,7 +22765,7 @@ function Popup:_build()
                     - topPadding
                     - bottomPadding
                     - headerHeight
-                    - buttonHeight
+                    - self.footerHeight
                     - regionGap * (if self.inputConfig then 3 else 2)
                     - (if self.inputConfig then 44 else 0)
                     - contentInset * 2
@@ -22576,7 +22783,7 @@ function Popup:_build()
         + headerHeight
         + contentHeight
         + inputHeight
-        + buttonHeight
+        + self.footerHeight
         + bottomPadding
         + regionGap * (regions - 1)
     self.card.Size = UDim2.fromOffset(self.cardWidth, cardHeight)
@@ -22997,20 +23204,51 @@ function Popup:_buildBox(parent, box, order)
     end
 end
 
+-- Long labels stack rather than shrinking several actions into unreadable pills.
+function Popup:_measureFooter()
+    local count = #self.options
+    local shared = (self.innerWidth - math.max(0, count - 1) * buttonGap) / math.max(1, count)
+    self.stackFooter = count > 2
+    for _, raw in self.options do
+        local option = if typeof(raw) == "table" then raw else { text = tostring(raw) }
+        local label = locale.resolve(option.text or option.Text or option.name or option.Name or "Okay")
+        if functions.textWidth(self.window.theme.Font, buttonTextSize, label) + 32 > shared then
+            self.stackFooter = true
+        end
+    end
+    self.buttonHeights = {}
+    self.footerHeight = if self.stackFooter then math.max(0, count - 1) * buttonGap else buttonHeight
+    for i, raw in self.options do
+        local option = if typeof(raw) == "table" then raw else { text = tostring(raw) }
+        local label = locale.resolve(option.text or option.Text or option.name or option.Name or "Okay")
+        local height = if self.stackFooter
+            then math.max(
+                buttonHeight,
+                functions.textHeight(self.window.theme.Font, buttonTextSize, label, math.max(24, self.innerWidth - 32))
+                    + 16
+            )
+            else buttonHeight
+        self.buttonHeights[i] = height
+        if self.stackFooter then
+            self.footerHeight += height
+        end
+    end
+end
+
 function Popup:_buildFooter()
     local window = self.window
 
     local footer = window:Create("Frame", {
         Name = "Footer",
         BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 0, buttonHeight),
+        Size = UDim2.new(1, 0, 0, self.footerHeight),
         LayoutOrder = 4,
 
         Parent = self.card,
     })
 
     window:Create("UIListLayout", {
-        FillDirection = Enum.FillDirection.Horizontal,
+        FillDirection = if self.stackFooter then Enum.FillDirection.Vertical else Enum.FillDirection.Horizontal,
         VerticalAlignment = Enum.VerticalAlignment.Center,
         HorizontalAlignment = Enum.HorizontalAlignment.Center,
         HorizontalFlex = Enum.UIFlexAlignment.Fill, -- buttons share the row evenly
@@ -23052,7 +23290,7 @@ function Popup:_buildButton(parent, option, order)
         Name = "Button",
         BackgroundColor3 = restColor,
         BorderSizePixel = 0,
-        Size = UDim2.new(0, 0, 0, buttonHeight),
+        Size = UDim2.new(if self.stackFooter then 1 else 0, 0, 0, self.buttonHeights[order]),
         LayoutOrder = order,
 
         BackgroundTransparency = 1, -- shown = 0
@@ -23061,7 +23299,9 @@ function Popup:_buildButton(parent, option, order)
     })
     self:_fade(button, "BackgroundTransparency", 0)
 
-    window:Create("UIFlexItem", { FlexMode = Enum.UIFlexMode.Fill, Parent = button })
+    if not self.stackFooter then
+        window:Create("UIFlexItem", { FlexMode = Enum.UIFlexMode.Fill, Parent = button })
+    end
     window:Create("UICorner", { CornerRadius = buttonCorner, Parent = button })
 
     local stroke = window:Create("UIStroke", {
@@ -23075,7 +23315,9 @@ function Popup:_buildButton(parent, option, order)
     self:_fade(
         window:Create("TextLabel", {
             Text = locale.t(label),
-            Size = UDim2.fromScale(1, 1),
+            Size = UDim2.new(1, -24, 1, -12),
+            Position = UDim2.fromOffset(12, 6),
+            TextWrapped = true,
             BackgroundTransparency = 1,
             TextSize = buttonTextSize,
             TextXAlignment = Enum.TextXAlignment.Center,
@@ -38847,6 +39089,8 @@ function Window:_applyControlDensity(control)
 end
 function Window:_enhanceControl(control)
     self:_installControlContract(control)
+    self:_wireTooltip(control)
+    self:_watchExpandedControl(control)
     self:_installTouchHelp(control)
     self._experienceControls = self._experienceControls or setmetatable({}, { __mode = "k" })
     if not self._experienceControls[control] then
@@ -39411,6 +39655,61 @@ function Window:_initExperience(properties)
             self:Navigate(self._themeEditor.tab)
         end,
     })
+end
+
+-- Keep inline editors inside their nearest scrolling page after density/window changes.
+function Window:_scrollExpandedIntoView(control, height)
+    if not control.main or not control.main.Parent or control._removed or not control._isOpen then
+        return
+    end
+    local page = control.main:FindFirstAncestorWhichIsA("ScrollingFrame")
+    if not page or page.AbsoluteWindowSize.Y <= 0 then
+        return
+    end
+    local top, viewport = control.main.AbsolutePosition.Y, page.AbsoluteWindowSize.Y
+    local viewTop = page.AbsolutePosition.Y
+    local delta = 0
+    if height > viewport - 16 or top < viewTop + 8 then
+        delta = top - viewTop - 8
+    elseif top + height > viewTop + viewport - 8 then
+        delta = top + height - (viewTop + viewport - 8)
+    end
+    if math.abs(delta) > 0.5 then
+        page.CanvasPosition = Vector2.new(page.CanvasPosition.X, math.max(0, page.CanvasPosition.Y + delta))
+    end
+end
+
+function Window:_watchExpandedControl(control)
+    if control._expandedWatcher or not control.main or not control._open then
+        return
+    end
+    if control.__type ~= "Dropdown" and control.__type ~= "ColorPicker" and control.__type ~= "GradientPicker" then
+        return
+    end
+    control._expandedWatcher = true
+    local function schedule()
+        control._expandedLayoutToken = (control._expandedLayoutToken or 0) + 1
+        local token = control._expandedLayoutToken
+        if not control._isOpen then
+            return
+        end
+        task.delay(0.15, function()
+            if
+                control._expandedLayoutToken == token
+                and not self.unloaded
+                and not control._removed
+                and control._isOpen
+            then
+                local height = if type(control._openHeight) == "function"
+                    then control:_openHeight()
+                    else control._openHeight
+                self:_scrollExpandedIntoView(control, height or control.main.AbsoluteSize.Y)
+            end
+        end)
+    end
+    self:ConnectFor(control, control.main:GetPropertyChangedSignal("AbsoluteSize"), schedule)
+    self:ConnectFor(control, self.main:GetPropertyChangedSignal("AbsoluteSize"), schedule)
+    self:ConnectFor(control, self.screenGui:GetPropertyChangedSignal("AbsoluteSize"), schedule)
 end
 
 return Window
@@ -40543,8 +40842,10 @@ function Window:_wireElementHover(element, owner)
         local timing = if fast then pressInfo else info
         variables.tweenService
             :Create(element.stroke, timing, {
-                Transparency = if pressed
-                    then math.max(theme.ElementStrokeHoverTransparency - 0.25, 0)
+                Transparency = if element._shown == false
+                    then 1
+                    elseif not lit then theme.ElementStrokeTransparency
+                    elseif pressed then math.max(theme.ElementStrokeHoverTransparency - 0.25, 0)
                     elseif focused then theme.FocusStrokeTransparency
                     elseif hovered then theme.ElementStrokeHoverTransparency
                     else theme.ElementStrokeTransparency,
@@ -40672,7 +40973,7 @@ function Window:_ensureTooltip()
         ZIndex = constants.zIndex.tooltip,
 
         Parent = self.screenGui,
-    })
+    }, { BackgroundColor3 = "FieldBackground" })
 
     self:Create("UICorner", {
         CornerRadius = UDim.new(0, 8),
@@ -40701,13 +41002,57 @@ function Window:_ensureTooltip()
         TextTransparency = 1,
 
         Parent = self.tooltipFrame,
-    }, { FontFace = "Font" })
+    }, { FontFace = "Font", TextColor3 = "ContentColor" })
 
     -- caps the wrap width so long copy wraps onto more lines instead of one wide bubble
-    self:Create("UISizeConstraint", {
+    self._tooltipConstraint = self:Create("UISizeConstraint", {
         MaxSize = Vector2.new(tooltipMaxWidth, math.huge),
         Parent = self.tooltipLabel,
     })
+    self:Create(
+        "UIStroke",
+        { Transparency = self.theme.FieldStrokeTransparency, Parent = self.tooltipFrame },
+        { Color = "SurfaceStroke" }
+    )
+    self:Connect(self.tooltipFrame:GetPropertyChangedSignal("AbsoluteSize"), function()
+        if self.tooltipFrame.Visible then
+            self:_positionTooltip()
+        end
+    end)
+    self:Connect(self.screenGui:GetPropertyChangedSignal("AbsoluteSize"), function()
+        if self.tooltipFrame.Visible then
+            self:_positionTooltip()
+        end
+    end)
+    self:Connect(variables.userInputService.InputChanged, function(input)
+        if self.tooltipFrame.Visible and input.UserInputType == Enum.UserInputType.MouseMovement then
+            self:_positionTooltip()
+        end
+    end)
+end
+
+-- Anchor above the cursor when possible, flip below near the top and clamp at both sides.
+function Window:_tooltipPosition(mouse, size, screen, inset)
+    local left, top, right, bottom = 8, inset + 8, math.max(8, screen.X - 8), math.max(inset + 8, screen.Y - 8)
+    local x = math.clamp(mouse.X - size.X / 2, left, math.max(left, right - size.X))
+    local y = mouse.Y - tooltipCursorGap - size.Y
+    if y < top then
+        y = mouse.Y + tooltipCursorGap
+    end
+    return Vector2.new(x, math.clamp(y, top, math.max(top, bottom - size.Y)))
+end
+
+function Window:_positionTooltip()
+    local screen = self.screenGui.AbsoluteSize
+    if screen.X <= 0 or screen.Y <= 0 then
+        return
+    end
+    local inset = variables.guiService:GetGuiInset().Y
+    self._tooltipConstraint.MaxSize =
+        Vector2.new(math.min(tooltipMaxWidth, math.max(24, screen.X - 36)), math.max(24, screen.Y - inset - 36))
+    local position = self:_tooltipPosition(self:_mouseAbsolutePosition(), self.tooltipFrame.AbsoluteSize, screen, inset)
+    self.tooltipFrame.AnchorPoint = Vector2.new(0, 0)
+    self.tooltipFrame.Position = UDim2.fromOffset(position.X, position.Y)
 end
 
 function Window:_showTooltip(text)
@@ -40715,9 +41060,7 @@ function Window:_showTooltip(text)
 
     self.tooltipLabel.Text = locale.resolve(text)
 
-    local mouse = self:_mouseAbsolutePosition()
-    self.tooltipFrame.AnchorPoint = Vector2.new(0.5, 1)
-    self.tooltipFrame.Position = UDim2.fromOffset(mouse.X, mouse.Y - tooltipCursorGap)
+    self:_positionTooltip()
     self.tooltipFrame.Visible = true
     self.tooltipFrame.BackgroundTransparency = 1
     self.tooltipLabel.TextTransparency = 1
@@ -40751,11 +41094,26 @@ end
 -- _wireElementHover so it applies uniformly whether or not the element wires its own hover
 -- tint (the slider, dropdown, colorpicker etc. all do that separately).
 function Window:_wireTooltip(element)
-    if not element.tooltip or element.tooltip == "" then
+    if element._titleTooltipWired or not element.main then
         return
     end
-
+    if not element.tooltip and not element.title and not element.selectedLabel then
+        return
+    end
+    element._titleTooltipWired = true
     local target = element.tooltipTarget or element.main
+    local function text()
+        if element.tooltip and element.tooltip ~= "" then
+            return element.tooltip
+        end
+        local title = element.title
+        local value = element.selectedLabel
+        if (title and title.TextFits == false) or (value and value.TextFits == false) then
+            local name = if title then title.Text else element.name or ""
+            return name .. (if value and value.TextFits == false then "\n" .. value.Text else "")
+        end
+        return nil
+    end
     local pending = 0
 
     self:ConnectFor(element, target.MouseEnter, function()
@@ -40765,8 +41123,17 @@ function Window:_wireTooltip(element)
         pending += 1
         local token = pending
         task.delay(tooltipShowDelay, function()
-            if pending == token then
-                self:_showTooltip(element.tooltip)
+            if
+                pending == token
+                and not element._removed
+                and target.Parent
+                and not self.unloaded
+                and self:_interactive()
+            then
+                local content = text()
+                if content and content ~= "" then
+                    self:_showTooltip(content)
+                end
             end
         end)
     end)
@@ -41043,6 +41410,10 @@ function Window:_fitRowTitle(element, reserveRight: number)
     if container then
         -- icon + title laid out in a container: bound the container, the title fills it
         local left = container.Position.X.Offset
+        local available = element.main and element.main.AbsoluteSize.X or 0
+        if available > 0 then
+            reserveRight = math.min(reserveRight, math.max(0, available - left))
+        end
         container.Size = UDim2.new(1, -(left + reserveRight), 0, container.Size.Y.Offset)
         local iconWidth = if element.iconLabel then element.iconLabel.Size.X.Offset + constants.elementIconGap else 0
         title.Size = UDim2.new(1, -iconWidth, 0, title.Size.Y.Offset)
