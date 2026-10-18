@@ -7551,6 +7551,7 @@ function Table.new(tab, properties)
         sortKey = nil,
         sortDescending = false,
         rowFrames = {},
+        virtualize = functions.readBool(properties, "virtualize", true),
     }, Table)
 
     for _, column in (properties.columns or properties.Columns or {}) do
@@ -7777,6 +7778,12 @@ function Table:_build()
         size = UDim2.new(1, -(sidePadding * 2), 0, emptyRoom),
         position = UDim2.new(0, sidePadding, 0, self:_top() + columnsHeight),
     })
+    window:ConnectFor(self, self.body:GetPropertyChangedSignal("CanvasPosition"), function()
+        self:_renderRows()
+    end)
+    window:ConnectFor(self, self.body:GetPropertyChangedSignal("AbsoluteWindowSize"), function()
+        self:_renderRows()
+    end)
 end
 
 function Table:_rowFrame(index: number)
@@ -7786,7 +7793,7 @@ function Table:_rowFrame(index: number)
     end
 
     local window = self.window
-    row = { cells = {} }
+    row = { cells = {}, connections = {} }
 
     row.frame = window:Create("TextButton", {
         Name = "Row",
@@ -7819,15 +7826,20 @@ function Table:_rowFrame(index: number)
         }, { TextColor3 = "ContentColor", FontFace = "Font" })
     end
 
-    window:ConnectFor(self, row.frame.MouseEnter, function()
+    local function connect(signal, callback)
+        local connection = window:ConnectFor(self, signal, callback)
+        table.insert(row.connections, connection)
+    end
+
+    connect(row.frame.MouseEnter, function()
         row.hovered = true
         self:_paintRow(row, true)
     end)
-    window:ConnectFor(self, row.frame.MouseLeave, function()
+    connect(row.frame.MouseLeave, function()
         row.hovered = false
         self:_paintRow(row, true)
     end)
-    window:ConnectFor(self, row.frame.MouseButton1Click, function()
+    connect(row.frame.MouseButton1Click, function()
         if self.locked or not self.onRowClick or not row.data then
             return
         end
@@ -7872,25 +7884,59 @@ function Table:_paintRow(row, animate: boolean)
     end
 end
 
--- Draw every row in its current order, reusing the frames already made.
-function Table:_redraw()
-    for index, data in self.rows do
-        local row = self:_rowFrame(index)
+-- Large tables keep only the visible rows plus a small overscan. The pool is rebound after
+-- scrolling or sorting; callbacks always read the row's current data and display index.
+function Table:_renderRows()
+    local count = #self.rows
+    local first, last = 1, count
+    if self.virtualize and count > 100 then
+        local viewport = self.body.AbsoluteWindowSize
+        local height = if typeof(viewport) == "Vector2" and viewport.Y > 0 then viewport.Y else self.body.Size.Y.Offset
+        local scroll = math.clamp(self.body.CanvasPosition.Y, 0, math.max(0, count * rowHeight - height))
+        first = math.max(1, math.floor(scroll / rowHeight) + 1 - 2)
+        last = math.min(count, math.ceil((scroll + height) / rowHeight) + 2)
+    end
+
+    local used = 0
+    for index = first, last do
+        used += 1
+        local row = self:_rowFrame(used)
+        local data = self.rows[index]
+        if row.data ~= data then
+            row.hovered = false
+        end
         row.index = index
         row.data = data
         row.frame.Visible = true
         row.frame.Position = UDim2.fromOffset(0, (index - 1) * rowHeight)
         for _, column in self.columns do
             row.cells[column.key].Text = self:_cellText(column, data)
+            row.cells[column.key].TextTransparency = if self._shown then 0.1 else 1
         end
         self:_paintRow(row, false)
     end
-    for index = #self.rows + 1, #self.rowFrames do
+    -- Preserve the small-table pool for compatibility, but release excess rows when switching
+    -- into virtual mode so an earlier eager render cannot keep thousands of hidden instances.
+    for index = #self.rowFrames, used + 1, -1 do
         local row = self.rowFrames[index]
-        row.frame.Visible = false
-        row.data = nil
+        if self.virtualize and count > 100 then
+            for _, connection in row.connections do
+                self.window:Disconnect(connection)
+                local owned = table.find(self.connections or {}, connection)
+                if owned then
+                    table.remove(self.connections, owned)
+                end
+            end
+            self.window:DestroySubtree(row.frame)
+            table.remove(self.rowFrames, index)
+        else
+            row.frame.Visible = false
+            row.data = nil
+        end
     end
+end
 
+function Table:_redraw()
     local count = #self.rows
     self.body.CanvasSize = UDim2.fromOffset(0, count * rowHeight)
     local bodyHeight = if count == 0 then emptyRoom else math.min(count * rowHeight, self.maxHeight)
@@ -7902,6 +7948,8 @@ function Table:_redraw()
     if self.counter then
         self.counter.Text = if count == 1 then "1 row" else `{count} rows`
     end
+
+    self:_renderRows()
 
     for key, header in self.headers do
         header.arrow.Visible = self.sortKey == key
@@ -30661,36 +30709,7 @@ local soundEngine = require(utility.sound)
 local search = require(script.Parent.search)
 local tabSelector = require(script.Parent.tabSelector)
 
--- Walk a tab or group's children (groups nest) and tear each element down: drop its flag from
--- the window registry and disconnect every connection it owns, so nothing outlives the
--- instances we're about to destroy.
-local function teardownElements(window, elements)
-    for _, element in elements do
-        if element.__type == "Group" or element.__type == "SubTabs" then
-            teardownElements(window, element.elements)
-        else
-            window:_unregisterControl(element)
-        end
-
-        -- persistent connections filed via window:ConnectFor
-        if element.connections then
-            for _, connection in element.connections do
-                window:Disconnect(connection)
-            end
-            element.connections = nil
-        end
-
-        -- transient, self-managed connections that may still be live if removed mid-interaction
-        if element._dragConnection then
-            element._dragConnection:Disconnect()
-            element._dragConnection = nil
-        end
-        if element._outsideClickConn then
-            window:Disconnect(element._outsideClickConn)
-            element._outsideClickConn = nil
-        end
-    end
-end
+local elementLifecycle = require(utility.elementLifecycle)
 
 local selectTweenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 -- the settings cog turning as its page opens (see Tab:Select)
@@ -31300,7 +31319,7 @@ function Tab:Remove()
 
     -- Tear every element down (flags + connections) so nothing points at, or fires on, what
     -- we're about to destroy. Groups nest, so walk their children too.
-    teardownElements(window, self.elements)
+    elementLifecycle.teardown(window, self.elements)
 
     -- Tear down the UI; nil the refs so _applyVisual (which guards on self.topbarItem)
     -- no-ops instead of touching a destroyed instance.
@@ -34318,7 +34337,7 @@ function Toggle.new(tab, properties)
     -- Loop() below uses task.spawn/task.wait, not a Window:Connect signal, so Window:Unload's
     -- own connection-teardown never reaches it on its own - this closes that gap unconditionally
     -- (cheap no-op on a toggle that never calls Loop at all).
-    self.window:OnUnload(function()
+    self._disconnectUnload = self.window:OnUnload(function()
         self:_stopLoop()
     end)
 
@@ -34348,7 +34367,7 @@ function Toggle:Loop(fn: (toggle: any) -> number?, interval: number?)
 end
 
 function Toggle:_startLoop()
-    if self._loopRunning or not self._loopFn then
+    if self._removed or self.window.unloaded or self._loopRunning or not self._loopFn then
         return
     end
     self._loopRunning = true
@@ -34363,7 +34382,12 @@ function Toggle:_startLoop()
         -- going. Saying so outright is what keeps tick 1 and tick 2 answering the same thing.
         self.window:_setThreadRestoring(false)
 
-        while self._loopRunning and self._loopGeneration == generation do
+        while
+            self._loopRunning
+            and self._loopGeneration == generation
+            and not self._removed
+            and not self.window.unloaded
+        do
             local ok, result = pcall(self._loopFn, self)
             if not ok then
                 log.warn("Rayfield: Toggle '" .. tostring(self.name) .. "' loop errored - " .. tostring(result))
@@ -36301,7 +36325,7 @@ sources["components/watermark"] = [=====[
 -- memory the HUD chip uses), stays up while the window is hidden, and follows the theme.
 
 local Watermark = {}
-Watermark.__index = function(self, key)
+Watermark.__index = function(_self, key)
     -- dragging, the remembered corner and SetVisible/SetPosition are the HUD chip's own
     return Watermark[key] or require(script.Parent.hud)[key]
 end
@@ -38219,6 +38243,8 @@ end
 -- own header comment and windowCore.luau's for why.
 require(script.Parent.windowMethods)
 require(script.Parent.windowExtra)
+require(script.Parent.windowSettings)
+require(script.Parent.windowLifecycle)
 
 return Window
 ]=====]
@@ -38502,8 +38528,6 @@ local persistence = core.persistence
 local constants = core.constants
 local locale = core.locale
 local log = core.log
-local hapticEngine = core.hapticEngine
-local soundEngine = core.soundEngine
 local icons = core.icons
 local clipboard = core.clipboard
 local chrome = core.chrome
@@ -38516,7 +38540,6 @@ local revealInfo = core.revealInfo
 local collapsedSize = core.collapsedSize
 local collapsedTop = core.collapsedTop
 local compactRowHeight = core.compactRowHeight
-local windowRegistry = core.windowRegistry
 
 function Window:SaveSettings()
     return persistence.saveSettings(self)
@@ -41257,12 +41280,37 @@ function Window:DestroySubtree(root)
     root:Destroy()
 end
 
+return Window
+]=====]
+
+sources["components/windowLifecycle"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- Window disposal and consumer cleanup subscriptions.
+local core = require(script.Parent.windowCore)
+local Window = core.Window
+local locale = core.locale
+local log = core.log
+local hapticEngine = core.hapticEngine
+local soundEngine = core.soundEngine
+local windowRegistry = core.windowRegistry
+local elementLifecycle = require(script.Parent.Parent.utility.elementLifecycle)
+
 function Window:Unload()
+    if self.unloaded or self._unloading then
+        return
+    end
+    self._unloading = true
     -- Run every OnUnload callback first, while every instance is still alive and self.unloaded is
     -- still false - a callback that reads window state (a toggle's own .value, an element still
     -- on screen) sees it exactly as it was the moment Unload was called. pcall'd individually so
     -- one throwing dev callback can't stop the rest from running or strand the real teardown below.
-    for _, callback in self._unloadCallbacks do
+    for _, callback in table.clone(self._unloadCallbacks) do
         local ok, err = pcall(callback)
         if not ok then
             log.warn("Rayfield: an OnUnload callback errored - " .. tostring(err))
@@ -41270,6 +41318,9 @@ function Window:Unload()
     end
 
     self.unloaded = true
+    for _, tab in self.tabs do
+        elementLifecycle.teardown(self, tab.elements)
+    end
     -- drop our own slot in the singleton registry, but only if it's still us - a newer window
     -- with the same name may have already replaced us there (that's what called us in the first
     -- place), and we mustn't clobber its entry.
@@ -41312,6 +41363,20 @@ function Window:Unload()
     table.clear(self.localeProperties)
     table.clear(self.controls)
     table.clear(self.tabs)
+    for _, key in
+        {
+            "_unloadCallbacks",
+            "_themeChangedCallbacks",
+            "_sidebarWidthChangedCallbacks",
+            "_pageShownCallbacks",
+            "_controlOrder",
+            "collapsibles",
+        }
+    do
+        if type(self[key]) == "table" then
+            table.clear(self[key])
+        end
+    end
 end
 
 -- Register cleanup for your own state that Window:Unload has no way to know about on its own -
@@ -41323,6 +41388,12 @@ end
 -- real teardown that follows it.
 function Window:OnUnload(callback: () -> ())
     table.insert(self._unloadCallbacks, callback)
+    return function()
+        local index = table.find(self._unloadCallbacks, callback)
+        if index then
+            table.remove(self._unloadCallbacks, index)
+        end
+    end
 end
 
 return Window
@@ -41353,7 +41424,6 @@ local constants = core.constants
 local locale = core.locale
 local log = core.log
 local hapticEngine = core.hapticEngine
-local soundEngine = core.soundEngine
 local acrylic = core.acrylic
 local chrome = core.chrome
 local search = core.search
@@ -41374,7 +41444,6 @@ local topToastClosedPosition = UDim2.new(0.5, 0, 0, collapsedTop.Y.Offset + coll
 local viewportReconcileInterval = core.viewportReconcileInterval
 local fitWindowSize = core.fitWindowSize
 local fontChoices = core.fontChoices
-local fontOptionNames = core.fontOptionNames
 local fontAtWeight = core.fontAtWeight
 local coerceThemeValue = core.coerceThemeValue
 local deriveStrokes = core.deriveStrokes
@@ -43440,6 +43509,26 @@ function Window:SetHaptics(enabled)
     self:SaveSettings()
 end
 
+return Window
+]=====]
+
+sources["components/windowSettings"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+-- Settings UI and live session display. Loaded by window.luau after the shared methods.
+local core = require(script.Parent.windowCore)
+local Window = core.Window
+local constants = core.constants
+local locale = core.locale
+local variables = core.variables
+local soundEngine = core.soundEngine
+local fontOptionNames = core.fontOptionNames
+
 function Window:_buildSettingsUI()
     self.rfSettings:CreateSection({ name = "General" })
 
@@ -44200,6 +44289,79 @@ export type Changelog = types.Changelog
 export type Collapsible = types.Collapsible
 export type Spacer = types.Spacer
 export type Rayfield = types.Rayfield
+
+export type LabelProps = types.LabelProps
+export type ParagraphProps = types.ParagraphProps
+export type DividerProps = types.DividerProps
+export type TabboxProps = types.TabboxProps
+export type SubTabProps = types.SubTabProps
+export type SubTab = types.SubTab
+export type TabboxPage = types.TabboxPage
+export type Tabbox = types.Tabbox
+export type PanelProps = types.PanelProps
+export type PanelPage = types.PanelPage
+export type Panel = types.Panel
+export type ConsoleStyle = types.ConsoleStyle
+export type ConsoleSegment = types.ConsoleSegment
+export type ConsoleContent = types.ConsoleContent
+export type ConsoleProps = types.ConsoleProps
+export type PlayerDropdownProps = types.PlayerDropdownProps
+export type GridItem = types.GridItem
+export type GridFilterChip = types.GridFilterChip
+export type ListOption = types.ListOption
+export type ListPickerProps = types.ListPickerProps
+export type ItemGridProps = types.ItemGridProps
+export type GridFilter = types.GridFilter
+export type ReorderItem = types.ReorderItem
+export type ReorderListProps = types.ReorderListProps
+export type WatermarkProps = types.WatermarkProps
+export type Watermark = types.Watermark
+export type UpdateCheckProps = types.UpdateCheckProps
+export type InboxEntry = types.InboxEntry
+export type PopupInputProps = types.PopupInputProps
+export type KeySystemProps = types.KeySystemProps
+export type StepperProps = types.StepperProps
+export type Stepper = types.Stepper
+export type TableColumn = types.TableColumn
+export type TableProps = types.TableProps
+export type Table = types.Table
+export type FAQItem = types.FAQItem
+export type FAQProps = types.FAQProps
+export type FAQ = types.FAQ
+export type CountdownProps = types.CountdownProps
+export type Countdown = types.Countdown
+export type ChartPoint = types.ChartPoint
+export type ChartProps = types.ChartProps
+export type StackedChartRow = types.StackedChartRow
+export type StackedChartProps = types.StackedChartProps
+export type TargetStat = types.TargetStat
+export type TargetProps = types.TargetProps
+export type Target = types.Target
+export type StackedChart = types.StackedChart
+export type Chart = types.Chart
+export type Console = types.Console
+export type ListPicker = types.ListPicker
+export type ItemGrid = types.ItemGrid
+export type ColorSwatchProps = types.ColorSwatchProps
+export type ColorSwatch = types.ColorSwatch
+export type ESPPreviewProps = types.ESPPreviewProps
+export type ESPPreview = types.ESPPreview
+export type DashboardLink = types.DashboardLink
+export type DashboardProps = types.DashboardProps
+export type Dashboard = types.Dashboard
+export type PickerItem = types.PickerItem
+export type ItemPickerProps = types.ItemPickerProps
+export type ItemPicker = types.ItemPicker
+export type ReorderList = types.ReorderList
+export type PlayerDropdown = types.PlayerDropdown
+export type Label = types.Label
+export type Paragraph = types.Paragraph
+export type Divider = types.Divider
+export type HudProps = types.HudProps
+export type Hud = types.Hud
+export type Notification = types.Notification
+export type FlagControl = types.FlagControl
+export type CompatibilityReport = types.CompatibilityReport
 
 -- the components are untyped luau, so this is where the window module meets the public contract
 type WindowModule = { new: (types.WindowProps) -> types.Window }
@@ -45668,7 +45830,7 @@ export type StatProps = {
 -- (live data - never auto-translated, since it changes at runtime). key defaults to `label` if
 -- omitted; give it explicitly when the label itself might repeat or change.
 export type StatusCardRow = {
-    key: string?,
+    key: (string | { string })?,
     label: string,
     value: string,
     muted: boolean?, -- renders the value in a plain, unremarkable colour instead of the theme accent
@@ -45888,6 +46050,7 @@ export type TableColumn = {
 }
 
 export type TableProps = {
+    virtualize: boolean?, -- default true: pool visible rows for tables over 100 entries
     name: string?,
     icon: (string | number)?,
     description: string?,
@@ -46570,8 +46733,61 @@ export type GreetingProps = {
     wipeTime: number?, -- duration of the closing curved wipe (default 0.7)
 }
 
+export type HudProps = {
+    text: string?,
+    name: string?,
+    icon: (string | number)?,
+    avatar: number?,
+    position: UDim2?,
+    rememberPosition: boolean?,
+}
+
+export type Hud = {
+    SetText: (self: Hud, text: string) -> (),
+    SetVisible: (self: Hud, visible: boolean) -> (),
+    SetPosition: (self: Hud, position: UDim2) -> (),
+    OnPositionChanged: (self: Hud, callback: (position: UDim2) -> ()) -> (),
+    Destroy: (self: Hud) -> (),
+}
+
+export type Notification = {
+    ChangeTitle: (self: Notification, title: string) -> (),
+    ChangeDescription: (self: Notification, description: string) -> (),
+    SetProgress: (self: Notification, progress: number?) -> (),
+    Destroy: (self: Notification) -> (),
+}
+
+export type FlagControl = {
+    value: unknown,
+    flag: string,
+    Set: (self: FlagControl, value: unknown) -> (),
+}
+
 export type Window = {
     unloaded: boolean, -- true once Unload has run; the handle is spent
+    Get: (self: Window, flag: string) -> unknown,
+    Set: (self: Window, flag: string, value: unknown) -> boolean,
+    RegisterFlag: (self: Window, flag: string, initial: unknown, onChanged: ((unknown) -> ())?) -> FlagControl,
+    OnThemeChanged: (self: Window, callback: (theme: { [string]: any }) -> ()) -> (),
+    OnSidebarWidthChanged: (self: Window, callback: (width: number) -> ()) -> (),
+    SetSidebarWidth: (self: Window, width: number) -> (),
+    SetSidebarCollapsed: (self: Window, collapsed: boolean?) -> (),
+    SetProfile: (self: Window, text: string?) -> (),
+    IsMobile: (self: Window) -> boolean,
+    OnRenderFreeze: (self: Window, callback: (seconds: number) -> (), thresholdSeconds: number?) -> (),
+    CreateHUD: (self: Window, props: HudProps?) -> Hud,
+    KeySystem: (self: Window, props: KeySystemProps) -> (),
+    CreateHiddenTab: (self: Window, props: TabProps) -> Tab,
+    NotifySuccess: (self: Window, props: NotifyProps) -> Notification?,
+    NotifyWarning: (self: Window, props: NotifyProps) -> Notification?,
+    NotifyInfo: (self: Window, props: NotifyProps) -> Notification?,
+    NotifyError: (self: Window, props: NotifyProps) -> Notification?,
+    NotifyOnce: (self: Window, key: string, props: NotifyProps, cooldownSeconds: number?) -> Notification?,
+    DebugLog: (self: Window, tag: string, ...any) -> (),
+    ExportConfig: (self: Window) -> (boolean, string?),
+    ImportConfig: (self: Window, raw: string) -> boolean,
+    SetAutoloadConfig: (self: Window, name: string) -> boolean,
+    StartTour: (self: Window, steps: { TourStep }?) -> (),
     CreateTab: (self: Window, props: TabProps) -> Tab,
     -- Sidebar tabsMode only - a heading in the tab rail grouping the rows created after it. See
     -- tabSection.luau's own header comment for why it's inert on the top strip.
@@ -46583,7 +46799,7 @@ export type Window = {
     CreateTag: (self: Window, props: TagProps) -> Tag,
     -- the hub's card floating over the game: mark, name, version, player, FPS, ping, session
     CreateWatermark: (self: Window, props: WatermarkProps?) -> Watermark,
-    Notify: (self: Window, props: NotifyProps) -> (),
+    Notify: (self: Window, props: NotifyProps) -> Notification?,
     Toast: (self: Window, props: ToastProps) -> (),
     Popup: (self: Window, props: PopupProps) -> Popup,
     PlayGreeting: (self: Window, props: GreetingProps?) -> (),
@@ -46620,7 +46836,7 @@ export type Window = {
     -- runs once the saved config has been applied, or immediately if it already has
     OnConfigLoaded: (self: Window, callback: () -> ()) -> (),
     IsRestoringConfig: (self: Window) -> boolean,
-    OnUnload: (self: Window, callback: () -> ()) -> (),
+    OnUnload: (self: Window, callback: () -> ()) -> () -> (),
     -- pcalls fn(...) and logs a warning on failure instead of letting it fail silently - returns
     -- exactly what pcall returns (ok, result...).
     Safe: (self: Window, fn: (...any) -> ...any, ...any) -> ...any,
@@ -47278,7 +47494,9 @@ end
 local function restoreSpecifiers(text: string, tokens: { string }): string
     for i, specifier in tokens do
         -- a translation can pick up stray spaces inside the braces ("{{ 1 }}") - tolerate that
-        text = text:gsub("{{%s*" .. i .. "%s*}}", specifier)
+        text = text:gsub("{{%s*" .. i .. "%s*}}", function()
+            return specifier
+        end)
     end
     return text
 end
@@ -48216,6 +48434,81 @@ constants.displayOrder = {
 }
 
 return constants
+]=====]
+
+sources["utility/elementLifecycle"] = [=====[
+--!nonstrict
+
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+local elementLifecycle = {}
+
+-- Containers expose their children through elements, an inner group, or pages. Aliases are
+-- common (SubTabs and Collapsible), so dispose each handle once regardless of the path to it.
+function elementLifecycle.teardown(window, elements)
+    local seen = {}
+    local function dispose(element)
+        if type(element) ~= "table" or seen[element] then
+            return
+        end
+        seen[element] = true
+        element._removed = true
+
+        for _, key in { "elements", "pages" } do
+            if type(element[key]) == "table" then
+                for _, child in element[key] do
+                    dispose(child)
+                end
+            end
+        end
+        dispose(element._group)
+        dispose(element.swatch)
+        if element.control then
+            dispose(element.control)
+            if element.Close then
+                element:Close()
+            end
+        end
+
+        if element._disconnectUnload then
+            element._disconnectUnload()
+            element._disconnectUnload = nil
+        end
+        if element._stopLoop then
+            element:_stopLoop()
+        end
+        window:_unregisterControl(element)
+
+        if element.connections then
+            for _, connection in element.connections do
+                window:Disconnect(connection)
+            end
+            element.connections = nil
+        end
+        if element._dragConnection then
+            element._dragConnection:Disconnect()
+            element._dragConnection = nil
+        end
+        if element._outsideClickConn then
+            window:Disconnect(element._outsideClickConn)
+            element._outsideClickConn = nil
+        end
+    end
+
+    for _, element in elements do
+        dispose(element)
+    end
+    for index = #(window.collapsibles or {}), 1, -1 do
+        if seen[window.collapsibles[index]] then
+            table.remove(window.collapsibles, index)
+        end
+    end
+end
+
+return elementLifecycle
 ]=====]
 
 sources["utility/enums"] = [=====[
