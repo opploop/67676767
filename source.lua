@@ -177,6 +177,8 @@ function Button.new(tab, properties)
         locked = properties.locked or properties.Locked or false,
 
         callback = properties.callback or properties.Callback or function() end,
+        busyOnClick = properties.busyOnClick == true,
+        actionOptions = properties.actionOptions,
 
         -- Cheap destructive-action confirm: the first click just arms it (title flips to a
         -- "Are you sure?" prompt for a moment) and the callback only actually fires on a second
@@ -1025,7 +1027,7 @@ function Chart.new(tab, properties)
         if node then
             self:_entrance()
         end
-    end)
+    end, self)
 
     self.window:_wireTooltip(self)
 
@@ -3512,7 +3514,7 @@ function Collapsible:_buildHeader()
 
             Parent = self.container,
         }, { ImageColor3 = "AccentStroke" })
-        self.window:_iconGlow(self.iconLabel)
+        self.window:_iconGlow(self.iconLabel, nil, self)
     end
 
     self.title = self.window:Create("TextLabel", {
@@ -3547,7 +3549,7 @@ function Collapsible:_buildHeader()
     }, { ImageColor3 = "AccentStroke" })
     self.chevronGlyph = if self.expanded then "lucide:minus" else "lucide:plus"
     image.assign(self.chevron, "Image", self.chevronGlyph)
-    self.window:_iconGlow(self.chevron)
+    self.window:_iconGlow(self.chevron, nil, self)
 
     self.interact = self.window:Create("TextButton", {
         BackgroundTransparency = 1,
@@ -3565,7 +3567,7 @@ function Collapsible:_buildHeader()
         stroke = self.stroke,
         title = self.title,
         hoverOverlay = self.hoverOverlay,
-    })
+    }, self)
 
     self.window:ConnectFor(self, self.interact.MouseButton1Click, function()
         hapticEngine.click()
@@ -15273,6 +15275,11 @@ function Input.new(tab, properties)
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
         placeholder = properties.placeholder or properties.Placeholder or "",
         numeric = properties.numeric or properties.Numeric or false, -- strip anything not a number
+        required = properties.required == true,
+        min = tonumber(properties.min),
+        max = tonumber(properties.max),
+        maxLength = tonumber(properties.maxLength),
+        validator = properties.validate,
         clearOnFocus = properties.clearOnFocus or properties.ClearOnFocus or false,
 
         callback = properties.callback or properties.Callback or function() end,
@@ -15418,7 +15425,7 @@ function Input.new(tab, properties)
     end)
 
     -- opaque while the field is focused, back to muted when you click away
-    self.window:_wireFieldFocus(self.input, self.boxStroke)
+    self.window:_wireFieldFocus(self.input, self.boxStroke, nil, nil, self)
 
     self.window:ConnectFor(self, self.input.Focused, function()
         variables.tweenService:Create(self.input, focusInfo, { TextTransparency = 0 }):Play()
@@ -15436,6 +15443,7 @@ function Input.new(tab, properties)
             return
         end
         if self.input.Text == self.value then
+            self:_setValidationState(nil)
             return -- unchanged: dont re-fire the devs callback for a stray click
         end
         self:_commit(self.input.Text)
@@ -15470,19 +15478,70 @@ end
 
 -- store + fire the callback + autosave, shared by typing and :Set. silent skips the
 -- callback/persist/flash so config loads restore quietly.
-function Input:_commit(text, silent)
-    text = tostring(text)
+function Input:_validateText(text)
+    text = tostring(text or "")
+    if self.required and text:match("^%s*$") then
+        return false, text, "This field is required."
+    end
+    if self.maxLength and (utf8.len(text) or #text) > self.maxLength then
+        return false, text, "Use at most " .. self.maxLength .. " characters."
+    end
     if self.numeric then
         local n = parseExp(text)
-        if not n or n == math.huge or n == -math.huge then
-            -- invalid or non-finite number: revert the textbox to the previous value
-            if self.input.Text ~= self.value then
-                self.input.Text = self.value
-            end
-            return
+        if not n or n ~= n or n == math.huge or n == -math.huge then
+            return false, text, "Enter a valid number."
+        end
+        if self.min and n < self.min then
+            return false, text, "Use a value of at least " .. self.min .. "."
+        end
+        if self.max and n > self.max then
+            return false, text, "Use a value no greater than " .. self.max .. "."
         end
         text = tostring(n)
     end
+    if type(self.validator) == "function" then
+        local ok, valid, message = pcall(self.validator, text)
+        if not ok then
+            self.window:_recordUsabilityError("validation", "Input")
+            return false, text, "Could not validate this value."
+        end
+        if valid == false then
+            return false, text, if type(message) == "string" then message else "Check this value and try again."
+        end
+    end
+    return true, text, nil
+end
+function Input:Validate(value)
+    local valid, _, message = self:_validateText(if value == nil then self.input.Text else value)
+    return valid, message
+end
+function Input:GetValidation()
+    return { valid = self._validationMessage == nil, message = self._validationMessage }
+end
+function Input:_setValidationState(message)
+    self._validationMessage = message
+    if message and not self._validationHint then
+        self._validationHint = require(script.Parent.descriptor).new(self.tab, { description = message })
+        self._validationHint.main.LayoutOrder = self.main.LayoutOrder + 2
+        self.window.themeProperties[self._validationHint.titleLabel].TextColor3 = "ErrorStrokeColor"
+    end
+    if self._validationHint then
+        self._validationHint.main.Visible = message ~= nil and self._validationShown ~= false and not self._userHidden
+        self._validationHint.titleLabel.Text = message or ""
+        self._validationHint.titleLabel.TextColor3 = self.window.theme.ErrorStrokeColor
+        self._validationHint.titleLabel.TextTransparency = if message then 0 else 1
+    end
+    self.boxStroke.Color = if message then self.window.theme.ErrorStrokeColor else self.window.theme.SurfaceStroke
+end
+function Input:_commit(text, silent)
+    local valid, normalized, message = self:_validateText(text)
+    if not valid then
+        self.input.Text = self.value
+        self:_setValidationState(message)
+        return false
+    end
+    text = normalized
+    self:_setValidationState(nil)
 
     local changed = text ~= self.value
     self.value = text
@@ -15501,13 +15560,18 @@ function Input:_commit(text, silent)
             self.window:_flashResult(self, true)
         end
     end
+    return true
 end
 
 function Input:Set(value, skipCallback)
-    self:_commit(value, skipCallback)
+    return self:_commit(value, skipCallback)
 end
 
 function Input:_setShown(shown, animate)
+    self._validationShown = shown
+    if self._validationHint then
+        self._validationHint.main.Visible = shown and self._validationMessage ~= nil
+    end
     local w = self.window
     if shown then
         w:_revealCommon(self, animate)
@@ -16057,8 +16121,8 @@ function ItemGrid:_buildSearch(top)
         Parent = self.searchBox,
     }, { TextColor3 = "ContentColor", FontFace = "Font", PlaceholderColor3 = "PlaceholderColor" })
     image.assign(self.searchIcon, "Image", "lucide:search")
-    window:_iconGlow(self.searchIcon)
-    window:_wireFieldFocus(self.searchInput, self.searchStroke, self.searchIcon, 0.5)
+    window:_iconGlow(self.searchIcon, nil, self)
+    window:_wireFieldFocus(self.searchInput, self.searchStroke, self.searchIcon, 0.5, self)
 
     self.window:ConnectFor(self, self.searchInput:GetPropertyChangedSignal("Text"), function()
         if self.locked then
@@ -18215,7 +18279,7 @@ function ItemPicker:_buildPage()
         Parent = searchBox,
     }, { ImageColor3 = "ContentColor" })
     image.assign(searchIcon, "Image", "lucide:search")
-    window:_iconGlow(searchIcon)
+    window:_iconGlow(searchIcon, nil, self)
     self.searchInput = window:Create("TextBox", {
         Text = "",
         PlaceholderText = locale.t(self.searchPlaceholder),
@@ -18228,7 +18292,7 @@ function ItemPicker:_buildPage()
         ZIndex = z(2),
         Parent = searchBox,
     }, { TextColor3 = "ContentColor", PlaceholderColor3 = "PlaceholderColor", FontFace = "Font" })
-    window:_wireFieldFocus(self.searchInput, searchStroke, searchIcon, 0.5)
+    window:_wireFieldFocus(self.searchInput, searchStroke, searchIcon, 0.5, self)
     window:ConnectFor(self, self.searchInput:GetPropertyChangedSignal("Text"), function()
         self.searchText = string.lower(self.searchInput.Text)
         self:_applyFilter()
@@ -27814,7 +27878,7 @@ function StackedChart.new(tab, properties)
         if node then
             self:Replay()
         end
-    end)
+    end, self)
 
     if self.description then
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })
@@ -32139,7 +32203,7 @@ local function buildTile(tab)
     addContent(tab, 22, false)
     if tab.topbarItemIcon then
         tab.topbarItemIcon.ZIndex = 4
-        window:_iconGlow(tab.topbarItemIcon, 0.12)
+        window:_iconGlow(tab.topbarItemIcon, 0.12, tab)
     end
     if tab.topbarItemTitle then
         tab.topbarItemTitle.TextSize = 13
@@ -36169,7 +36233,8 @@ sources["components/updatecheck"] = [=====[
 --   })
 --
 -- The url answers with the newest version, either as JSON - { "version": "1.0.3", "notes": "..." }
--- (a "loader" there overrides the one above) - or as plain text holding just the version. It is
+-- or as plain text holding just the version. Remote loader fields are ignored: only code
+-- explicitly supplied by the developer in config.loader may be queued after a rejoin. It is
 -- fetched in the background, a few seconds after the window opens and then every `interval`.
 -- When it is newer than `version` (major.minor.patch, a leading "v" ignored), the player gets one
 -- notification per session with the notes, and a toast with a Rejoin button: new code only takes
@@ -36246,7 +36311,7 @@ end
 
 -- What the url answered: the version, and the notes and loader when it gave them.
 function updateCheck.read(body): (string?, string?, string?)
-    if type(body) ~= "string" then
+    if type(body) ~= "string" or #body > 65536 then
         return nil
     end
     local trimmed = string.match(body, "^%s*(.-)%s*$") or ""
@@ -36329,20 +36394,24 @@ function updateCheck:check(): (boolean, string?, string?)
     local separator = if string.find(self.url, "?", 1, true) then "&" else "?"
     local ok, response = pcall(fetch, { Url = self.url .. separator .. "rf=" .. tostring(os.time()), Method = "GET" })
     local body = ok and type(response) == "table" and response.Body
-    if not ok or type(body) ~= "string" or (response.Success == false) then
+    if
+        not ok
+        or type(body) ~= "string"
+        or #body > 65536
+        or (response.Success == false)
+        or (type(response.StatusCode) == "number" and (response.StatusCode < 200 or response.StatusCode >= 300))
+    then
         self:_log("check failed:", if ok then tostring(response and response.StatusCode) else tostring(response))
         return self:_answer()
     end
 
-    local remote, notes, loader = updateCheck.read(body)
+    local remote, notes = updateCheck.read(body)
     if not remote then
         self:_log("could not read a version from", self.url)
         return self:_answer()
     end
     self.remote, self.notes = remote, notes
-    if loader then
-        self.loader = loader
-    end
+    -- Version metadata is untrusted data, never authority to replace executable code.
 
     if updateCheck.compare(remote, self.version) > 0 then
         self:_announce(remote, notes)
@@ -37045,7 +37114,7 @@ function Window.new(properties)
             locale.autoTranslate = auto and true or false
         end
     end
-    locale.setActive(properties.locale or properties.Locale or locale.detect())
+    locale.setActive(properties.locale or properties.Locale or "en")
 
     -- a dev can pick the stand-in font shown while the brand font downloads in secure mode; set it
     -- before resolveTheme below so the theme's brandFont picks it up
@@ -38400,6 +38469,7 @@ function Window.new(properties)
 
     self:_initExperience(properties)
     self:_initJourney()
+    self:_initUsability(properties)
     return self
 end
 
@@ -38426,6 +38496,7 @@ require(script.Parent.windowSettings)
 require(script.Parent.windowLifecycle)
 require(script.Parent.windowExperience)
 require(script.Parent.windowJourney)
+require(script.Parent.windowUsability)
 
 return Window
 ]=====]
@@ -38775,6 +38846,8 @@ function Window:_applyControlDensity(control)
     end
 end
 function Window:_enhanceControl(control)
+    self:_installControlContract(control)
+    self:_installTouchHelp(control)
     self._experienceControls = self._experienceControls or setmetatable({}, { __mode = "k" })
     if not self._experienceControls[control] then
         self._experienceControls[control] = true
@@ -38799,6 +38872,9 @@ function Window:SetDensity(name, save)
     end
     self.density = name
     for control in self._experienceControls or {} do
+        if control._removed or not control.main or not control.main.Parent then
+            continue
+        end
         if control._applyLayout then
             control:_applyLayout()
         end
@@ -40126,9 +40202,11 @@ function Window:Load(name)
     if name ~= nil and (type(name) ~= "string" or name == "") then
         return false
     end
+    local undo = self:_capturePreferenceUndo("Profile loaded")
     local loaded = persistence.load(self, name)
     if loaded then
         self:_markProfileBaseline()
+        self:_offerPreferenceUndo(undo)
     end
     return loaded
 end
@@ -40190,7 +40268,12 @@ function Window:ImportConfig(raw: string): boolean
     if not flags then
         return false
     end
-    return persistence.applyFlags(self, flags)
+    local undo = self:_capturePreferenceUndo("Configuration imported")
+    local applied = persistence.applyFlags(self, flags)
+    if applied then
+        self:_offerPreferenceUndo(undo)
+    end
+    return applied
 end
 
 -- Read a flag's current value, or nil if nothing is registered under it.
@@ -40443,7 +40526,8 @@ end
 -- on a card feeds straight back into UIListLayout, so a card shrinking by 3% moved every element
 -- below it up by 7px for as long as the press lasted. The fill and the stroke are the two things
 -- that can say "held" without the page moving under the finger doing the holding.
-function Window:_wireElementHover(element)
+function Window:_wireElementHover(element, owner)
+    owner = owner or element
     local info = TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     -- in fast, out on the hover's own timing: a press has to feel immediate
     local pressInfo = TweenInfo.new(0.07, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -40487,7 +40571,7 @@ function Window:_wireElementHover(element)
         end
     end
 
-    self:Connect(element.main.MouseEnter, function()
+    self:ConnectFor(owner, element.main.MouseEnter, function()
         if not self:_interactive() then
             return -- window still revealing/hiding: dont light up mid-animation
         end
@@ -40495,7 +40579,7 @@ function Window:_wireElementHover(element)
         paint(false)
     end)
 
-    self:Connect(element.main.MouseLeave, function()
+    self:ConnectFor(owner, element.main.MouseLeave, function()
         hovered = false
         -- a press that leaves the card is no longer this element's press
         pressed = false
@@ -40508,17 +40592,17 @@ function Window:_wireElementHover(element)
     end
 
     if interact.SelectionGained then
-        self:ConnectFor(element, interact.SelectionGained, function()
+        self:ConnectFor(owner, interact.SelectionGained, function()
             focused = true
             paint(false)
         end)
-        self:ConnectFor(element, interact.SelectionLost, function()
+        self:ConnectFor(owner, interact.SelectionLost, function()
             focused = false
             paint(false)
         end)
     end
 
-    self:Connect(interact.InputBegan, function(input)
+    self:ConnectFor(owner, interact.InputBegan, function(input)
         local inputType = input.UserInputType
         if inputType ~= Enum.UserInputType.MouseButton1 and inputType ~= Enum.UserInputType.Touch then
             return
@@ -40538,8 +40622,8 @@ function Window:_wireElementHover(element)
         pressed = false
         paint(false)
     end
-    self:Connect(interact.InputEnded, release)
-    self:Connect(variables.userInputService.InputEnded, function(input)
+    self:ConnectFor(owner, interact.InputEnded, release)
+    self:ConnectFor(owner, variables.userInputService.InputEnded, function(input)
         local inputType = input.UserInputType
         if inputType == Enum.UserInputType.MouseButton1 or inputType == Enum.UserInputType.Touch then
             release()
@@ -40794,6 +40878,16 @@ end
 -- slider firing every frame flashes once. shared by every interactive element. elements whose
 -- `main` is a transparent wrapper (the dropdown) set `flashTarget` to the frame to tint.
 function Window:_runGuarded(element, fn, ...)
+    if self.unloaded or element._removed or element._busy then
+        return
+    end
+    if element.busyOnClick and not element.locked then
+        local arguments = table.pack(...)
+        element:Run(function()
+            return fn(table.unpack(arguments, 1, arguments.n))
+        end, element.actionOptions)
+        return
+    end
     -- A locked element's callback never runs, whatever reached it. The lock scrim already stops
     -- a real click, but that's only the pointer: a programmatic `:Set()` (config autoLoad is one,
     -- and it applies values through Set without skipping callbacks) or a fired signal still
@@ -40824,11 +40918,16 @@ function Window:_runGuarded(element, fn, ...)
 
         self:_setThreadRestoring(previous)
 
+        if self.unloaded or element._removed then
+            return
+        end
+
         -- the badge answers every run, not just the first failure: a callback that errors again
         -- updates what it says, and one that runs cleanly takes it away
         if ok then
             self:_clearCallbackError(element)
         else
+            self:_recordUsabilityError("callback", element.__type)
             self:_markCallbackError(element, err)
         end
 
@@ -41028,9 +41127,19 @@ end
 -- then, the way the Gen 3 Concept's charts draw themselves in each time their page is opened.
 -- Selecting a tab does not re-show its elements (they were shown when the window opened; the page
 -- just slides into view), so this is the only moment they could hear about it.
-function Window:_onPageShown(callback: (tab: any) -> ())
+function Window:_onPageShown(callback: (tab: any) -> (), owner: any?)
     self._pageShownHooks = self._pageShownHooks or {}
     table.insert(self._pageShownHooks, callback)
+    local function disconnect()
+        local index = table.find(self._pageShownHooks, callback)
+        if index then
+            table.remove(self._pageShownHooks, index)
+        end
+    end
+    if owner then
+        owner._disconnectPageHook = disconnect
+    end
+    return disconnect
 end
 
 function Window:_firePageShown(tab)
@@ -41440,7 +41549,10 @@ end
 -- Airflow hub's UI gives its accent icons. It follows the icon: as the icon fades in or out with
 -- its element, and as it changes colour (a field lighting up), so no reveal code has to know it
 -- exists. `strength` is how strong it is with the icon fully shown (0-1, default 0.14).
-function Window:_iconGlow(icon: ImageLabel, strength: number?)
+function Window:_iconGlow(icon: ImageLabel, strength: number?, owner: any?)
+    local function connect(signal, callback)
+        return if owner then self:ConnectFor(owner, signal, callback) else self:Connect(signal, callback)
+    end
     local amount = strength or 0.09
     local glow = self:Create("ImageLabel", {
         Name = "Glow",
@@ -41454,10 +41566,10 @@ function Window:_iconGlow(icon: ImageLabel, strength: number?)
         ZIndex = icon.ZIndex - 1,
         Parent = icon,
     })
-    self:Connect(icon:GetPropertyChangedSignal("ImageTransparency"), function()
+    connect(icon:GetPropertyChangedSignal("ImageTransparency"), function()
         glow.ImageTransparency = 1 - (1 - icon.ImageTransparency) * amount
     end)
-    self:Connect(icon:GetPropertyChangedSignal("ImageColor3"), function()
+    connect(icon:GetPropertyChangedSignal("ImageColor3"), function()
         glow.ImageColor3 = icon.ImageColor3
     end)
     return glow
@@ -41465,7 +41577,10 @@ end
 
 -- A search box waking up the Airflow way: while it has focus its edge and its glyph take the
 -- accent, and they settle back when it lets go. restIcon is the glyph's transparency at rest.
-function Window:_wireFieldFocus(input: TextBox, stroke: UIStroke?, icon: ImageLabel?, restIcon: number?)
+function Window:_wireFieldFocus(input: TextBox, stroke: UIStroke?, icon: ImageLabel?, restIcon: number?, owner: any?)
+    local function connect(signal, callback)
+        return if owner then self:ConnectFor(owner, signal, callback) else self:Connect(signal, callback)
+    end
     local info = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     local function paint(focused: boolean)
         local theme = self.theme
@@ -41486,10 +41601,10 @@ function Window:_wireFieldFocus(input: TextBox, stroke: UIStroke?, icon: ImageLa
                 :Play()
         end
     end
-    self:Connect(input.Focused, function()
+    connect(input.Focused, function()
         paint(true)
     end)
-    self:Connect(input.FocusLost, function()
+    connect(input.FocusLost, function()
         paint(false)
     end)
 end
@@ -42588,6 +42703,7 @@ function Window:ResetSection(container)
     if not allowed then
         return false
     end
+    local undo = self:_capturePreferenceUndo("Defaults restored")
     local function reset(elements)
         for _, control in elements or {} do
             if control._journeyDefaultCaptured then
@@ -42613,6 +42729,7 @@ function Window:ResetSection(container)
             end
         end
     end
+    self:_offerPreferenceUndo(undo)
     return true
 end
 
@@ -42674,6 +42791,16 @@ function Window:CreateProfileManager(properties)
                 show({})
             else
                 self:NotifyWarning({ title = "Could not load profile" })
+            end
+        end,
+    })
+    handle.undo = tab:CreateButton({
+        name = "Undo last preference change",
+        callback = function()
+            if self:UndoPreferences() then
+                show(self:GetPendingChanges())
+            else
+                self:Toast({ title = "Nothing to undo" })
             end
         end,
     })
@@ -42916,6 +43043,7 @@ function Window:Unload()
             "_themeChangedCallbacks",
             "_sidebarWidthChangedCallbacks",
             "_pageShownCallbacks",
+            "_pageShownHooks",
             "_controlOrder",
             "collapsibles",
         }
@@ -43360,6 +43488,7 @@ local lockScrimTransparency = 0.55
 local lockedDescriptionTransparency = 0.55
 
 function Window:_setElementLocked(element, locked, reason)
+    element._lockReason = if locked then reason or "This option is currently unavailable." else nil
     locked = locked == true
     -- locked starts out nil, so compare against a real boolean: `nil == false` is false, and
     -- Unlock on an element that was never locked would otherwise build a scrim just to fade it
@@ -43733,6 +43862,7 @@ end
 -- set to autoSave and the control opts into persistence. Every Set/commit path funnels here so
 -- persistence stays uniform across elements.
 function Window:_persist(control)
+    self:_notifyControlChanged(control)
     -- _loading: a config restore fires every control's callback, but must not autosave back over
     -- the file it's reading (or storm Save once per control)
     if not control.flag or control.forgetState or self._loading then
@@ -45755,6 +45885,341 @@ end
 return Window
 ]=====]
 
+sources["components/windowUsability"] = [=====[
+--!nonstrict
+-- Copyright (c) 2026 Corridon Capital
+-- MPL-2.0: https://mozilla.org/MPL/2.0/
+local core = require(script.Parent.windowCore)
+local Window = core.Window
+local contract = require(script.Parent.Parent.utility.controlContract)
+
+function Window:_recordUsabilityError(kind, component)
+    self._usabilityErrors = self._usabilityErrors or {}
+    table.insert(self._usabilityErrors, { kind = kind, component = component or "Window" })
+    if #self._usabilityErrors > 20 then
+        table.remove(self._usabilityErrors, 1)
+    end
+end
+
+function Window:_installControlContract(control)
+    contract.install(self, control)
+end
+function Window:_notifyControlChanged(control)
+    contract.notify(self, control)
+end
+function Window:_capturePreferenceUndo(label)
+    local controls = {}
+    local ignored = {}
+    for _, flag in self.configuration.ignoreFlags or {} do
+        ignored[flag] = true
+    end
+    local seen = {}
+    local function capture(flag, control)
+        if seen[control] then
+            return
+        end
+        seen[control] = true
+        if not ignored[flag] and not control.forgetState and string.sub(flag, 1, 1) ~= "_" then
+            local ok, value = pcall(function()
+                return if control._serialize then control:_serialize() else control.value
+            end)
+            if ok then
+                table.insert(controls, { flag = flag, control = control, value = contract.copy(value) })
+            end
+        end
+    end
+    for _, control in self._controlOrder or {} do
+        if control.flag and self.controls[control.flag] == control then
+            capture(control.flag, control)
+        end
+    end
+    local rest = {}
+    for flag in self.controls do
+        table.insert(rest, flag)
+    end
+    table.sort(rest)
+    for _, flag in rest do
+        capture(flag, self.controls[flag])
+    end
+    return {
+        label = label,
+        controls = controls,
+        baseline = contract.copy(self._profileBaseline),
+        keys = contract.copy(self._profileBaselineKeys),
+        loaded = contract.copy(self._loadedConfig),
+        loadedPath = self._loadedConfigPath,
+    }
+end
+function Window:_offerPreferenceUndo(snapshot)
+    self._undoSnapshot = snapshot
+    if self.hidden then
+        return
+    end
+    self:Toast({
+        title = snapshot.label,
+        subtitle = "Preference values updated.",
+        action = {
+            text = "Undo",
+            callback = function()
+                if self._undoSnapshot == snapshot then
+                    self:UndoPreferences()
+                end
+            end,
+        },
+    })
+end
+function Window:CanUndoPreferences()
+    return self._undoSnapshot ~= nil
+end
+function Window:UndoPreferences()
+    local snapshot = self._undoSnapshot
+    if not snapshot then
+        return false
+    end
+    self._undoSnapshot = nil
+    local previous = self._loading
+    self._loading = true
+    for _, entry in snapshot.controls do
+        if self.controls[entry.flag] == entry.control and not entry.control._removed then
+            core.persistence.applyTo(entry.control, contract.copy(entry.value))
+        end
+    end
+    self._loading = previous
+    self._profileBaseline = snapshot.baseline
+    self._profileBaselineKeys = snapshot.keys
+    self._loadedConfig = snapshot.loaded
+    self._loadedConfigPath = snapshot.loadedPath
+    if not previous then
+        if self.configuration.autoSave then
+            self:_scheduleAutoSave()
+        end
+        if self._autoSaveConfigEnabled then
+            self:_scheduleAutoSaveConfig()
+        end
+    end
+    return true
+end
+
+function Window:ShowControlHelp(control)
+    if not control or control._removed then
+        return false
+    end
+    local text = control._lockReason or control.tooltip or control.description
+    if not text or text == "" then
+        return false
+    end
+    self:Popup({ title = control.name or "Help", content = text, options = { { text = "Got it", style = "primary" } } })
+    return true
+end
+function Window:_installTouchHelp(control)
+    if
+        control._helpInstalled
+        or not control.main
+        or (not control.tooltip and not control.description and not control._lockReason)
+    then
+        return
+    end
+    control._helpInstalled = true
+    if not self:IsMobile() then
+        return
+    end
+    -- Descriptive help is a separate target, outside the control's tap/drag area.
+    local descriptor = control.descriptor
+    if not descriptor then
+        descriptor = require(script.Parent.descriptor).new(control.tab, { description = "" })
+        descriptor.main.LayoutOrder = control.main.LayoutOrder + 1
+        control.descriptor = descriptor
+    end
+    local button = self:Create("TextButton", {
+        Name = "ControlHelp",
+        Text = "ⓘ  Help",
+        TextSize = 13,
+        AutoButtonColor = false,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 0, 44),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        LayoutOrder = 3,
+        Parent = descriptor.main,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    self:ConnectFor(control, button.MouseButton1Click, function()
+        self:ShowControlHelp(control)
+    end)
+    control.helpButton = button
+end
+
+function Window:GetDiagnostics()
+    local counts = { instances = #self.instances, connections = #self.connections, controls = 0, busy = 0 }
+    for control in self._experienceControls or {} do
+        if not control._removed and control.main and control.main.Parent then
+            counts.controls += 1
+            if control._busy then
+                counts.busy += 1
+            end
+        end
+    end
+    local compatibility = require(script.Parent.Parent.utility.capabilities).probe()
+    return {
+        schemaVersion = 1,
+        library = "Rayfield Gen3",
+        scriptVersion = if type(self.version) == "string" then self.version else nil,
+        locale = core.locale.current,
+        density = self.density,
+        counts = counts,
+        compatibility = compatibility.summary,
+        errors = contract.copy(self._usabilityErrors or {}),
+        unloaded = self.unloaded == true,
+    }
+end
+function Window:ExportDiagnostics()
+    return core.variables.httpService:JSONEncode(self:GetDiagnostics())
+end
+function Window:CreateDiagnostics(properties)
+    if self._diagnosticsHandle then
+        return self._diagnosticsHandle
+    end
+    local tab = self:CreateTab({ name = (properties or {}).name or "Diagnostics", icon = "lucide:activity" })
+    tab._journeyUtility = true
+    local handle: any = { tab = tab }
+    self._diagnosticsHandle = handle
+    tab:CreateParagraph({
+        title = "Local diagnostics",
+        content = "An optional developer report. Field values, configuration files and raw error messages are excluded. Nothing is sent automatically.",
+    })
+    handle.summary = tab:CreateParagraph({ title = "Status", content = "" })
+    function handle.Refresh()
+        local report = self:GetDiagnostics()
+        handle.summary:SetContent(
+            string.format(
+                "Controls: %d · Busy: %d\nInstances: %d · Connections: %d\nRecorded errors: %d\n%s",
+                report.counts.controls,
+                report.counts.busy,
+                report.counts.instances,
+                report.counts.connections,
+                #report.errors,
+                report.compatibility
+            )
+        )
+    end
+    tab:CreateButton({ name = "Refresh diagnostics", callback = handle.Refresh })
+    tab:CreateButton({
+        name = "Copy diagnostic report",
+        callback = function()
+            if not core.clipboard.copy(self:ExportDiagnostics()) then
+                self:NotifyWarning({
+                    title = "Clipboard unavailable",
+                    content = "Use window:ExportDiagnostics() to obtain the report.",
+                })
+            end
+        end,
+    })
+    handle.Refresh()
+    self:_onPageShown(function(page)
+        if page == tab then
+            handle.Refresh()
+        end
+    end)
+    return handle
+end
+
+function Window:GetComponentReference()
+    return contract.copy(require(script.Parent.Parent.utility.componentReference).entries)
+end
+function Window:CreateComponentReference(properties)
+    if self._referenceHandle then
+        return self._referenceHandle
+    end
+    local reference = require(script.Parent.Parent.utility.componentReference)
+    local tab = self:CreateTab({ name = (properties or {}).name or "API reference", icon = "lucide:book-open" })
+    tab._journeyUtility = true
+    local handle: any = { tab = tab }
+    self._referenceHandle = handle
+    tab:CreateParagraph({
+        title = "Complete component reference",
+        content = "Browse every public Tab factory, its properties, callback signatures, returned methods and a minimal example. Examples run only when requested.",
+    })
+    local byName, names = {}, {}
+    for _, entry in reference.entries do
+        byName[entry.name] = entry
+        table.insert(names, entry.name)
+    end
+    handle.code = tab:CreateConsole({ name = "Creation example", height = 140, text = "" })
+    handle.properties = tab:CreateConsole({ name = "Properties and callbacks", height = 200, text = "" })
+    handle.methods = tab:CreateConsole({ name = "Returned handle", height = 180, text = "" })
+    local function selectEntry(value)
+        local entry = byName[value]
+        if not entry then
+            return
+        end
+        handle.selected = entry
+        handle.code:Set(entry.code)
+        handle.properties:Set(entry.properties)
+        handle.methods:Set(entry.methods)
+    end
+    handle.picker = tab:CreateDropdown({
+        name = "Factory",
+        options = names,
+        value = names[1],
+        forgetState = true,
+        callback = selectEntry,
+    })
+    handle.picker:MoveToTop()
+    handle.copy = tab:CreateButton({
+        name = "Copy creation example",
+        callback = function()
+            if handle.selected then
+                core.clipboard.copy(handle.selected.code)
+            end
+        end,
+    })
+    handle.run = tab:CreateButton({
+        name = "Open live example",
+        callback = function()
+            if not handle.selected then
+                return
+            end
+            if handle.sampleTab and handle.sampleTab.tabPage then
+                handle.sampleTab:Remove()
+            end
+            local sample = self:CreateTab({ name = "Example · " .. handle.selected.name })
+            sample._journeyUtility = true
+            handle.sampleTab = sample
+            handle.sample = reference.create(sample, handle.selected)
+            self:Navigate(sample)
+        end,
+    })
+    selectEntry(names[1])
+    return handle
+end
+
+function Window:_initUsability(properties)
+    if properties and properties.developerTools then
+        self.rfSettings:CreateSection({ name = "Developer tools" })
+        self.rfSettings:CreateButton({
+            name = "Open API reference",
+            callback = function()
+                self:Navigate(self:CreateComponentReference().tab)
+            end,
+        })
+        self.rfSettings:CreateButton({
+            name = "Open diagnostics",
+            callback = function()
+                self:Navigate(self:CreateDiagnostics().tab)
+            end,
+        })
+    end
+    self:OnUnload(function()
+        self._undoSnapshot = nil
+        self._usabilityErrors = nil
+        for control in self._experienceControls or {} do
+            if control._changeListeners then
+                table.clear(control._changeListeners)
+            end
+        end
+    end)
+end
+return Window
+]=====]
+
 sources["init"] = [=====[
 --!strict
 
@@ -46774,6 +47239,7 @@ export type TourStep = {
 }
 
 export type WindowProps = {
+    developerTools: boolean?,
     density: string?, -- compact, normal or touch; scoped to this window
     name: string?,
     -- what the Search action looks through: "tab" (default) filters the page the player is on,
@@ -46978,6 +47444,13 @@ export type GroupProps = {
 -- tooltip is shared by every card element (see Window:_wireTooltip): hold the mouse a moment
 -- and it fades in above the cursor, wrapping for longer text.
 export type ButtonProps = {
+    busyOnClick: boolean?,
+    actionOptions: {
+        busyText: string?,
+        successText: string?,
+        errorText: string?,
+        onComplete: ((boolean, any) -> ())?,
+    }?,
     name: string?,
     description: string?,
     icon: (string | number)?,
@@ -47291,6 +47764,11 @@ export type ReorderListProps = {
 }
 
 export type InputProps = {
+    required: boolean?,
+    min: number?,
+    max: number?,
+    maxLength: number?,
+    validate: ((value: string) -> (boolean, string?))?,
     name: string?,
     description: string?,
     icon: (string | number)?,
@@ -47450,9 +47928,9 @@ export type Watermark = {
 }
 
 export type UpdateCheckProps = {
-    url: string, -- answers { "version": "1.0.3", "notes": "...", "loader": "..." } or just "1.0.3"
+    url: string, -- answers { "version": "1.0.3", "notes": "..." } or just "1.0.3"; remote code is ignored
     interval: number?, -- seconds between checks (default 600, never under 60)
-    loader: string?, -- the script to run again after the Rejoin button (the url's own "loader" wins)
+    loader: string?, -- trusted developer-provided code to run after Rejoin; never replaced by remote metadata
     onUpdate: ((remoteVersion: string, notes: string?) -> ())?, -- once per newer version found
 }
 
@@ -47561,6 +48039,14 @@ export type KeySystemProps = {
 -- Handles ------------------------------------------------------------------
 -- Every element can be reordered within its tab.
 export type Moveable = {
+    GetValue: (self: any) -> any,
+    SetControlValue: (self: any, value: any, silent: boolean?) -> any,
+    OnChanged: (self: any, callback: (any, any, { restoring: boolean }) -> ()) -> () -> (),
+    Destroy: (self: any) -> boolean,
+    IsBusy: (self: any) -> boolean,
+    SetBusy: (self: any, busy: boolean, text: string?) -> boolean,
+    Run: (self: any, callback: (any) -> any, options: any?) -> boolean,
+    ShowHelp: (self: any) -> boolean,
     MoveTo: (self: any, index: number) -> (),
     MoveToTop: (self: any) -> (),
     MoveToBottom: (self: any) -> (),
@@ -48067,6 +48553,8 @@ export type PlayerDropdown = Dropdown & {
 }
 
 export type Input = Moveable & {
+    Validate: (self: Input, value: string?) -> (boolean, string?),
+    GetValidation: (self: Input) -> { valid: boolean, message: string? },
     value: string,
     locked: boolean,
     Set: (self: Input, value: string, skipCallback: boolean?) -> (),
@@ -48354,6 +48842,14 @@ export type Window = {
     LoadCustomTheme: (self: Window, name: string) -> (boolean, string?),
     CreateThemeEditor: (self: Window, props: { name: string? }?) -> any,
     CreateShowcase: (self: Window, props: { name: string? }?) -> any,
+    CreateComponentReference: (self: Window, props: { name: string? }?) -> any,
+    GetComponentReference: (self: Window) -> { any },
+    CanUndoPreferences: (self: Window) -> boolean,
+    UndoPreferences: (self: Window) -> boolean,
+    ShowControlHelp: (self: Window, control: any) -> boolean,
+    GetDiagnostics: (self: Window) -> any,
+    ExportDiagnostics: (self: Window) -> string,
+    CreateDiagnostics: (self: Window, props: { name: string? }?) -> any,
     CreateFavorites: (self: Window, props: { name: string? }?) -> any,
     SetFavorite: (self: Window, control: any, enabled: boolean?) -> boolean,
     RevealControl: (self: Window, control: any) -> boolean,
@@ -49895,6 +50391,363 @@ end
 return colors
 ]=====]
 
+sources["utility/componentReference"] = [=====[
+--!nonstrict
+-- Generated by scripts/generate-reference.cjs from the public API.
+local reference = {}
+reference.entries = {
+    {
+        name = "CreateButton",
+        code = 'local control = tab:CreateButton({name = "Button"})',
+        properties = 'export type ButtonProps = {\n    busyOnClick: boolean?,\n    actionOptions: {\n        busyText: string?,\n        successText: string?,\n        errorText: string?,\n        onComplete: ((boolean, any) -> ())?,\n    }?,\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    locked: boolean?,\n    -- a cheap destructive-action confirm: the first click just arms the button (its title flips\n    -- to confirmText for a few seconds), the callback only fires on the confirming second click\n    doubleClick: boolean?,\n    confirmText: string?, -- default "Click again to confirm"\n    callback: (() -> ())?,\n}',
+        methods = "export type Button = Moveable & {\n    locked: boolean,\n    SetLocked: (self: Button, locked: boolean) -> (),\n    -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.\n    Lock: (self: Button) -> (),\n    Unlock: (self: Button) -> (),\n    IsLocked: (self: Button) -> boolean,\n}",
+        props = { name = "Button" },
+    },
+    {
+        name = "CreateFlipButton",
+        code = 'local control = tab:CreateFlipButton({name = "FlipButton"})',
+        properties = 'export type FlipButtonProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    secondaryName: string?, -- the back face; hovering flips the title to this and back\n    -- "slide" (default): the back face drops in over a card turned the text colour;\n    -- "squish" (also "v1"/"classic"): the title squishes shut and springs back with the other label\n    style: string?,\n    callback: (() -> ())?,\n}',
+        methods = "export type FlipButton = Moveable & {\n    Set: (self: FlipButton, front: string?, back: string?) -> (),\n}",
+        props = { name = "FlipButton" },
+    },
+    {
+        name = "CreateCopyButton",
+        code = 'local control = tab:CreateCopyButton({name = "CopyButton"})',
+        properties = "export type CopyButtonProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?, -- before the title, like any row; the key on the right holds the copy glyph\n    tooltip: string?,\n    text: string?, -- the string copied to the clipboard\n    callback: ((success: boolean) -> ())?, -- fires after every press with whether the copy landed\n}",
+        methods = "export type CopyButton = Moveable & {\n    text: string,\n    Set: (self: CopyButton, text: string) -> (),\n}",
+        props = { name = "CopyButton" },
+    },
+    {
+        name = "CreateRippleButton",
+        code = 'local control = tab:CreateRippleButton({name = "RippleButton"})',
+        properties = "export type RippleButtonProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    callback: (() -> ())?,\n}",
+        methods = "export type RippleButton = Moveable & {}",
+        props = { name = "RippleButton" },
+    },
+    {
+        name = "CreateToggle",
+        code = 'local control = tab:CreateToggle({name = "Toggle"})',
+        properties = 'export type ToggleProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    value: boolean?,\n    locked: boolean?,\n    forgetState: boolean?,\n    callback: ((value: boolean) -> ())?,\n    -- a small colour chip beside the switch that opens a picker; saved under colorFlag (default\n    -- the toggle\'s flag and "Color")\n    color: (Color3 | string)?,\n    colorFlag: string?,\n    colorCallback: ((color: Color3) -> ())?,\n}',
+        methods = "export type Toggle = Moveable & {\n    value: boolean,\n    locked: boolean,\n    Set: (self: Toggle, value: boolean, skipCallback: boolean?) -> (),\n    SetLocked: (self: Toggle, locked: boolean) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): shared Lock/Unlock/IsLocked\n    -- naming, aliased into this component's own SetLocked - see lockable.luau's own comment.\n    Lock: (self: Toggle) -> (),\n    Unlock: (self: Toggle) -> (),\n    IsLocked: (self: Toggle) -> boolean,\n    SetStatus: (self: Toggle, text: string) -> (),\n    -- Runs fn(toggle) on a repeating timer for as long as this toggle is on; fn can return a\n    -- number to override the wait before the next call instead of `interval` (default 0.5s).\n    -- Managed and error-isolated per tick - see toggle.luau's own comment on why this beats a\n    -- hand-rolled while loop in the toggle's own callback.\n    Loop: (self: Toggle, fn: (toggle: any) -> number?, interval: number?) -> (),\n    color: Color3?, -- the chip's colour, when it has one\n    SetColor: (self: Toggle, color: Color3 | string, skipCallback: boolean?) -> (),\n}",
+        props = { name = "Toggle" },
+    },
+    {
+        name = "CreateSwitch",
+        code = 'local control = tab:CreateSwitch({name = "Switch"})',
+        properties = 'export type ToggleProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    value: boolean?,\n    locked: boolean?,\n    forgetState: boolean?,\n    callback: ((value: boolean) -> ())?,\n    -- a small colour chip beside the switch that opens a picker; saved under colorFlag (default\n    -- the toggle\'s flag and "Color")\n    color: (Color3 | string)?,\n    colorFlag: string?,\n    colorCallback: ((color: Color3) -> ())?,\n}',
+        methods = "export type Toggle = Moveable & {\n    value: boolean,\n    locked: boolean,\n    Set: (self: Toggle, value: boolean, skipCallback: boolean?) -> (),\n    SetLocked: (self: Toggle, locked: boolean) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): shared Lock/Unlock/IsLocked\n    -- naming, aliased into this component's own SetLocked - see lockable.luau's own comment.\n    Lock: (self: Toggle) -> (),\n    Unlock: (self: Toggle) -> (),\n    IsLocked: (self: Toggle) -> boolean,\n    SetStatus: (self: Toggle, text: string) -> (),\n    -- Runs fn(toggle) on a repeating timer for as long as this toggle is on; fn can return a\n    -- number to override the wait before the next call instead of `interval` (default 0.5s).\n    -- Managed and error-isolated per tick - see toggle.luau's own comment on why this beats a\n    -- hand-rolled while loop in the toggle's own callback.\n    Loop: (self: Toggle, fn: (toggle: any) -> number?, interval: number?) -> (),\n    color: Color3?, -- the chip's colour, when it has one\n    SetColor: (self: Toggle, color: Color3 | string, skipCallback: boolean?) -> (),\n}",
+        props = { name = "Switch" },
+    },
+    {
+        name = "CreateCheckbox",
+        code = 'local control = tab:CreateCheckbox({name = "Checkbox"})',
+        properties = "export type CheckboxProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    value: boolean?,\n    forgetState: boolean?,\n    callback: ((value: boolean) -> ())?,\n}",
+        methods = "export type Checkbox = Moveable & {\n    value: boolean,\n    Set: (self: Checkbox, value: boolean, skipCallback: boolean?) -> (),\n}",
+        props = { name = "Checkbox" },
+    },
+    {
+        name = "CreateSection",
+        code = 'local control = tab:CreateSection({name = "Section"})',
+        properties = "export type SectionProps = {\n    name: string?,\n    icon: (string | number)?,\n}",
+        methods = "export type Section = Moveable & {}",
+        props = { name = "Section" },
+    },
+    {
+        name = "CreateLabel",
+        code = 'local control = tab:CreateLabel({text = "Ready"})',
+        properties = "export type LabelProps = {\n    text: string?,\n    icon: (string | number)?,\n}",
+        methods = "export type Label = Moveable & {\n    Set: (self: Label, text: string) -> (),\n}",
+        props = { text = "Ready" },
+    },
+    {
+        name = "CreateParagraph",
+        code = 'local control = tab:CreateParagraph({title = "Details", content = "A clear explanation."})',
+        properties = "export type ParagraphProps = {\n    title: string?,\n    content: string?,\n    icon: (string | number)?,\n}",
+        methods = "export type Paragraph = Moveable & {\n    Set: (self: Paragraph, props: { title: string?, content: string? }) -> (),\n    SetTitle: (self: Paragraph, text: string) -> (),\n    SetContent: (self: Paragraph, text: string) -> (),\n}",
+        props = { title = "Details", content = "A clear explanation." },
+    },
+    {
+        name = "CreateDivider",
+        code = 'local control = tab:CreateDivider({name = "Divider"})',
+        properties = 'export type DividerProps = {\n    text: string?,\n    line: boolean?, -- default true; false = spacing-only, no visible rule\n    spacing: string?, -- "tight" | "normal" (default) | "loose" - vertical padding around the line\n    height: number?, -- gap height in px when line = false (default 24)\n}',
+        methods = "export type Divider = Moveable & {\n    Set: (self: Divider, text: string) -> (),\n}",
+        props = { name = "Divider" },
+    },
+    {
+        name = "CreateStat",
+        code = 'local control = tab:CreateStat({name = "Stat"})',
+        properties = 'export type StatProps = {\n    sparkline: boolean?, -- the trace of recent values behind the number (default true on a full card)\n    sparklinePoints: number?, -- how many values that trace keeps (2-120, default 24)\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    prefix: string?,\n    suffix: string?,\n    value: number?,\n    display: string?, -- "value" | "change"\n    compact: boolean?,\n    changeMode: string?, -- "percentage" | "absolute"\n    changeBaseline: string?, -- "previous" | "initial"\n    numberEasing: boolean?,\n}',
+        methods = "export type Stat = Moveable & {\n    value: number,\n    Set: (self: Stat, value: number) -> (),\n    ResetBaseline: (self: Stat, value: number?) -> (),\n}",
+        props = { name = "Stat" },
+    },
+    {
+        name = "CreateStatusCard",
+        code = 'local control = tab:CreateStatusCard({name = "StatusCard"})',
+        properties = 'export type StatusCardProps = {\n    name: string?, -- header title, default "Status"\n    icon: (string | number)?,\n    width: number?, -- card width in pixels, default 260 - fixed-width by design, not full tab width\n    collapsible: boolean?, -- shows the header chevron, default true\n    expanded: boolean?, -- default true\n    glow: boolean?, -- ambient glow behind the card, default true\n    rows: { StatusCardRow }?,\n}',
+        methods = "export type StatusCard = Moveable & {\n    expanded: boolean,\n    SetRow: (self: StatusCard, key: string, value: string, muted: boolean?) -> (),\n    AddRow: (self: StatusCard, row: StatusCardRow, index: number?) -> (),\n    RemoveRow: (self: StatusCard, key: string) -> (),\n    Set: (self: StatusCard, rows: { StatusCardRow }) -> (),\n    SetExpanded: (self: StatusCard, expanded: boolean) -> (),\n    Toggle: (self: StatusCard) -> (),\n}",
+        props = { name = "StatusCard" },
+    },
+    {
+        name = "CreateSlider",
+        code = 'local control = tab:CreateSlider({name = "Volume", range = {0, 100}, value = 50})',
+        properties = "export type SliderProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    range: { number }?, -- { min, max }\n    increment: number?,\n    value: number?,\n    suffix: string?,\n    minimal: boolean?, -- track only, no name/value (for dense rows)\n    forgetState: boolean?,\n    callback: ((value: number) -> ())?,\n}",
+        methods = "export type Slider = Moveable & {\n    value: number,\n    locked: boolean,\n    Set: (self: Slider, value: number, skipCallback: boolean?) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): dims the element and covers it\n    -- with an input-blocking scrim. `reason` replaces its description while locked.\n    Lock: (self: Slider, reason: string?) -> (),\n    Unlock: (self: Slider) -> (),\n    IsLocked: (self: Slider) -> boolean,\n}",
+        props = { name = "Volume", range = { 0, 100 }, value = 50 },
+    },
+    {
+        name = "CreateDropdown",
+        code = 'local control = tab:CreateDropdown({name = "Quality", options = {"Low", "High"}, value = "High"})',
+        properties = 'export type DropdownProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    options: { string }?,\n    -- section headers (e.g. "MELEE"/"RANGED") - when given, takes over from `options` above,\n    -- which is instead derived by flattening every section\'s own option list in order\n    sections: { DropdownSection }?,\n    value: (string | { string })?,\n    multiSelect: boolean?,\n    placeholder: string?,\n    locked: boolean?,\n    forgetState: boolean?,\n    callback: ((value: any) -> ())?,\n}',
+        methods = "export type Dropdown = Moveable & {\n    value: { string }, -- always stored pruned to the current options, even single-select\n    locked: boolean,\n    Set: (self: Dropdown, value: string | { string }, skipCallback: boolean?) -> (),\n    Reset: (self: Dropdown, skipCallback: boolean?) -> (), -- clears back to the placeholder\n    SetLocked: (self: Dropdown, locked: boolean) -> (),\n    Refresh: (self: Dropdown, options: { string }?) -> (), -- swap the option list, keeping the pick\n    -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.\n    Lock: (self: Dropdown) -> (),\n    Unlock: (self: Dropdown) -> (),\n    IsLocked: (self: Dropdown) -> boolean,\n}",
+        props = { name = "Quality", options = { "Low", "High" }, value = "High" },
+    },
+    {
+        name = "CreatePlayerDropdown",
+        code = 'local control = tab:CreatePlayerDropdown({name = "PlayerDropdown"})',
+        properties = 'export type PlayerDropdownProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    value: (string | { string })?,\n    multiSelect: boolean?,\n    placeholder: string?,\n    locked: boolean?,\n    forgetState: boolean?,\n    -- how each player is labelled: "name" (default, and what code should key on), "display",\n    -- or "both" ("DisplayName (@Name)")\n    format: ("name" | "display" | "both")?,\n    includeSelf: boolean?, -- default true\n    callback: ((value: any) -> ())?,\n}',
+        methods = "export type PlayerDropdown = Dropdown & {\n    RefreshPlayers: (self: PlayerDropdown) -> { string },\n    GetSelectedPlayers: (self: PlayerDropdown) -> { Player },\n}",
+        props = { name = "PlayerDropdown" },
+    },
+    {
+        name = "CreateReorderList",
+        code = 'local control = tab:CreateReorderList({name = "ReorderList"})',
+        properties = "export type ReorderListProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?, -- persists the ORDER (an array of ids)\n    items: { string | ReorderItem }?,\n    rowHeight: number?, -- default 38, floor 26\n    showIndex: boolean?, -- the 1/2/3 badge, default true\n    removable: boolean?, -- per-row remove button, default false\n    emptyText: string?,\n    onRemove: ((id: string) -> ())?,\n    callback: ((order: { string }) -> ())?,\n}",
+        methods = "export type ReorderList = Moveable & {\n    value: { string }, -- the current order, as ids\n    locked: boolean,\n    Get: (self: ReorderList) -> { string },\n    Set: (self: ReorderList, order: { string }, skipCallback: boolean?) -> (),\n    Add: (self: ReorderList, item: string | ReorderItem, skipCallback: boolean?) -> boolean,\n    -- RemoveItem, not Remove: Remove() destroys the element, as on every other component\n    RemoveItem: (self: ReorderList, id: string, skipCallback: boolean?) -> boolean,\n    Refresh: (self: ReorderList, items: { string | ReorderItem }, skipCallback: boolean?) -> (),\n    Lock: (self: ReorderList, reason: string?) -> (),\n    Unlock: (self: ReorderList) -> (),\n    IsLocked: (self: ReorderList) -> boolean,\n}",
+        props = { name = "ReorderList" },
+    },
+    {
+        name = "CreateItemGrid",
+        code = 'local control = tab:CreateItemGrid({name = "ItemGrid"})',
+        properties = 'export type ItemGridProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?, -- persists the selected ids\n    items: { string | GridItem }?,\n    value: (string | { string })?,\n    columns: number?, -- ceiling, default 4; a narrow window drops below it on its own\n    maxHeight: number?, -- the CEILING on the card area: fewer cards take only their rows, more scroll; default 210\n    fixedColumns: boolean?, -- default false: columns is a ceiling a narrow window drops below; true holds it exactly\n    loading: boolean?, -- placeholder cards until items arrive; defaults on for a grid built empty, and times out\n    emptyIcon: (string | number)?, -- the glyph over the empty text; default "lucide:search-x"\n    height: number?, -- original spelling of maxHeight, still accepted\n    cellHeight: number?, -- default 46\n    multiSelect: boolean?, -- default true\n    emptyText: string?,\n    -- built into the element: `true` for the default placeholder, or pass the placeholder itself\n    search: (boolean | string)?,\n    filters: { GridFilterChip }?, -- the chip row; the dev owns the tag set\n    imageLayout: ("left" | "top")?, -- thumbnail beside the name, or above it. Default "left"\n    -- "list": one row per item - picture, the name in its `color`, the subtitle under it, the value\n    -- on the right. Default "grid"\n    layout: ("grid" | "list")?,\n    selectable: boolean?, -- default true; false for a list only to read (clicks do nothing)\n    onFilterChanged: ((filter: { text: string, tags: { string } }) -> ())?,\n    callback: ((selected: { string }) -> ())?,\n}',
+        methods = "export type ItemGrid = Moveable & {\n    value: { string }, -- the selected ids, in item order\n    locked: boolean,\n    Get: (self: ItemGrid) -> { string },\n    Set: (self: ItemGrid, ids: string | { string }, skipCallback: boolean?) -> (),\n    Toggle: (self: ItemGrid, id: string, skipCallback: boolean?) -> boolean,\n    Select: (self: ItemGrid, id: string, skipCallback: boolean?) -> (),\n    Deselect: (self: ItemGrid, id: string, skipCallback: boolean?) -> (),\n    SelectAll: (self: ItemGrid, skipCallback: boolean?) -> (), -- only what the filter shows\n    Clear: (self: ItemGrid, skipCallback: boolean?) -> (),\n    Filter: (self: ItemGrid, query: GridFilter?) -> (), -- nil clears it, chips included\n    ToggleTag: (self: ItemGrid, tag: string) -> (), -- the programmatic half of clicking a chip\n    GetFilter: (self: ItemGrid) -> { text: string, tags: { string } },\n    Refresh: (self: ItemGrid, items: { string | GridItem }, skipCallback: boolean?) -> (),\n    -- list layout: one row's value on the right, without rebuilding the list; nil removes it\n    SetValue: (self: ItemGrid, id: string, value: (string | number)?) -> boolean,\n    SetHeight: (self: ItemGrid, height: number?) -> (),\n    SetMaxHeight: (self: ItemGrid, height: number?) -> (),\n    SetColumns: (self: ItemGrid, columns: number, fixed: boolean?) -> (),\n    ScrollChips: (self: ItemGrid, delta: number) -> number,\n    SetLoading: (self: ItemGrid, loading: boolean) -> (),\n    Lock: (self: ItemGrid, reason: string?) -> (),\n    Unlock: (self: ItemGrid) -> (),\n    IsLocked: (self: ItemGrid) -> boolean,\n}",
+        props = { name = "ItemGrid" },
+    },
+    {
+        name = "CreateListPicker",
+        code = 'local control = tab:CreateListPicker({name = "Region", options = {"America", "Europe"}, value = "America"})',
+        properties = "export type ListPickerProps = {\n    name: string?, -- also the header label, rendered uppercase\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?, -- persists the selected id, or the array of ticked ids when multiSelect\n    options: { ListOption }?,\n    multiSelect: boolean?, -- default false; true ticks any number of rows\n    value: (string | { string })?, -- single-select defaults to the first option, multi to none\n    rowHeight: number?, -- default 34, floor 24\n    maxHeight: number?, -- the CEILING: shorter lists take only their rows, longer ones scroll; default 210, same as ItemGrid\n    height: number?, -- original spelling of maxHeight, still accepted\n    showHeader: boolean?, -- default true\n    emptyText: string?,\n    callback: ((value: any) -> ())?, -- the id, or the array of ticked ids when multiSelect\n}",
+        methods = "export type ListPicker = Moveable & {\n    value: any, -- the selected id, or the ticked ids in option order when multiSelect\n    multiSelect: boolean,\n    locked: boolean,\n    Get: (self: ListPicker) -> any,\n    Set: (self: ListPicker, value: (string | { string })?, skipCallback: boolean?) -> boolean,\n    Toggle: (self: ListPicker, id: string, skipCallback: boolean?) -> boolean,\n    SelectAll: (self: ListPicker, skipCallback: boolean?) -> (), -- multi-select only\n    Clear: (self: ListPicker, skipCallback: boolean?) -> (),\n    Refresh: (self: ListPicker, options: { ListOption }, skipCallback: boolean?) -> (),\n    SetHeight: (self: ListPicker, height: number?) -> (),\n    SetMaxHeight: (self: ListPicker, height: number?) -> (),\n    Lock: (self: ListPicker, reason: string?) -> (),\n    Unlock: (self: ListPicker) -> (),\n    IsLocked: (self: ListPicker) -> boolean,\n}",
+        props = { name = "Region", options = { "America", "Europe" }, value = "America" },
+    },
+    {
+        name = "CreateProgressBar",
+        code = 'local control = tab:CreateProgressBar({name = "ProgressBar"})',
+        properties = 'export type ProgressBarProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    value: number?,\n    max: number?, -- default 100\n    suffix: string?, -- set this to switch the readout to "{value} {suffix} out of {max}"\n}',
+        methods = "export type ProgressBar = Moveable & {\n    value: number,\n    Set: (self: ProgressBar, value: number, skipAnimation: boolean?) -> (),\n}",
+        props = { name = "ProgressBar" },
+    },
+    {
+        name = "CreateConsole",
+        code = 'local control = tab:CreateConsole({name = "Log", text = "Ready."})',
+        properties = 'export type ConsoleProps = {\n    name: string?,\n    description: string?,\n    text: string?,\n    height: number?, -- default 120\n    follow: boolean?, -- pin to the newest line as output arrives, like a real log\n    maxLines: number?, -- default 200; oldest lines roll off past this\n    -- true for HH:MM:SS, or an os.date format string, in front of every line\n    timestamps: (boolean | string)?,\n    -- pass a plain string append straight through as Roblox RichText instead of escaping it.\n    -- Off by default: output with a "<" in it must not be able to turn into a tag.\n    richText: boolean?,\n}',
+        methods = "export type Console = Moveable & {\n    Get: (self: Console) -> string, -- the plain text, never the markup behind it\n    Set: (self: Console, content: ConsoleContent, style: ConsoleStyle?) -> (),\n    Append: (self: Console, content: ConsoleContent, style: ConsoleStyle?) -> (),\n    -- one line with a coloured INFO/OK/WARN/ERROR tag in front\n    Log: (self: Console, level: string, content: ConsoleContent, style: ConsoleStyle?) -> (),\n    Info: (self: Console, content: ConsoleContent, style: ConsoleStyle?) -> (),\n    Success: (self: Console, content: ConsoleContent, style: ConsoleStyle?) -> (),\n    Warn: (self: Console, content: ConsoleContent, style: ConsoleStyle?) -> (),\n    Error: (self: Console, content: ConsoleContent, style: ConsoleStyle?) -> (),\n    -- rewrite the newest line in place, for a counter rather than a transcript\n    UpdateLast: (self: Console, content: ConsoleContent, style: ConsoleStyle?) -> (),\n    Clear: (self: Console) -> (),\n    Copy: (self: Console) -> boolean,\n    SetHeight: (self: Console, height: number) -> (),\n}",
+        props = { name = "Log", text = "Ready." },
+    },
+    {
+        name = "CreateStepper",
+        code = 'local control = tab:CreateStepper({name = "Stepper"})',
+        properties = "export type StepperProps = {\n    name: string?,\n    icon: (string | number)?,\n    description: string?,\n    tooltip: string?,\n    flag: string?,\n    forgetState: boolean?,\n    value: number?, -- default: min, or 0\n    min: number?,\n    max: number?,\n    step: number?, -- default 1; every value is snapped to it, counted from min\n    decimals: number?, -- default: however many the step has\n    prefix: string?,\n    suffix: string?,\n    typing: boolean?, -- click the number to type one (default true)\n    callback: ((value: number) -> ())?,\n}",
+        methods = "export type Stepper = Moveable & {\n    Get: (self: Stepper) -> number,\n    Set: (self: Stepper, value: number, skipCallback: boolean?) -> boolean,\n    Nudge: (self: Stepper, direction: number) -> boolean,\n    SetRange: (self: Stepper, min: number?, max: number?) -> (),\n    Remove: (self: Stepper) -> (),\n}",
+        props = { name = "Stepper" },
+    },
+    {
+        name = "CreateTable",
+        code = 'local control = tab:CreateTable({name = "Inventory", columns = {{key = "item", title = "Item"}, {key = "qty", title = "Quantity"}}, rows = {{item = "Crystal", qty = 24}}})',
+        properties = "export type TableProps = {\n    loading: boolean?,\n    virtualize: boolean?, -- default true: pool visible rows for tables over 100 entries\n    name: string?,\n    icon: (string | number)?,\n    description: string?,\n    tooltip: string?,\n    columns: { TableColumn | string },\n    rows: { { [string]: any } }?,\n    sortable: boolean?, -- click a heading to sort by it (default true)\n    sortBy: string?, -- sort by this column from the start\n    descending: boolean?, -- with sortBy\n    maxHeight: number?, -- the ceiling; more rows scroll inside it (default 210)\n    emptyText: string?,\n    emptyIcon: (string | number)?,\n    onRowClick: ((row: { [string]: any }, index: number) -> ())?,\n}",
+        methods = "export type Table = Moveable & {\n    SetLoading: (self: Table, loading: boolean) -> (),\n    Get: (self: Table) -> { { [string]: any } },\n    SetRows: (self: Table, rows: { { [string]: any } }) -> (),\n    AddRow: (self: Table, row: { [string]: any }) -> boolean,\n    RemoveRow: (self: Table, which: number | ((row: { [string]: any }) -> boolean)) -> number,\n    Clear: (self: Table) -> (),\n    SortBy: (self: Table, key: string, descending: boolean?) -> boolean,\n    SetMaxHeight: (self: Table, height: number) -> (),\n    Remove: (self: Table) -> (),\n}",
+        props = {
+            name = "Inventory",
+            columns = { { key = "item", title = "Item" }, { key = "qty", title = "Quantity" } },
+            rows = { { item = "Crystal", qty = 24 } },
+        },
+    },
+    {
+        name = "CreateCountdown",
+        code = 'local control = tab:CreateCountdown({name = "Cooldown", duration = 30, autoStart = false})',
+        properties = 'export type CountdownProps = {\n    name: string?,\n    icon: (string | number)?,\n    description: string?,\n    tooltip: string?,\n    duration: number?, -- the full length in seconds, which the bar measures against (default 60)\n    seconds: number?, -- seconds left to start from (default: the full duration)\n    autoStart: boolean?, -- start counting straight away (default true)\n    loop: boolean?, -- start again from the top on reaching zero (default false)\n    finishedText: string?, -- what a finished countdown says (default "Ready")\n    warnAt: number?, -- seconds left at which it turns warm (default 10; 0 never)\n    format: ((secondsLeft: number) -> string)?, -- how the time reads, instead of mm:ss / h:mm:ss\n    onFinished: (() -> ())?, -- runs every time it reaches zero\n}',
+        methods = "export type Countdown = Moveable & {\n    Get: (self: Countdown) -> number,\n    Set: (self: Countdown, secondsLeft: number) -> (),\n    Add: (self: Countdown, seconds: number) -> (),\n    Start: (self: Countdown, seconds: number?) -> (),\n    Pause: (self: Countdown) -> (),\n    Resume: (self: Countdown) -> (),\n    Reset: (self: Countdown) -> (),\n    SetDuration: (self: Countdown, seconds: number) -> (),\n    IsRunning: (self: Countdown) -> boolean,\n    Remove: (self: Countdown) -> (),\n}",
+        props = { name = "Cooldown", duration = 30, autoStart = false },
+    },
+    {
+        name = "CreateFAQ",
+        code = 'local control = tab:CreateFAQ({name = "Help", items = {{question = "How does this work?", answer = "Choose a value to get started."}}})',
+        properties = 'export type FAQProps = {\n    name: string?, -- what the search matches besides the questions themselves (default "FAQ")\n    items: { FAQItem }?,\n    exclusive: boolean?, -- opening one question closes the others (default true)\n}',
+        methods = "export type FAQ = Moveable & {\n    Open: (self: FAQ, index: number) -> (),\n    Close: (self: FAQ, index: number) -> (),\n    Toggle: (self: FAQ, index: number) -> (),\n    CloseAll: (self: FAQ) -> (),\n    IsOpen: (self: FAQ, index: number) -> boolean,\n    SetItems: (self: FAQ, items: { FAQItem }) -> (),\n    Get: (self: FAQ) -> { FAQItem },\n    Remove: (self: FAQ) -> (),\n}",
+        props = {
+            name = "Help",
+            items = { { question = "How does this work?", answer = "Choose a value to get started." } },
+        },
+    },
+    {
+        name = "CreateChart",
+        code = 'local control = tab:CreateChart({name = "Trend", values = {10, 20, 15}})',
+        properties = 'export type ChartProps = {\n    loading: boolean?,\n    legend: string?,\n    name: string?,\n    icon: (string | number)?,\n    description: string?,\n    tooltip: string?,\n    mode: string?, -- "line" (default) or "bar"\n    values: { ChartPoint }?, -- the series to start with, oldest first; a bar can carry a label\n    labels: { string }?, -- names under the bars, by index\n    maxPoints: number?, -- how many points are kept; the oldest falls off the left (2-240, default 48)\n    height: number?, -- the plot height in px (default 94, floor 40)\n    min: number?, -- pin the bottom of the scale; omit to follow the data (bars stand on zero)\n    max: number?, -- pin the top of the scale; omit to follow the data\n    format: ((value: number) -> string)?, -- how the header current value reads\n    prefix: string?, -- before the number, e.g. "$" (when there is no format)\n    suffix: string?, -- after the number, e.g. " ccu"\n    decimals: number?, -- digits after the point (default 0; thousands get separators)\n    smooth: boolean?, -- a curve through the points instead of straight lines (default false)\n    dots: boolean?, -- a white dot on every point (default true, false when smooth)\n    scale: boolean?, -- the top and bottom of the scale written on the plot (default false)\n    color: Color3?, -- the line/bar colour; defaults to the theme accent\n    baseline: boolean?, -- the hairline under the plot (default true)\n    showValue: boolean?, -- the newest value in the header (default true)\n}',
+        methods = "export type Chart = Moveable & {\n    SetLoading: (self: Chart, loading: boolean) -> (),\n    Get: (self: Chart) -> { number },\n    Push: (self: Chart, value: number, label: string?) -> boolean,\n    Set: (self: Chart, values: { ChartPoint }) -> (),\n    Clear: (self: Chart) -> (),\n    SetRange: (self: Chart, min: number?, max: number?) -> (),\n    SetHeight: (self: Chart, height: number) -> (),\n    SetMode: (self: Chart, mode: string) -> boolean,\n    Remove: (self: Chart) -> (),\n}",
+        props = { name = "Trend", values = { 10, 20, 15 } },
+    },
+    {
+        name = "CreateStackedChart",
+        code = 'local control = tab:CreateStackedChart({name = "StackedChart"})',
+        properties = "export type StackedChartProps = {\n    name: string?,\n    icon: (string | number)?,\n    description: string?,\n    tooltip: string?,\n    series: { string }?, -- the parts every row is split into, in order\n    rows: { StackedChartRow }?,\n    colors: { Color3 }?, -- one per series; defaults to shades of the theme accent\n    prefix: string?,\n    suffix: string?,\n}",
+        methods = "export type StackedChart = Moveable & {\n    Set: (self: StackedChart, rows: { StackedChartRow }) -> (),\n    Get: (self: StackedChart) -> { StackedChartRow },\n    Replay: (self: StackedChart) -> (), -- grow the bars in again\n    Remove: (self: StackedChart) -> (),\n}",
+        props = { name = "StackedChart" },
+    },
+    {
+        name = "CreateTarget",
+        code = 'local control = tab:CreateTarget({name = "Target"})',
+        properties = "export type TargetProps = {\n    name: string?, -- who it is\n    subtitle: string?,\n    model: Instance?, -- cloned into the portrait, framed on its head and shoulders\n    image: (string | number)?, -- a picture instead of a model\n    userId: number?, -- a player's headshot\n    health: number?,\n    maxHealth: number?,\n    stats: { TargetStat }?, -- label and value, two to a row\n    footer: string?, -- the small print at the bottom (drops, notes)\n    tooltip: string?,\n}",
+        methods = "export type Target = Moveable & {\n    Set: (self: Target, props: TargetProps) -> (),\n    SetHealth: (self: Target, health: number, maxHealth: number?) -> (),\n    SetStat: (self: Target, label: string, value: any) -> (),\n    SetModel: (self: Target, model: Instance?) -> (),\n    Get: (self: Target) -> TargetProps,\n    Remove: (self: Target) -> (),\n}",
+        props = { name = "Target" },
+    },
+    {
+        name = "CreateColorSwatch",
+        code = 'local control = tab:CreateColorSwatch({name = "ColorSwatch"})',
+        properties = "export type ColorSwatchProps = {\n    name: string?,\n    icon: (string | number)?,\n    description: string?,\n    tooltip: string?,\n    color: (Color3 | string)?, -- a Color3 or a hex string\n    flag: string?,\n    forgetState: boolean?,\n    callback: ((color: Color3) -> ())?,\n}",
+        methods = "export type ColorSwatch = Moveable & {\n    value: Color3,\n    Get: (self: ColorSwatch) -> Color3,\n    Set: (self: ColorSwatch, color: Color3 | string, skipCallback: boolean?) -> (),\n    Open: (self: ColorSwatch) -> (),\n    Remove: (self: ColorSwatch) -> (),\n}",
+        props = { name = "ColorSwatch" },
+    },
+    {
+        name = "CreateESPPreview",
+        code = 'local control = tab:CreateESPPreview({name = "ESPPreview"})',
+        properties = 'export type ESPPreviewProps = {\n    title: string?,\n    height: number?, -- the stage\'s height (default 170)\n    character: Model?, -- the model to show; default the player\'s own, following a respawn\n    autoRotate: boolean?, -- default true\n    animateHealth: boolean?, -- the health rising and falling by itself (default true)\n    box: (string | boolean)?, -- "Full", "Corner" or false\n    name: boolean?,\n    distance: boolean?,\n    weapon: boolean?,\n    healthBar: boolean?,\n    healthText: boolean?,\n    tracer: boolean?,\n    chams: boolean?,\n    chamsTransparency: number?, -- 0-1\n    -- a colour per piece: box, name, distance, weapon, healthText, tracer, chams, health\n    colors: { [string]: Color3 }?,\n}',
+        methods = "export type ESPPreview = Moveable & {\n    Set: (self: ESPPreview, props: ESPPreviewProps) -> (),\n    Get: (self: ESPPreview) -> { [string]: any },\n    SetCharacter: (self: ESPPreview, model: Model?) -> boolean,\n    SetAutoRotate: (self: ESPPreview, on: boolean) -> (),\n    SetAnimateHealth: (self: ESPPreview, on: boolean) -> (),\n    Remove: (self: ESPPreview) -> (),\n}",
+        props = { name = "ESPPreview" },
+    },
+    {
+        name = "CreateDashboard",
+        code = 'local control = tab:CreateDashboard({name = "Dashboard"})',
+        properties = "export type DashboardProps = {\n    -- the pill on the player's card: a word (the key's tier) and a line under it, which can be a\n    -- function called every second (the key's time left)\n    badge: (string | { text: string?, icon: (string | number)?, subtitle: (string | (() -> string))? })?,\n    hubName: string?, -- shown for the player's name while it is hidden; default the window's name\n    hubIcon: (string | number)?, -- shown for their picture while it is hidden; default the window's icon\n    links: { DashboardLink }?,\n    executor: boolean?, -- the executor card; default true\n    executorText: string?,\n    loader: string?, -- run again after Rejoin or a server hop (queue_on_teleport)\n}",
+        methods = "export type Dashboard = Moveable & {\n    SetHideName: (self: Dashboard, hidden: boolean) -> (),\n    SetHideAvatar: (self: Dashboard, hidden: boolean) -> (),\n    Rejoin: (self: Dashboard) -> boolean,\n    ServerHop: (self: Dashboard, lowest: boolean?) -> boolean,\n    Remove: (self: Dashboard) -> (),\n}",
+        props = { name = "Dashboard" },
+    },
+    {
+        name = "CreateItemPicker",
+        code = 'local control = tab:CreateItemPicker({name = "ItemPicker"})',
+        properties = 'export type ItemPickerProps = {\n    name: string?, -- the row\'s label\n    title: string?, -- the picker\'s heading; default "Select " .. name\n    icon: (string | number)?,\n    description: string?,\n    tooltip: string?,\n    flag: string?,\n    forgetState: boolean?,\n    items: { PickerItem }?,\n    filters: { GridFilterChip }?, -- a chip each, after "All"\n    search: (boolean | string)?, -- the placeholder\n    multiSelect: boolean?, -- default true\n    value: (string | { string })?,\n    emptyText: string?,\n    callback: ((selected: { string }) -> ())?,\n}',
+        methods = "export type ItemPicker = Moveable & {\n    value: { string },\n    Get: (self: ItemPicker) -> { string },\n    Set: (self: ItemPicker, ids: string | { string }, skipCallback: boolean?) -> (),\n    Toggle: (self: ItemPicker, id: string, skipCallback: boolean?) -> boolean,\n    SelectAll: (self: ItemPicker, skipCallback: boolean?) -> (),\n    Clear: (self: ItemPicker, skipCallback: boolean?) -> (),\n    SetFilter: (self: ItemPicker, tag: string?) -> (),\n    Refresh: (self: ItemPicker, items: { PickerItem }, skipCallback: boolean?) -> (),\n    Open: (self: ItemPicker) -> (),\n    Close: (self: ItemPicker) -> (),\n    IsOpen: (self: ItemPicker) -> boolean,\n    Remove: (self: ItemPicker) -> (),\n}",
+        props = { name = "ItemPicker" },
+    },
+    {
+        name = "CreateScrollHint",
+        code = 'local control = tab:CreateScrollHint({name = "ScrollHint"})',
+        properties = "export type ScrollHintProps = {\n    text: string?,\n}",
+        methods = "export type ScrollHint = Moveable & {\n    Set: (self: ScrollHint, text: string) -> (),\n}",
+        props = { name = "ScrollHint" },
+    },
+    {
+        name = "CreateSegmentedPicker",
+        code = 'local control = tab:CreateSegmentedPicker({name = "Mode", options = {"Low", "High"}, value = "High"})',
+        properties = "export type SegmentedPickerProps = {\n    options: { SegmentedPickerOption }?,\n    value: string?, -- a leaf's text - a top-level option's own, or a nested child's\n    description: string?,\n    flag: string?,\n    forgetState: boolean?,\n    callback: ((value: string) -> ())?,\n}",
+        methods = "export type SegmentedPicker = Moveable & {\n    value: string,\n    Set: (self: SegmentedPicker, value: string, skipCallback: boolean?) -> (),\n}",
+        props = { name = "Mode", options = { "Low", "High" }, value = "High" },
+    },
+    {
+        name = "CreateShimmerLabel",
+        code = 'local control = tab:CreateShimmerLabel({name = "ShimmerLabel"})',
+        properties = "export type ShimmerLabelProps = {\n    text: string?,\n    speed: number?, -- seconds per sweep (default 1.4)\n    spread: number?, -- 0..1, width of the bright band (default 0.2)\n    angle: number?, -- gradient rotation in degrees (default 20)\n    textSize: number?,\n}",
+        methods = "export type ShimmerLabel = Moveable & {\n    text: string,\n    Set: (self: ShimmerLabel, text: string) -> (),\n    SetSpeed: (self: ShimmerLabel, seconds: number) -> (),\n    SetSpread: (self: ShimmerLabel, fraction: number) -> (),\n    SetAngle: (self: ShimmerLabel, degrees: number) -> (),\n    SetTextSize: (self: ShimmerLabel, size: number) -> (),\n}",
+        props = { name = "ShimmerLabel" },
+    },
+    {
+        name = "CreateInput",
+        code = 'local control = tab:CreateInput({name = "Profile name", value = "Main"})',
+        properties = "export type InputProps = {\n    required: boolean?,\n    min: number?,\n    max: number?,\n    maxLength: number?,\n    validate: ((value: string) -> (boolean, string?))?,\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    value: string?,\n    placeholder: string?,\n    numeric: boolean?,\n    clearOnFocus: boolean?,\n    forgetState: boolean?,\n    callback: ((value: string) -> ())?,\n}",
+        methods = "export type Input = Moveable & {\n    Validate: (self: Input, value: string?) -> (boolean, string?),\n    GetValidation: (self: Input) -> { valid: boolean, message: string? },\n    value: string,\n    locked: boolean,\n    Set: (self: Input, value: string, skipCallback: boolean?) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): dims the element and covers it\n    -- with an input-blocking scrim. `reason` replaces its description while locked.\n    Lock: (self: Input, reason: string?) -> (),\n    Unlock: (self: Input) -> (),\n    IsLocked: (self: Input) -> boolean,\n}",
+        props = { name = "Profile name", value = "Main" },
+    },
+    {
+        name = "CreateKeybind",
+        code = 'local control = tab:CreateKeybind({name = "Unbound keybind", value = Enum.KeyCode.Unknown})',
+        properties = "export type KeybindProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    value: (EnumItem | string)?, -- an Enum.KeyCode / mouse button, or a KeyCode name\n    forgetState: boolean?,\n    isMenuToggle: boolean?, -- internal: the settings menu-toggle keybind, clash check runs in reverse\n    hold: boolean?, -- fire callback(true) once held, callback(false) on release\n    holdThreshold: number?, -- seconds to hold before it counts (default 0.2)\n    callback: ((value: EnumItem | boolean) -> ())?, -- bound key on press, or true/false in hold mode\n    onChanged: ((key: EnumItem) -> ())?, -- fires when the binding is changed\n}",
+        methods = "export type Keybind = Moveable & {\n    value: EnumItem,\n    locked: boolean,\n    Set: (self: Keybind, value: EnumItem | string, skipChanged: boolean?) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): dims the element and covers it\n    -- with an input-blocking scrim. `reason` replaces its description while locked.\n    Lock: (self: Keybind, reason: string?) -> (),\n    Unlock: (self: Keybind) -> (),\n    IsLocked: (self: Keybind) -> boolean,\n}",
+        props = { name = "Unbound keybind", value = Enum.KeyCode.Unknown },
+    },
+    {
+        name = "CreateColorPicker",
+        code = 'local control = tab:CreateColorPicker({name = "ColorPicker"})',
+        properties = "export type ColorPickerProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    color: Color3?, -- initial colour (accepts a hex string too)\n    alpha: number?, -- initial alpha 0..1 (default 1, no dedicated control in this layout - set via code)\n    presets: { Color3 }?, -- quick-pick swatches under the RGB row\n    glow: boolean?, -- ambient glow behind the card (default true)\n    forgetState: boolean?,\n    callback: ((value: Color3, alpha: number) -> ())?,\n}",
+        methods = "export type ColorPicker = Moveable & {\n    value: Color3,\n    alpha: number,\n    locked: boolean,\n    Set: (self: ColorPicker, value: Color3 | string, skipCallback: boolean?) -> (),\n    SetAlpha: (self: ColorPicker, alpha: number, skipCallback: boolean?) -> (),\n    SetGlow: (self: ColorPicker, shown: boolean) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): dims the element and covers it\n    -- with an input-blocking scrim. `reason` replaces its description while locked.\n    Lock: (self: ColorPicker, reason: string?) -> (),\n    Unlock: (self: ColorPicker) -> (),\n    IsLocked: (self: ColorPicker) -> boolean,\n}",
+        props = { name = "ColorPicker" },
+    },
+    {
+        name = "CreateGradientPicker",
+        code = 'local control = tab:CreateGradientPicker({name = "GradientPicker"})',
+        properties = "export type GradientPickerProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    gradient: (ColorSequence | { Color3 } | { GradientStop })?, -- initial value\n    glow: boolean?, -- ambient glow behind the card (default true)\n    forgetState: boolean?,\n    callback: ((value: ColorSequence) -> ())?,\n}",
+        methods = "export type GradientPicker = Moveable & {\n    value: ColorSequence,\n    Set: (self: GradientPicker, value: ColorSequence | { Color3 } | { GradientStop }, skipCallback: boolean?) -> (),\n    SetGlow: (self: GradientPicker, shown: boolean) -> (),\n}",
+        props = { name = "GradientPicker" },
+    },
+    {
+        name = "CreateGroup",
+        code = 'local control = tab:CreateGroup({name = "Group"})',
+        properties = 'export type GroupProps = {\n    direction: string?, -- "row" | "column" (default row); "horizontal"/"vertical" also work\n    -- Only meaningful for a column nested in a row, where the default is an equal split:\n    -- `width` pins this column and lets the rest of the row absorb what is left, `weight`\n    -- splits proportionally instead.\n    width: number?,\n    weight: number?,\n    -- Dependency group: hides/shows every child together based on another control\'s value -\n    -- Fluent\'s own DependencyGroupbox. dependsOn is whatever CreateToggle/CreateDropdown/etc\n    -- itself returned; condition defaults to a plain truthy check (built for a toggle) - pass\n    -- one explicitly for a dropdown/slider-driven group, e.g. function(v) return v == "Advanced"\n    -- end.\n    dependsOn: any?,\n    condition: ((value: any) -> boolean)?,\n}',
+        methods = "export type Group = Moveable & {\n    CreateButton: (self: Group, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Group, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Group, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Group, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Group, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Group, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Group, props: CheckboxProps) -> Checkbox,\n    CreateStat: (self: Group, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Group, props: StatusCardProps) -> StatusCard,\n    CreateSlider: (self: Group, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Group, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,\n    CreateChart: (self: Group, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Group, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Group, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Group, props: ItemPickerProps) -> ItemPicker,\n    CreateDashboard: (self: Group, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Group, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Group, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Group, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Group, props: FAQProps) -> FAQ,\n    CreateTable: (self: Group, props: TableProps) -> Table,\n    CreateStepper: (self: Group, props: StepperProps) -> Stepper,\n    CreateListPicker: (self: Group, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Group, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Group, props: PanelProps) -> Panel,\n    CreateSection: (self: Group, props: SectionProps) -> Section,\n    CreateLabel: (self: Group, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,\n    CreateDivider: (self: Group, props: DividerProps?) -> Divider,\n    CreateGroup: (self: Group, props: GroupProps?) -> Group,\n}",
+        props = { name = "Group" },
+    },
+    {
+        name = "CreateTabbox",
+        code = 'local control = tab:CreateTabbox({name = "Tabbox"})\nlocal page = control:CreateTab({name = "First"})\npage:CreateLabel({text = "Page content"})',
+        properties = "export type TabboxProps = {\n    name: string?,\n}",
+        methods = "export type Tabbox = Moveable & {\n    -- returns the page, which hosts elements exactly like a Group does\n    CreateTab: (self: Tabbox, props: { name: string? }) -> TabboxPage,\n}",
+        props = { name = "Tabbox" },
+    },
+    {
+        name = "CreatePanel",
+        code = 'local control = tab:CreatePanel({name = "Panel"})\nlocal page = control:CreatePage({name = "First"})\npage:CreateLabel({text = "Page content"})',
+        properties = "export type PanelProps = {\n    showPagePills: boolean?, -- false when a separate selector owns page navigation\n    name: string?, -- the card's instance name; the header shows the CURRENT page, not this\n    onPageChanged: ((page: string) -> ())?, -- a page change the player (or SelectPage) made\n    flag: string?, -- config key for the open page; derived from the name when omitted\n    forgetState: boolean?, -- don't persist which page is open\n}",
+        methods = "export type Panel = Moveable & {\n    -- the first page created is the one the panel opens on\n    CreatePage: (self: Panel, props: { name: string?, icon: (string | number)? }) -> PanelPage,\n    -- by index, by name, or by the page object; false for a page this panel does not have\n    SelectPage: (self: Panel, page: number | string | PanelPage, skipCallback: boolean?) -> boolean,\n    -- like SelectPage, but a page this panel does not have YET is remembered and opened when built\n    Set: (self: Panel, page: number | string | PanelPage, skipCallback: boolean?) -> boolean,\n    GetPage: (self: Panel) -> string?,\n}",
+        props = { name = "Panel" },
+    },
+    {
+        name = "CreateHoldButton",
+        code = 'local control = tab:CreateHoldButton({name = "HoldButton"})',
+        properties = "export type HoldButtonProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    holdDuration: number?, -- seconds the fill takes to complete (default 1)\n    danger: boolean?, -- tint the fill red instead of the accent colour\n    locked: boolean?,\n    callback: (() -> ())?,\n}",
+        methods = "export type HoldButton = Moveable & {\n    locked: boolean,\n    SetLocked: (self: HoldButton, locked: boolean) -> (),\n    -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.\n    Lock: (self: HoldButton) -> (),\n    Unlock: (self: HoldButton) -> (),\n    IsLocked: (self: HoldButton) -> boolean,\n}",
+        props = { name = "HoldButton" },
+    },
+    {
+        name = "CreateCollapsible",
+        code = 'local control = tab:CreateCollapsible({name = "Collapsible"})',
+        properties = "export type CollapsibleProps = {\n    name: string?,\n    icon: (string | number)?,\n    expanded: boolean?, -- start open (default false)\n    flag: string?, -- config key for open/closed; derived from the name when omitted\n    forgetState: boolean?, -- don't persist open/closed\n}",
+        methods = "export type Collapsible = Moveable & {\n    expanded: boolean,\n    Toggle: (self: Collapsible) -> (),\n    SetExpanded: (self: Collapsible, expanded: boolean) -> (),\n    Set: (self: Collapsible, expanded: boolean, skipAnimation: boolean?) -> (),\n    Get: (self: Collapsible) -> boolean,\n    CreateButton: (self: Collapsible, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Collapsible, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Collapsible, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Collapsible, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Collapsible, props: CheckboxProps) -> Checkbox,\n    CreateStat: (self: Collapsible, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Collapsible, props: StatusCardProps) -> StatusCard,\n    CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Collapsible, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,\n    CreateChart: (self: Collapsible, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Collapsible, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Collapsible, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Collapsible, props: ItemPickerProps) -> ItemPicker,\n    CreateDashboard: (self: Collapsible, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Collapsible, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Collapsible, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Collapsible, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Collapsible, props: FAQProps) -> FAQ,\n    CreateTable: (self: Collapsible, props: TableProps) -> Table,\n    CreateStepper: (self: Collapsible, props: StepperProps) -> Stepper,\n    CreateListPicker: (self: Collapsible, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Collapsible, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Collapsible, props: PanelProps) -> Panel,\n    CreateSection: (self: Collapsible, props: SectionProps) -> Section,\n    CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,\n    CreateDivider: (self: Collapsible, props: DividerProps?) -> Divider,\n    CreateGroup: (self: Collapsible, props: GroupProps?) -> Group,\n}",
+        props = { name = "Collapsible" },
+    },
+    {
+        name = "CreateChangelog",
+        code = 'local control = tab:CreateChangelog({name = "Changelog"})',
+        properties = 'export type ChangelogProps = {\n    name: string?, -- card title (default "Update Log")\n    version: string?,\n    date: string?,\n    entries: { ChangelogEntry }?,\n}',
+        methods = "export type Changelog = Moveable & {}",
+        props = { name = "Changelog" },
+    },
+    {
+        name = "CreateSubTab",
+        code = 'local control = tab:CreateSubTab({name = "SubTab"})',
+        properties = "export type SubTabProps = {\n    name: string?,\n    icon: (string | number)?,\n}",
+        methods = "export type SubTab = Group & {\n    Select: (self: SubTab) -> (),\n}",
+        props = { name = "SubTab" },
+    },
+    {
+        name = "CreateSpacer",
+        code = 'local control = tab:CreateSpacer({name = "Spacer"})',
+        properties = "export type SpacerProps = {\n    height: number?, -- pixel gap (default 12)\n}",
+        methods = "export type Spacer = Moveable & {\n    height: number,\n    SetHeight: (self: Spacer, height: number, animate: boolean?) -> (),\n}",
+        props = { name = "Spacer" },
+    },
+}
+function reference.create(tab, entry)
+    local props = table.clone(entry.props)
+    props.forgetState = true
+    local control = tab[entry.name](tab, props)
+    if entry.name == "CreatePanel" then
+        control:CreatePage({ name = "First" }):CreateLabel({ text = "Page content" })
+    end
+    if entry.name == "CreateTabbox" then
+        control:CreateTab({ name = "First" }):CreateLabel({ text = "Page content" })
+    end
+    return control
+end
+return reference
+]=====]
+
 sources["utility/constants"] = [=====[
 --!strict
 
@@ -50037,6 +50890,297 @@ constants.displayOrder = {
 return constants
 ]=====]
 
+sources["utility/controlContract"] = [=====[
+--!nonstrict
+-- Copyright (c) 2026 Corridon Capital
+-- MPL-2.0: https://mozilla.org/MPL/2.0/
+local contract = {}
+local lifecycle = require(script.Parent.elementLifecycle)
+local callbackSetters = {
+    Toggle = true,
+    Checkbox = true,
+    Slider = true,
+    Dropdown = true,
+    PlayerDropdown = true,
+    Input = true,
+    ColorPicker = true,
+    GradientPicker = true,
+    ColorSwatch = true,
+    Keybind = true,
+    SegmentedPicker = true,
+    ListPicker = true,
+    ReorderList = true,
+    ItemGrid = true,
+    ItemPicker = true,
+    Panel = true,
+    Stepper = true,
+}
+
+function contract.copy(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, item in value do
+        result[key] = contract.copy(item, seen)
+    end
+    return result
+end
+local function same(a, b)
+    if type(a) ~= type(b) then
+        return false
+    end
+    if type(a) ~= "table" then
+        return a == b
+    end
+    for key, item in a do
+        if not same(item, b[key]) then
+            return false
+        end
+    end
+    for key in b do
+        if a[key] == nil then
+            return false
+        end
+    end
+    return true
+end
+function contract.value(control)
+    if control.__type == "Dropdown" or control.__type == "PlayerDropdown" then
+        return if control.multiSelect
+            then contract.copy(control.value)
+            elseif type(control.value) == "table" then control.value[1]
+            else control.value
+    end
+    if control.value ~= nil or control._canBeNil then
+        return contract.copy(control.value)
+    end
+    if control.Get then
+        return contract.copy(control:Get())
+    end
+    if control.__type == "Paragraph" then
+        return { title = control.title.Text, content = control.body.Text }
+    end
+    if
+        control.__type == "Label"
+        or control.__type == "Divider"
+        or control.__type == "ShimmerLabel"
+        or control.__type == "ScrollHint"
+    then
+        return control.title and control.title.Text
+    end
+    return nil
+end
+function contract.notify(window, control)
+    if not control._contractInstalled or control._removed or (control._silentChanges or 0) > 0 then
+        return
+    end
+    local value = contract.value(control)
+    if same(value, control._observedValue) then
+        return
+    end
+    local previous = control._observedValue
+    control._observedValue = contract.copy(value)
+    for _, listener in table.clone(control._changeListeners) do
+        if control._removed or window.unloaded then
+            break
+        end
+        if listener.connected then
+            local ok = pcall(
+                listener.callback,
+                contract.copy(value),
+                contract.copy(previous),
+                { restoring = window:IsRestoringConfig() }
+            )
+            if not ok then
+                window:_recordUsabilityError("change-listener", control.__type)
+            end
+        end
+    end
+end
+
+function contract.install(window, control)
+    if control._contractInstalled then
+        return
+    end
+    control._contractInstalled = true
+    control._changeListeners = {}
+    control._observedValue = contract.value(control)
+    function control:GetValue()
+        return contract.value(self)
+    end
+    function control:OnChanged(callback)
+        assert(type(callback) == "function", "OnChanged expects a function")
+        local listener = { callback = callback, connected = true }
+        table.insert(self._changeListeners, listener)
+        return function()
+            listener.connected = false
+            local index = table.find(self._changeListeners, listener)
+            if index then
+                table.remove(self._changeListeners, index)
+            end
+        end
+    end
+    local setter = control.Set or control.SetRows
+    function control:SetControlValue()
+        return false
+    end
+    if setter then
+        function control:SetControlValue(value, silent)
+            if self._removed or window.unloaded then
+                return false
+            end
+            local muted = silent == true
+            self._silentChanges = (self._silentChanges or 0) + (if muted then 1 else 0)
+            local results =
+                table.pack(pcall(self.Set, self, value, if callbackSetters[self.__type] then silent else nil))
+            self._silentChanges -= (if muted then 1 else 0)
+            if not results[1] then
+                error(results[2], 0)
+            end
+            if muted then
+                self._observedValue = contract.value(self)
+            else
+                contract.notify(window, self)
+            end
+            return table.unpack(results, 2, results.n)
+        end
+        if not control.SetValue then
+            control.SetValue = control.SetControlValue
+        end
+        local function wrapped(element, value, option, ...)
+            if element._removed or window.unloaded then
+                return false
+            end
+            local silent = callbackSetters[element.__type] and option == true
+            element._silentChanges = (element._silentChanges or 0) + (if silent then 1 else 0)
+            local results = table.pack(pcall(setter, element, value, option, ...))
+            element._silentChanges -= (if silent then 1 else 0)
+            if not results[1] then
+                error(results[2], 0)
+            end
+            if silent then
+                element._observedValue = contract.value(element)
+            else
+                contract.notify(window, element)
+            end
+            return table.unpack(results, 2, results.n)
+        end
+        control.Set = wrapped
+        if control.__type == "Table" then
+            control.SetRows = wrapped
+        end
+    end
+    function control:Destroy()
+        if self._removed then
+            return false
+        end
+        local host = self.tab
+        lifecycle.teardown(window, { self })
+        for _, node in
+            { self.main, self.descriptor and self.descriptor.main, self._validationHint and self._validationHint.main }
+        do
+            if node then
+                window:DestroySubtree(node)
+            end
+        end
+        if host and host.elements then
+            local index = table.find(host.elements, self)
+            if index then
+                table.remove(host.elements, index)
+            end
+            if host._reflowRow then
+                host:_reflowRow()
+            end
+        end
+        return true
+    end
+    function control:IsBusy()
+        return self._busy == true
+    end
+    function control:SetBusy(busy, text)
+        if self._removed or window.unloaded then
+            return false
+        end
+        if busy and not self._busy and self.interact then
+            self._activeBeforeBusy = self.interact.Active
+        end
+        self._busy = busy == true
+        if self.title then
+            window:_bindLocale(self.title, "Text", if self._busy then text or "Working…" else self.name or "")
+        end
+        if self.interact then
+            self.interact.Active = if self._busy then false else self._activeBeforeBusy ~= false
+        end
+        return true
+    end
+    function control:Run(callback, options)
+        options = options or {}
+        if self._removed or self._busy or self.locked or window.unloaded then
+            return false
+        end
+        assert(type(callback) == "function", "Run expects a function")
+        local restoring = window:IsRestoringConfig()
+        self:SetBusy(true, options.busyText)
+        task.spawn(function()
+            local previous = window:_setThreadRestoring(restoring)
+            local ok, result, detail = pcall(callback, self)
+            if ok and result == false then
+                ok = false
+                result = detail or "The action reported a failure."
+            end
+            window:_setThreadRestoring(previous)
+            if self._removed or window.unloaded then
+                return
+            end
+            self:SetBusy(false)
+            if self.SetStatus then
+                self:SetStatus(
+                    if ok
+                        then options.successText or "Completed."
+                        else options.errorText or "Could not complete the action. Try again."
+                )
+            end
+            if not ok then
+                window:_recordUsabilityError("action", self.__type)
+                window:_markCallbackError(self, result)
+            else
+                window:_clearCallbackError(self)
+            end
+            if options.onComplete then
+                local done = pcall(options.onComplete, ok, result)
+                if not done then
+                    window:_recordUsabilityError("completion", self.__type)
+                end
+            end
+        end)
+        return true
+    end
+    function control:ShowHelp()
+        return window:ShowControlHelp(self)
+    end
+    if control.Lock then
+        local lock, unlock = control.Lock, control.Unlock
+        function control:Lock(reason)
+            self._lockReason = reason or "This option is currently unavailable."
+            local result = lock(self, reason)
+            window:_installTouchHelp(self)
+            return result
+        end
+        function control:Unlock()
+            self._lockReason = nil
+            return unlock(self)
+        end
+    end
+end
+return contract
+]=====]
+
 sources["utility/elementLifecycle"] = [=====[
 --!nonstrict
 
@@ -50057,6 +51201,14 @@ function elementLifecycle.teardown(window, elements)
         end
         seen[element] = true
         element._removed = true
+        element._busy = false
+        if element._changeListeners then
+            table.clear(element._changeListeners)
+        end
+        if element._disconnectPageHook then
+            element._disconnectPageHook()
+            element._disconnectPageHook = nil
+        end
 
         for _, key in { "elements", "pages" } do
             if type(element[key]) == "table" then
