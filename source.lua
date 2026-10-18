@@ -975,6 +975,8 @@ function Chart.new(tab, properties)
         suffix = tostring(properties.suffix or properties.Suffix or ""),
         decimals = math.clamp(math.floor(clampNumber(properties.decimals or properties.Decimals, 0)), 0, 6),
         color = properties.color or properties.Color,
+        loading = properties.loading == true,
+        legend = properties.legend,
         -- The baseline under the plot; off for a chart that is all line and no frame.
         showBaseline = functions.readBool(properties, "baseline", true),
         -- The number on the right of the header, tracking the newest point.
@@ -1077,6 +1079,7 @@ function Chart:_cardHeight(): number
     return headerTop
         + headerHeight
         + plotGap
+        + (if self.legend then 20 else 0)
         + self.height
         + bottomPadding
         + (if self:_hasLabels() then labelRoom else 0)
@@ -1175,7 +1178,12 @@ function Chart:_build()
     self.labelRow = window:Create("Frame", {
         Name = "Labels",
         Size = UDim2.new(1, -(sidePadding * 2), 0, 12),
-        Position = UDim2.new(0, sidePadding, 0, headerTop + headerHeight + plotGap + self.height + 3),
+        Position = UDim2.new(
+            0,
+            sidePadding,
+            0,
+            headerTop + headerHeight + plotGap + (if self.legend then 20 else 0) + self.height + 3
+        ),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
 
@@ -1187,7 +1195,7 @@ function Chart:_build()
     self.plot = window:Create("Frame", {
         Name = "Plot",
         Size = UDim2.new(1, -(sidePadding * 2), 0, self.height),
-        Position = UDim2.new(0, sidePadding, 0, headerTop + headerHeight + plotGap),
+        Position = UDim2.new(0, sidePadding, 0, headerTop + headerHeight + plotGap + (if self.legend then 20 else 0)),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         ClipsDescendants = true,
@@ -1351,6 +1359,19 @@ function Chart:_build()
         self:_clearHover()
     end)
 
+    if self.legend then
+        self.legendLabel = window:Create("TextLabel", {
+            Text = "●  " .. tostring(self.legend),
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            BackgroundTransparency = 1,
+            TextTransparency = 1,
+            Size = UDim2.new(1, -sidePadding * 2, 0, 18),
+            Position = UDim2.fromOffset(sidePadding, headerTop + headerHeight + 5),
+            Parent = self.main,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    end
     self.emptyLabel = window:Create("TextLabel", {
         Text = locale.t("No data yet."),
         Size = UDim2.fromScale(1, 1),
@@ -1520,6 +1541,9 @@ end
 
 -- Which point the pointer is over, and the guide/readout that says so.
 function Chart:_hoverAt(absoluteX: number)
+    if self.loading then
+        return
+    end
     local width = self.plot.AbsoluteSize.X
     local count = #self.points
     if count == 0 or width <= 0 or not self._shown then
@@ -1704,7 +1728,12 @@ function Chart:_redraw(animate: boolean?)
     local width, height = self.plot.AbsoluteSize.X, self.plot.AbsoluteSize.Y
     local count = #self.points
 
-    self.emptyLabel.Visible = count == 0
+    self.emptyLabel.Visible = count == 0 or self.loading
+    self.emptyLabel.Text = locale.resolve(if self.loading then "Loading data…" else "No data yet.")
+    self.emptyLabel.TextTransparency = if self._shown and (count == 0 or self.loading) then 0.35 else 1
+    if self.loading then
+        count = 0
+    end
     if count == 0 or width <= 0 or height <= 0 then
         self:_hideMarksFrom(1)
         self:_hideDotsFrom(1)
@@ -1927,6 +1956,12 @@ end
 -- of the plot the page actually shows, and one wholly outside it is hidden. Run after every
 -- redraw and whenever the plot moves (a scroll, a tab switch, the window dragged).
 function Chart:_clipToView()
+    if self.loading then
+        self:_hideMarksFrom(1)
+        self:_hideDotsFrom(1)
+        self:_hideJointsFrom(1)
+        return
+    end
     -- the band every clipping ancestor lets through - the page, the frame around the pages, a
     -- collapsible - in the plot's own pixels
     local plotPosition = self.plot.AbsolutePosition
@@ -2111,6 +2146,12 @@ moveable(Chart)
 lockable(Chart)
 
 -- Every point currently drawn, oldest first.
+function Chart:SetLoading(loading)
+    self.loading = loading == true
+    self:_clearHover()
+    self:_redraw(false)
+end
+
 function Chart:Get(): { number }
     return table.clone(self.points)
 end
@@ -2154,7 +2195,12 @@ end
 -- The card follows the plot's height, and the room named bars need under it.
 function Chart:_resize()
     self.plot.Size = UDim2.new(1, -(sidePadding * 2), 0, self.height)
-    self.labelRow.Position = UDim2.new(0, sidePadding, 0, headerTop + headerHeight + plotGap + self.height + 3)
+    self.labelRow.Position = UDim2.new(
+        0,
+        sidePadding,
+        0,
+        headerTop + headerHeight + plotGap + (if self.legend then 20 else 0) + self.height + 3
+    )
     self.main.Size = UDim2.new(1, -20, 0, self:_cardHeight())
 end
 
@@ -2222,7 +2268,7 @@ function Chart:_entrance()
         self:_redraw(false)
     end
     self:_paintMarks(false)
-    if not self._shown or #self.points == 0 then
+    if not self._shown or #self.points == 0 or self.loading then
         return
     end
     self._entranceToken = (self._entranceToken or 0) + 1
@@ -2348,6 +2394,9 @@ function Chart:_entrance()
 end
 
 function Chart:_setShown(shown, animate)
+    if self.legendLabel then
+        self.window:_reveal(self.legendLabel, { TextTransparency = if shown then 0.25 else 1 }, animate)
+    end
     local w = self.window
     self._shown = shown
     if shown then
@@ -2356,7 +2405,11 @@ function Chart:_setShown(shown, animate)
             self.valueOdo:reveal(0.1, animate)
         end
         w:_reveal(self.baseline, { BackgroundTransparency = gridTransparency }, animate)
-        w:_reveal(self.emptyLabel, { TextTransparency = if #self.points == 0 then 0.6 else 1 }, animate)
+        w:_reveal(
+            self.emptyLabel,
+            { TextTransparency = if #self.points == 0 or self.loading then 0.35 else 1 },
+            animate
+        )
         for _, line in self.gridLines do
             w:_reveal(line, { BackgroundTransparency = gridTransparency }, animate)
         end
@@ -7379,6 +7432,7 @@ function Table.new(tab, properties)
         maxHeight = math.max(tonumber(properties.maxHeight or properties.MaxHeight) or defaultMaxHeight, rowHeight),
         sortable = functions.readBool(properties, "sortable", true),
         emptyText = properties.emptyText or properties.EmptyText or "Nothing here yet.",
+        loading = properties.loading == true,
         emptyIcon = properties.emptyIcon or properties.EmptyIcon or "lucide:table",
         onRowClick = properties.onRowClick or properties.OnRowClick,
 
@@ -7399,6 +7453,7 @@ function Table.new(tab, properties)
                 -- a share of the row (0-1); columns without one split what is left evenly
                 width = tonumber(column.width or column.Width),
                 align = alignment(column.align or column.Align),
+                explicitAlign = column.align ~= nil or column.Align ~= nil,
                 format = column.format or column.Format,
                 -- How the column sorts, when alphabetical is the wrong answer. `sortOrder` ranks
                 -- values by a list ({ "Common", "Rare", "Epic", ... }), so a rarity column sorts by
@@ -7745,6 +7800,7 @@ function Table:_renderRows()
         row.frame.Position = UDim2.fromOffset(0, (index - 1) * rowHeight)
         for _, column in self.columns do
             row.cells[column.key].Text = self:_cellText(column, data)
+            row.cells[column.key].TextXAlignment = column.align
             row.cells[column.key].TextTransparency = if self._shown then 0.1 else 1
         end
         self:_paintRow(row, false)
@@ -7772,11 +7828,29 @@ end
 
 function Table:_redraw()
     local count = #self.rows
+    for _, column in self.columns do
+        if not column.explicitAlign then
+            local numeric = false
+            for _, data in self.rows do
+                if data[column.key] ~= nil then
+                    numeric = type(data[column.key]) == "number"
+                    break
+                end
+            end
+            column.align = if numeric then Enum.TextXAlignment.Right else Enum.TextXAlignment.Left
+            self.headers[column.key].button.TextXAlignment = column.align
+            local titleWidth = functions.textWidth(self.window.theme.Font, 12, locale.resolve(column.title))
+            self.headers[column.key].arrow.Position = if numeric
+                then UDim2.new(1, -(titleWidth + 9), 0.5, 0)
+                else UDim2.new(0, titleWidth + 9, 0.5, 0)
+        end
+    end
     self.body.CanvasSize = UDim2.fromOffset(0, count * rowHeight)
-    local bodyHeight = if count == 0 then emptyRoom else math.min(count * rowHeight, self.maxHeight)
+    local bodyHeight = if count == 0 or self.loading then emptyRoom else math.min(count * rowHeight, self.maxHeight)
     self.body.Size = UDim2.new(1, -(sidePadding * 2), 0, bodyHeight)
-    self.body.Visible = count > 0
-    self.empty.frame.Visible = count == 0
+    self.body.Visible = count > 0 and not self.loading
+    self.empty.frame.Visible = count == 0 or self.loading
+    self.empty.label.Text = locale.resolve(if self.loading then "Loading data…" else self.emptyText)
     self.main.Size = UDim2.new(1, -20, 0, self:_top() + columnsHeight + bodyHeight + bottomPadding)
 
     if self.counter then
@@ -7789,6 +7863,11 @@ function Table:_redraw()
         header.arrow.Visible = self.sortKey == key
         header.arrow.Rotation = if self.sortDescending then 180 else 0
     end
+end
+
+function Table:SetLoading(loading)
+    self.loading = loading == true
+    self:_redraw()
 end
 
 moveable(Table)
@@ -8372,7 +8451,13 @@ function Drag.new(window, properties)
     })
 
     local dragging = false
+    local touchInput = nil
     local relative = nil
+    local function pointer()
+        return if touchInput
+            then Vector2.new(touchInput.Position.X, touchInput.Position.Y)
+            else variables.userInputService:GetMouseLocation()
+    end
 
     -- main.Position offsets live in a space shifted from AbsolutePosition by the gui inset,
     -- even though the ScreenGui ignores inset. so the drag target has to add the inset back
@@ -8385,8 +8470,7 @@ function Drag.new(window, properties)
     end
 
     local function getPosition()
-        local mouseLocation = variables.userInputService and variables.userInputService:GetMouseLocation()
-            or Vector2.new(0, 0)
+        local mouseLocation = variables.userInputService and pointer() or Vector2.new(0, 0)
         local validRelative = relative or Vector2.new(0, 0)
         local validOffset = offset or Vector2.new(0, 0)
 
@@ -8480,7 +8564,11 @@ function Drag.new(window, properties)
                 return
             end
 
+            if dragging then
+                return
+            end
             dragging = true
+            touchInput = if inputType == "Touch" then input else nil
 
             -- refetch in case the inset changed (e.g. topbar toggled) since construction
             if screenGui and screenGui.IgnoreGuiInset then
@@ -8489,7 +8577,7 @@ function Drag.new(window, properties)
 
             relative = self.window.main.AbsolutePosition
                 + self.window.main.AbsoluteSize * self.window.main.AnchorPoint
-                - variables.userInputService:GetMouseLocation()
+                - pointer()
             if not self.window.hidden then
                 variables.tweenService
                     :Create(
@@ -8504,7 +8592,7 @@ function Drag.new(window, properties)
 
     self.window:Connect(variables.userInputService.InputEnded, function(input)
         local inputType = input.UserInputType.Name
-        if inputType == "MouseButton1" or inputType == "Touch" then
+        if (touchInput and input == touchInput) or (not touchInput and inputType == "MouseButton1") then
             releaseDrag()
         end
     end)
@@ -22184,7 +22272,6 @@ local sidePadding = 20
 local topPadding = 20
 local bottomPadding = 20
 local regionGap = 12 -- between header, content and footer
-local innerWidth = cardWidth - sidePadding * 2
 
 local titleSize = 18
 local subtitleSize = 14
@@ -22194,7 +22281,6 @@ local headerIconGap = 12 -- icon to title-column
 local maxContentHeight = 300 -- content region scrolls past this
 -- the content scrolls, so it clips its children; this inset keeps box strokes off the edge
 local contentInset = 4
-local contentWidth = innerWidth - contentInset * 2
 
 -- Box (changelog card) metrics.
 local boxSidePad = 16
@@ -22294,6 +22380,11 @@ end
 
 function Popup:_build()
     local window = self.window
+    local viewport = window.screenGui.AbsoluteSize
+    self.cardWidth = if viewport.X >= 200 then math.min(cardWidth, viewport.X - 32) else cardWidth
+    self.innerWidth = self.cardWidth - sidePadding * 2
+    self.contentWidth = self.innerWidth - contentInset * 2
+    self.contentCeiling = maxContentHeight
     local hasIcon = self.icon ~= nil and self.icon ~= 0 and self.icon ~= ""
 
     -- Own ScreenGui so the modal sits above the window, toasts and notifications alike.
@@ -22330,7 +22421,7 @@ function Popup:_build()
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.new(0.5, 0, 0.5, 14), -- drifts up to centre on show
-        Size = UDim2.fromOffset(cardWidth, 0),
+        Size = UDim2.fromOffset(self.cardWidth, 0),
         AutomaticSize = Enum.AutomaticSize.Y,
         Active = true, -- clicks on the card never reach the backdrop
         BorderSizePixel = 0,
@@ -22393,6 +22484,23 @@ function Popup:_build()
     -- card grows a few pixels a moment after it shows, as the brand font's glyphs finish loading
     -- and AutomaticSize re-measures the text - reads as the font "settling" after the reveal.
     local headerHeight = self:_measureHeader(hasIcon)
+    if viewport.Y >= 200 then
+        self.contentCeiling = math.max(
+            32,
+            math.min(
+                maxContentHeight,
+                viewport.Y
+                    - 48
+                    - topPadding
+                    - bottomPadding
+                    - headerHeight
+                    - buttonHeight
+                    - regionGap * (if self.inputConfig then 3 else 2)
+                    - (if self.inputConfig then 44 else 0)
+                    - contentInset * 2
+            )
+        )
+    end
     self:_buildHeader(hasIcon, headerHeight)
     local contentHeight = self:_buildContent()
     local inputHeight = if self.inputConfig then self:_buildInput() else 0
@@ -22407,7 +22515,7 @@ function Popup:_build()
         + buttonHeight
         + bottomPadding
         + regionGap * (regions - 1)
-    self.card.Size = UDim2.fromOffset(cardWidth, cardHeight)
+    self.card.Size = UDim2.fromOffset(self.cardWidth, cardHeight)
     self.card.AutomaticSize = Enum.AutomaticSize.None
 
     -- dismiss surfaces
@@ -22539,7 +22647,7 @@ function Popup:_buildContent()
 
     local window = self.window
     local measured = if self.boxes and #self.boxes > 0 then self:_measureBoxes() else self:_measureText()
-    local viewHeight = math.min(measured, maxContentHeight) + contentInset * 2
+    local viewHeight = math.min(measured, self.contentCeiling) + contentInset * 2
 
     local content = window:Create("ScrollingFrame", {
         Name = "Content",
@@ -22993,7 +23101,7 @@ end
 -- fixed layout use the same numbers. Everything is sized off these, so nothing re-measures on
 -- screen once the font's glyphs land. Returns the header row height.
 function Popup:_measureHeader(hasIcon)
-    local textWidth = innerWidth - (if hasIcon then headerIconSize + headerIconGap else 0)
+    local textWidth = self.innerWidth - (if hasIcon then headerIconSize + headerIconGap else 0)
     self._titleH = functions.textHeight(self.window.theme.Font, titleSize, locale.resolve(self.title), textWidth)
     self._subH = if self.subtitle and self.subtitle ~= ""
         then functions.textHeight(self.window.theme.Font, subtitleSize, locale.resolve(self.subtitle), textWidth)
@@ -23005,7 +23113,7 @@ end
 -- Height a paragraph needs at the content region's width.
 function Popup:_measureText()
     -- measure what actually renders: the label shows the translated string
-    return functions.textHeight(self.window.theme.Font, contentSize, locale.resolve(self.content), contentWidth)
+    return functions.textHeight(self.window.theme.Font, contentSize, locale.resolve(self.content), self.contentWidth)
 end
 
 -- Every measurement one box needs: its frame height (content + padding), its title and
@@ -23014,7 +23122,10 @@ end
 function Popup:_measureBox(box)
     box = if typeof(box) == "table" then box else { title = tostring(box) }
     local hasIcon = box.icon ~= nil and box.icon ~= 0 and box.icon ~= ""
-    local textWidth = contentWidth - boxWidthInset - boxSidePad * 2 - (if hasIcon then boxIconSize + boxIconGap else 0)
+    local textWidth = self.contentWidth
+        - boxWidthInset
+        - boxSidePad * 2
+        - (if hasIcon then boxIconSize + boxIconGap else 0)
 
     local titleH = functions.textHeight(
         self.window.theme.TitleFont,
@@ -24547,6 +24658,12 @@ function Resize.new(window)
 
     local screenGui = self.window.screenGui
     local dragStartMouse = Vector2.zero
+    local touchInput = nil
+    local function pointer()
+        return if touchInput
+            then Vector2.new(touchInput.Position.X, touchInput.Position.Y)
+            else variables.userInputService:GetMouseLocation()
+    end
     local dragStartSize = Vector2.zero
     local dragStartCentreAbs = Vector2.zero
 
@@ -24787,9 +24904,13 @@ function Resize.new(window)
         end
         self._lastClickAt = now
 
+        if self.resizing then
+            return
+        end
+        touchInput = if inputType == "Touch" then input else nil
         self.resizing = true
         setIconState(arcDragTransparency, arcImageDragSize)
-        dragStartMouse = variables.userInputService:GetMouseLocation()
+        dragStartMouse = pointer()
         dragStartSize = Vector2.new(self.window.main.Size.X.Offset, self.window.main.Size.Y.Offset)
         dragStartCentreAbs = self.window.main.AbsolutePosition
             + self.window.main.AbsoluteSize * self.window.main.AnchorPoint
@@ -24808,12 +24929,12 @@ function Resize.new(window)
             releaseResize()
             return
         end
-        applyResize(variables.userInputService:GetMouseLocation(), dt)
+        applyResize(pointer(), dt)
     end)
 
     self.window:Connect(variables.userInputService.InputEnded, function(input)
         local inputType = input.UserInputType.Name
-        if inputType == "MouseButton1" or inputType == "Touch" then
+        if (touchInput and input == touchInput) or (not touchInput and inputType == "MouseButton1") then
             releaseResize()
         end
     end)
@@ -25366,6 +25487,72 @@ local fieldHeight = 26
 local slotHeight = 30
 local fieldDrop = 2
 
+local folds = {
+    ["á"] = "a",
+    ["à"] = "a",
+    ["â"] = "a",
+    ["ã"] = "a",
+    ["ä"] = "a",
+    ["Á"] = "a",
+    ["À"] = "a",
+    ["Â"] = "a",
+    ["Ã"] = "a",
+    ["Ä"] = "a",
+    ["é"] = "e",
+    ["è"] = "e",
+    ["ê"] = "e",
+    ["ë"] = "e",
+    ["É"] = "e",
+    ["È"] = "e",
+    ["Ê"] = "e",
+    ["Ë"] = "e",
+    ["í"] = "i",
+    ["ì"] = "i",
+    ["î"] = "i",
+    ["ï"] = "i",
+    ["Í"] = "i",
+    ["Ì"] = "i",
+    ["Î"] = "i",
+    ["Ï"] = "i",
+    ["ó"] = "o",
+    ["ò"] = "o",
+    ["ô"] = "o",
+    ["õ"] = "o",
+    ["ö"] = "o",
+    ["Ó"] = "o",
+    ["Ò"] = "o",
+    ["Ô"] = "o",
+    ["Õ"] = "o",
+    ["Ö"] = "o",
+    ["ú"] = "u",
+    ["ù"] = "u",
+    ["û"] = "u",
+    ["ü"] = "u",
+    ["Ú"] = "u",
+    ["Ù"] = "u",
+    ["Û"] = "u",
+    ["Ü"] = "u",
+    ["ç"] = "c",
+    ["Ç"] = "c",
+    ["ñ"] = "n",
+    ["Ñ"] = "n",
+}
+local function normalized(text)
+    text = string.lower(text or "")
+    for source, replacement in folds do
+        text = string.gsub(text, source, replacement)
+    end
+    return (text:gsub("%s+", " "):match("^%s*(.-)%s*$"))
+end
+local function matches(text, query)
+    for word in query:gmatch("%S+") do
+        if not string.find(text, word, 1, true) then
+            return false
+        end
+    end
+    return true
+end
+
 -- The searchable text for one unit: a leaf's own name, or every descendant leaf name joined
 -- so a group matches when any child inside it does. Recurses into anything that can host its
 -- own nested elements the same way window.luau's own forEachElement does (Group, and a
@@ -25381,8 +25568,15 @@ local function leafText(element): string
             return text
         end
     end
-    local name = if type(element.name) == "string" then element.name else ""
+    local title = element.title
+    local name = if type(element.name) == "string"
+        then element.name
+        elseif title and title:IsA("TextLabel") then title.Text
+        else ""
     local description = if type(element.description) == "string" then element.description else ""
+    if element.__type == "Paragraph" and element.body then
+        description ..= " " .. element.body.Text
+    end
     return if description ~= "" then name .. " " .. description else name
 end
 
@@ -25430,21 +25624,6 @@ end
 
 -- Every top-level element across the real content pages (the settings page and other
 -- neglected tabs aren't pages you search). Sections are headers, so skip them.
-local function collectUnits(window)
-    local units = {}
-    for _, tab in window.tabs do
-        if tab.neglectSelector then
-            continue
-        end
-        for _, element in tab.elements do
-            if element.__type ~= "Section" then
-                table.insert(units, element)
-            end
-        end
-    end
-    return units
-end
-
 -- The field awake (searching) or at rest: wider or back to its width, the edge and the glyph in
 -- the accent or back to the quiet stroke.
 local function setPillShown(window, shown, info)
@@ -25452,7 +25631,10 @@ local function setPillShown(window, shown, info)
     local tweenService = variables.tweenService
     tweenService
         :Create(window.searchField, info or focusInfo, {
-            Size = UDim2.fromOffset(if shown then fieldOpenWidth else fieldWidth, slotHeight),
+            Size = UDim2.fromOffset(
+                math.min(if shown then fieldOpenWidth else fieldWidth, math.max(80, window.main.AbsoluteSize.X - 240)),
+                slotHeight
+            ),
         })
         :Play()
     if window._searchFieldShown == false then
@@ -25502,7 +25684,7 @@ local function gatherPage(window, tab)
         end
         local entry = {
             unit = element,
-            text = string.lower(unitText(element)),
+            text = normalized(unitText(element)),
             isSection = element.__type == "Section",
             wasVisible = main.Visible and not element._userHidden,
             descWasVisible = element.descriptor and element.descriptor.main.Visible,
@@ -25520,7 +25702,7 @@ end
 -- when the header itself is what matched, everything under it shows - searching "Combat" finds
 -- the Combat section whole rather than an empty title.
 local function applyPageFilter(window, query)
-    query = string.lower(query or "")
+    query = normalized(query)
     local anyVisible = false
     local sectionMatches = {}
 
@@ -25529,8 +25711,8 @@ local function applyPageFilter(window, query)
             continue
         end
         local match = query == ""
-            or string.find(entry.text, query, 1, true) ~= nil
-            or (entry.section ~= nil and string.find(entry.section.text, query, 1, true) ~= nil)
+            or matches(entry.text, query)
+            or (entry.section ~= nil and matches(entry.section.text, query))
         local visible = entry.wasVisible and match
         entry.unit.main.Visible = visible
         if entry.unit.descriptor and entry.unit.descriptor.main then
@@ -25546,7 +25728,7 @@ local function applyPageFilter(window, query)
 
     for _, entry in window._searchUnits do
         if entry.isSection then
-            local ownMatch = query ~= "" and string.find(entry.text, query, 1, true) ~= nil
+            local ownMatch = query ~= "" and matches(entry.text, query)
             entry.unit.main.Visible = entry.wasVisible and (query == "" or ownMatch or sectionMatches[entry] == true)
         end
     end
@@ -25578,61 +25760,70 @@ end
 -- Toggle each unit's visibility against the query. Empty query shows everything, so the
 -- open field doubles as a browse-all-pages view.
 local function applyFilter(window, query)
-    query = string.lower(query or "")
+    query = normalized(query)
     local anyVisible = false
     for _, entry in window._searchUnits do
-        local match = query == "" or string.find(entry.text, query, 1, true) ~= nil
-        entry.unit.main.Visible = match
-        if entry.unit.descriptor then
-            entry.unit.descriptor.main.Visible = match
-        end
+        local match = matches(entry.text, query)
+        entry.result.Visible = match
         anyVisible = anyVisible or match
     end
     window.searchEmpty.Visible = not anyVisible and query ~= ""
 end
 
--- Pull every unit into the results page, remembering where each came from, and lay them out
--- grouped by page in creation order.
+-- Global results are shortcuts with context. Controls stay in their original containers,
+-- preserving dependencies, page visibility and current values while search is open.
 local function gatherUnits(window)
     window._searchUnits = {}
-    local order = 0
-    for _, unit in collectUnits(window) do
-        order += 1
-        local main = unit.main
+    for order, target in window:GetControlIndex(true) do
+        local unit = target.control
+        local result = window:Create("TextButton", {
+            Name = "SearchResult",
+            Text = "",
+            AutoButtonColor = false,
+            Size = UDim2.new(1, -20, 0, 62),
+            LayoutOrder = order,
+            BorderSizePixel = 0,
+            Parent = window.searchPage,
+        }, { BackgroundColor3 = "StatBackground" })
+        window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = result })
+        window:Create("TextLabel", {
+            Text = target.label,
+            TextSize = 15,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(14, 9),
+            Size = UDim2.new(1, -28, 0, 20),
+            Parent = result,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+        window:Create("TextLabel", {
+            Text = target.path,
+            TextSize = 12,
+            TextTransparency = 0.3,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(14, 34),
+            Size = UDim2.new(1, -28, 0, 18),
+            Parent = result,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+        local connection = window:Connect(result.MouseButton1Click, function()
+            window:RevealControl(unit)
+        end)
         table.insert(window._searchUnits, {
             unit = unit,
-            text = string.lower(unitText(unit)),
-            homeParent = main.Parent,
-            homeOrder = main.LayoutOrder,
-            descOrder = unit.descriptor and unit.descriptor.main.LayoutOrder,
+            text = normalized(target.path .. " " .. leafText(unit)),
+            result = result,
+            connection = connection,
         })
-
-        main.LayoutOrder = order * 10
-        main.Parent = window.searchPage
-        main.Visible = true
-        if unit.descriptor then
-            unit.descriptor.main.LayoutOrder = order * 10 + 1
-            unit.descriptor.main.Parent = window.searchPage
-            unit.descriptor.main.Visible = true
-        end
     end
 end
 
--- Put every unit back in the tab it came from, at its original order. Guards a unit whose
--- element was removed mid-search (its frame is gone).
+-- Drop only the temporary result cards; the real controls never moved.
 local function restoreUnits(window)
     for _, entry in window._searchUnits do
-        local unit = entry.unit
-        if unit.main and unit.main.Parent then
-            unit.main.LayoutOrder = entry.homeOrder
-            unit.main.Parent = entry.homeParent
-            unit.main.Visible = true
-        end
-        if unit.descriptor and unit.descriptor.main and unit.descriptor.main.Parent then
-            unit.descriptor.main.LayoutOrder = entry.descOrder
-            unit.descriptor.main.Parent = entry.homeParent
-            unit.descriptor.main.Visible = true
-        end
+        window:Disconnect(entry.connection)
+        window:DestroySubtree(entry.result)
     end
     window._searchUnits = {}
 end
@@ -25837,6 +26028,15 @@ function search._buildField(window)
         Parent = slot,
     }, { BackgroundColor3 = "StatBackground" })
     window.searchField = slot
+    window:Connect(window.main:GetPropertyChangedSignal("AbsoluteSize"), function()
+        slot.Size = UDim2.fromOffset(
+            math.min(
+                if window._searching then fieldOpenWidth else fieldWidth,
+                math.max(80, window.main.AbsoluteSize.X - 240)
+            ),
+            slotHeight
+        )
+    end)
     window.searchPill = field
     window:Create("UICorner", { CornerRadius = UDim.new(0, 7), Parent = field })
     window.searchStroke = window:Create("UIStroke", {
@@ -25876,12 +26076,13 @@ function search._buildField(window)
         Parent = field,
     }, { TextColor3 = "ContentColor", FontFace = "Font", PlaceholderColor3 = "PlaceholderColor" })
 
-    -- clicking into the box starts the search; leaving it empty ends it
+    -- An empty global search is also a browse-all view. Losing focus to one of its
+    -- results happens before MouseButton1Click; closing here would destroy that result.
     window:Connect(window.searchInput.Focused, function()
         search.open(window)
     end)
     window:Connect(window.searchInput.FocusLost, function()
-        if window._searching and window.searchInput.Text == "" then
+        if window._searching and window.searchInput.Text == "" and scopeOf(window) ~= "all" then
             search.close(window, { showTabs = true })
         end
     end)
@@ -38198,6 +38399,7 @@ function Window.new(properties)
         require(script.Parent.updatecheck).new(self, properties.updateCheck or properties.UpdateCheck, self.version)
 
     self:_initExperience(properties)
+    self:_initJourney()
     return self
 end
 
@@ -38223,6 +38425,7 @@ require(script.Parent.windowExtra)
 require(script.Parent.windowSettings)
 require(script.Parent.windowLifecycle)
 require(script.Parent.windowExperience)
+require(script.Parent.windowJourney)
 
 return Window
 ]=====]
@@ -38797,6 +39000,7 @@ end
 function Window:CreateShowcase(properties)
     properties = properties or {}
     local tab = self:CreateTab({ name = properties.name or "Component Catalog", icon = "lucide:layout-grid" })
+    tab._journeyUtility = true
     local catalog = { tab = tab, samples = {}, codes = {} }
     tab:CreateParagraph({
         title = "Component Catalog",
@@ -38922,6 +39126,160 @@ function Window:CreateShowcase(properties)
             end,
         },
     }
+    -- Declarative samples: the same properties shown in the snippet construct the live control.
+    local extra = {
+        {
+            "Checkbox",
+            "CreateCheckbox",
+            { name = "Remember settings", value = true },
+            'name = "Remember settings", value = true',
+            "Set(value); callback receives a boolean.",
+        },
+        {
+            "Stepper",
+            "CreateStepper",
+            { name = "Amount", value = 3, min = 1, max = 20, step = 1 },
+            'name = "Amount", value = 3, min = 1, max = 20, step = 1',
+            "Exact quantities. Set(value); callback receives a number.",
+        },
+        {
+            "List picker",
+            "CreateListPicker",
+            { name = "Region", options = { "America", "Europe", "Asia" }, value = "America" },
+            'name = "Region", options = {"America","Europe","Asia"}, value = "America"',
+            "Persistent visible choices. Single-select callbacks receive a string.",
+        },
+        {
+            "Segments",
+            "CreateSegmentedPicker",
+            { name = "Quality", options = { "Low", "Medium", "High" }, value = "High" },
+            'name = "Quality", options = {"Low","Medium","High"}, value = "High"',
+            "Short, mutually exclusive choices; use a dropdown for long labels.",
+        },
+        {
+            "Statistic",
+            "CreateStat",
+            { name = "Coins", value = 1250 },
+            'name = "Coins", value = 1250',
+            "Set(value) updates the number. Keep units in the name or suffix.",
+        },
+        {
+            "Status card",
+            "CreateStatusCard",
+            { name = "Session", rows = { { key = "status", label = "Status", value = "Ready" } } },
+            'name = "Session", rows = {{key="status",label="Status",value="Ready"}}',
+            "A compact summary for a task or connection status.",
+        },
+        {
+            "Progress",
+            "CreateProgressBar",
+            { name = "Download", value = 65, max = 100, suffix = "%" },
+            'name = "Download", value = 65, max = 100, suffix = "%"',
+            "Set(value) changes progress; max sets the full scale.",
+        },
+        {
+            "Table",
+            "CreateTable",
+            {
+                name = "Inventory",
+                columns = { { key = "item", title = "Item" }, { key = "qty", title = "Qty" } },
+                rows = { { item = "Crystal", qty = 24 }, { item = "Potion", qty = 8 } },
+            },
+            'name = "Inventory", columns = {{key="item",title="Item"},{key="qty",title="Qty"}}, rows = {{item="Crystal",qty=24},{item="Potion",qty=8}}',
+            "SetRows(rows), SortBy(key), SetLoading(boolean). Numeric columns align right automatically; explicit align overrides it. Large tables reuse visible rows.",
+        },
+        {
+            "Line chart",
+            "CreateChart",
+            {
+                name = "Earnings",
+                legend = "Coins / minute",
+                values = { 10, 18, 15, 26, 32 },
+                suffix = " c",
+                height = 110,
+                scale = true,
+            },
+            'name = "Earnings", legend = "Coins / minute", values = {10,18,15,26,32}, suffix = " c", height = 110, scale = true',
+            "Push(number) appends; maxPoints bounds history. SetLoading(boolean) distinguishes waiting from an empty series.",
+        },
+        {
+            "Bar chart",
+            "CreateChart",
+            {
+                name = "Activity",
+                mode = "bar",
+                values = { { value = 12, label = "Mon" }, { value = 20, label = "Tue" }, { value = 16, label = "Wed" } },
+                legend = "Actions per day",
+            },
+            'name = "Activity", mode = "bar", legend = "Actions per day", values = {{value=12,label="Mon"},{value=20,label="Tue"},{value=16,label="Wed"}}',
+            "Set(values) replaces the series. Each value may include a label.",
+        },
+        {
+            "FAQ",
+            "CreateFAQ",
+            {
+                name = "Help",
+                items = { { question = "Are changes saved?", answer = "Enable configuration saving in your window." } },
+            },
+            'name = "Help", items = {{question="Are changes saved?",answer="Enable configuration saving in your window."}}',
+            "Question and answer pairs with expandable details; searchable by their contents.",
+        },
+        {
+            "Paragraph",
+            "CreateParagraph",
+            { title = "Session details", content = "Longer explanations wrap inside the available space." },
+            'title = "Session details", content = "Longer explanations wrap inside the available space."',
+            "SetTitle(text), SetContent(text). Use for explanations, not interactive values.",
+        },
+        {
+            "Label",
+            "CreateLabel",
+            { text = "Connected to the session" },
+            'text = "Connected to the session"',
+            "A short status or instruction. Prefer Paragraph for longer text.",
+        },
+        {
+            "Console",
+            "CreateConsole",
+            { name = "Log", text = "Session ready.\nConfiguration loaded." },
+            'name = "Log", text = "Session ready.\\nConfiguration loaded."',
+            "Append(text) adds messages; Clear() resets the log. Keep logs bounded in long sessions.",
+        },
+    }
+    for _, sample in extra do
+        table.insert(entries, {
+            sample[1],
+            "tab:" .. sample[2] .. "({" .. sample[4] .. "})",
+            function(page)
+                local props = table.clone(sample[3])
+                props.forgetState = true
+                return page[sample[2]](page, props)
+            end,
+            sample[5],
+        })
+    end
+    table.insert(entries, {
+        "Advanced group",
+        'local advanced = tab:CreateCollapsible({name="Advanced"})\nadvanced:CreateToggle({name="Automatic",value=true})',
+        function(page)
+            local group = page:CreateCollapsible({ name = "Advanced", expanded = true })
+            group:CreateToggle({ name = "Automatic", value = true, forgetState = true })
+            group:CreateSlider({ name = "Update limit", range = { 0, 100 }, value = 60, forgetState = true })
+            return group
+        end,
+        "SetExpanded(boolean) opens or closes the group. Search and favorites reveal nested controls automatically.",
+    })
+    table.insert(entries, {
+        "Responsive row",
+        'local row = tab:CreateGroup()\nrow:CreateButton({name="Apply"})\nrow:CreateToggle({name="Enabled",value=true})',
+        function(page)
+            local group = page:CreateGroup()
+            group:CreateButton({ name = "Apply" })
+            group:CreateToggle({ name = "Enabled", value = true, forgetState = true })
+            return group
+        end,
+        "Rows wrap when space is tight. Use direction = column for stacked controls; avoid fixed pixel widths.",
+    })
     local names = {}
     for _, entry in entries do
         table.insert(names, entry[1])
@@ -38945,6 +39303,11 @@ function Window:CreateShowcase(properties)
         catalog.samples[entry[1]] = entry[3](page)
         catalog.codes[entry[1]] = entry[2]
         page:CreateParagraph({ title = "Example code", content = entry[2] })
+        page:CreateParagraph({
+            title = "Integration notes",
+            content = entry[4]
+                or "Set a unique flag for saved values and handle changes through callback. Use forgetState = true for demonstrations. Themes and density follow the parent window.",
+        })
         page:CreateCopyButton({ name = "Copy example", text = entry[2] })
     end
     return catalog
@@ -39752,6 +40115,7 @@ function Window:Save(name)
     end
     local saved = persistence.save(self, name)
     if saved then
+        self:_markProfileBaseline()
         self:_flashSaved()
     end
     return saved
@@ -39762,7 +40126,11 @@ function Window:Load(name)
     if name ~= nil and (type(name) ~= "string" or name == "") then
         return false
     end
-    return persistence.load(self, name)
+    local loaded = persistence.load(self, name)
+    if loaded then
+        self:_markProfileBaseline()
+    end
+    return loaded
 end
 
 -- Load a named config and make it the live state autoLoad restores next session. Loading only
@@ -41796,6 +42164,672 @@ end
 return Window
 ]=====]
 
+sources["components/windowJourney"] = [=====[
+--!nonstrict
+-- Copyright (c) 2026 Corridon Capital
+-- MPL-2.0: https://mozilla.org/MPL/2.0/
+local core = require(script.Parent.windowCore)
+local Window = core.Window
+local persistence = core.persistence
+local filesystem = require(script.Parent.Parent.utility.filesystem)
+local function selected(picker)
+    return if type(picker.value) == "table" then picker.value[1] else picker.value
+end
+
+local function clone(value)
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = {}
+    for k, v in value do
+        result[k] = clone(v)
+    end
+    return result
+end
+local function equal(a, b)
+    if type(a) ~= type(b) then
+        return false
+    end
+    if type(a) ~= "table" then
+        return a == b
+    end
+    for k, v in a do
+        if not equal(v, b[k]) then
+            return false
+        end
+    end
+    for k in b do
+        if a[k] == nil then
+            return false
+        end
+    end
+    return true
+end
+local function snapshot(control)
+    local ok, value = pcall(function()
+        return if control._serialize then control:_serialize() else control.value
+    end)
+    return ok, clone(value)
+end
+
+-- Build fresh so removed controls and pages added after startup never become stale results.
+function Window:GetControlIndex(includeUtility)
+    local result = {}
+    local function walk(elements, tab, path, ancestors)
+        local section = nil
+        for _, control in elements or {} do
+            local kind = control.__type
+            if kind == "Section" then
+                section = control.name
+            elseif control.main and control.main.Parent and not control._userHidden then
+                local route = table.clone(path)
+                if section then
+                    table.insert(route, tostring(section))
+                end
+                local name = control.name or control.pageName
+                if not name and control.title and control.title:IsA("TextLabel") then
+                    name = control.title.Text
+                end
+                if (not name or name == "") and control.__type == "Paragraph" and control.body then
+                    name = string.sub(control.body.Text, 1, 80)
+                end
+                if name then
+                    table.insert(route, tostring(name))
+                end
+                if kind == "Group" or kind == "Collapsible" then
+                    local chain = table.clone(ancestors)
+                    if kind == "Collapsible" then
+                        table.insert(chain, { host = control })
+                    end
+                    walk(if kind == "Collapsible" then control._group.elements else control.elements, tab, route, chain)
+                elseif control.pages then
+                    for i, page in control.pages do
+                        local chain = table.clone(ancestors)
+                        table.insert(chain, { host = control, page = page, index = i })
+                        local pagePath = table.clone(route)
+                        table.insert(
+                            pagePath,
+                            tostring(page.pageName or page.name or (page.pill and page.pill.Text) or i)
+                        )
+                        walk(page.elements, tab, pagePath, chain)
+                    end
+                elseif name and kind ~= "Descriptor" and kind ~= "Spacer" and kind ~= "Divider" then
+                    table.insert(result, {
+                        control = control,
+                        tab = tab,
+                        ancestors = ancestors,
+                        label = tostring(name),
+                        path = table.concat(route, " / "),
+                        key = control.flag or table.concat(route, " / "),
+                    })
+                end
+            end
+        end
+    end
+    for _, tab in self.tabs do
+        if not tab.neglectSelector and (includeUtility or (tab ~= self._favoritesTab and not tab._journeyUtility)) then
+            walk(tab.elements, tab, { tostring(tab.name) }, {})
+        end
+    end
+    return result
+end
+
+function Window:RevealControl(control)
+    local target
+    for _, entry in self:GetControlIndex(true) do
+        if entry.control == control then
+            target = entry
+            break
+        end
+    end
+    if not target then
+        return false
+    end
+    require(script.Parent.search).close(self, { jumpTo = false })
+    self:Navigate(target.tab)
+    for _, ancestor in target.ancestors do
+        local host = ancestor.host
+        if host.__type == "Collapsible" then
+            host:SetExpanded(true, true)
+        elseif host.SelectPage then
+            host:SelectPage(ancestor.index)
+        elseif host.Select then
+            host:Select(ancestor.page, true)
+        elseif host._selectIndex then
+            host:_selectIndex(ancestor.index)
+        end
+    end
+    self._revealGeneration = (self._revealGeneration or 0) + 1
+    local generation = self._revealGeneration
+    task.delay(self.elementsLayout.TweenTime + 0.05, function()
+        if
+            self.unloaded
+            or generation ~= self._revealGeneration
+            or self.selectedTab ~= target.tab
+            or not control.main.Parent
+        then
+            return
+        end
+        local node = control.main.Parent
+        while node and node ~= self.main do
+            if node:IsA("ScrollingFrame") then
+                local y = node.CanvasPosition.Y + control.main.AbsolutePosition.Y - node.AbsolutePosition.Y - 12
+                node.CanvasPosition = Vector2.new(node.CanvasPosition.X, math.max(0, y))
+            end
+            node = node.Parent
+        end
+        local highlight = self:Create("Frame", {
+            Name = "SearchHighlight",
+            BackgroundColor3 = self.theme.AccentColor,
+            BackgroundTransparency = 0.86,
+            BorderSizePixel = 0,
+            Active = false,
+            Size = UDim2.fromScale(1, 1),
+            ZIndex = 6,
+            Parent = control.main,
+        })
+        self:Create("UICorner", { CornerRadius = self.theme.ElementCornerRadius, Parent = highlight })
+        core.variables.tweenService:Create(highlight, TweenInfo.new(1.1), { BackgroundTransparency = 1 }):Play()
+        task.delay(1.2, function()
+            if not self.unloaded and highlight.Parent then
+                self:DestroySubtree(highlight)
+            end
+        end)
+    end)
+    return true
+end
+
+function Window:SetFavorite(control, enabled)
+    local key
+    for _, entry in self:GetControlIndex() do
+        if entry.control == control then
+            key = entry.key
+            break
+        end
+    end
+    if not key then
+        return false
+    end
+    self.settings.favoritesByWindow = self.settings.favoritesByWindow or {}
+    local saved = self.settings.favoritesByWindow[self.name] or {}
+    self.settings.favoritesByWindow[self.name] = saved
+    saved[key] = if enabled == false then nil else true
+    self:SaveSettings()
+    if self._refreshFavorites then
+        self._refreshFavorites()
+    end
+    return true
+end
+
+local function favoriteRow(window, tab, entry)
+    local row = { __type = "FavoriteShortcut", window = window, name = entry.label }
+    row.main = window:Create("Frame", {
+        Name = "FavoriteShortcut",
+        Size = UDim2.new(1, -20, 0, 64),
+        BorderSizePixel = 0,
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 1,
+        Parent = tab.tabPage,
+    })
+    row.stroke = window:StyleElementBody(row.main)
+    row.title = window:Create("TextLabel", {
+        Text = row.name,
+        TextSize = 15,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(14, 10),
+        Size = UDim2.new(1, -74, 0, 20),
+        Parent = row.main,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    row.breadcrumb = window:Create("TextLabel", {
+        Text = entry.path,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(14, 35),
+        Size = UDim2.new(1, -74, 0, 18),
+        Parent = row.main,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    row.interact = window:Create("TextButton", {
+        Name = "OpenFavorite",
+        Text = "",
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, -52, 1, 0),
+        Parent = row.main,
+    })
+    row.remove = window:Create("TextButton", {
+        Name = "UnpinFavorite",
+        Text = "",
+        BackgroundTransparency = 1,
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -6, 0.5, 0),
+        Size = UDim2.fromOffset(44, 44),
+        Parent = row.main,
+    })
+    row.glyph = window:Create("ImageLabel", {
+        BackgroundTransparency = 1,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(18, 18),
+        Parent = row.remove,
+    }, { ImageColor3 = "ContentColor" })
+    core.image.assign(row.glyph, "Image", "lucide:star-off")
+    function row:_setShown(shown, animate)
+        self.window:_reveal(
+            self.main,
+            { BackgroundTransparency = if shown then self.window.theme.ElementTransparency else 1 },
+            animate
+        )
+        self.window:_reveal(
+            self.stroke,
+            { Transparency = if shown then self.window.theme.ElementStrokeTransparency else 1 },
+            animate
+        )
+        self.window:_reveal(self.title, { TextTransparency = if shown then 0 else 1 }, animate)
+        self.window:_reveal(self.breadcrumb, { TextTransparency = if shown then 0.3 else 1 }, animate)
+        self.window:_reveal(self.glyph, { ImageTransparency = if shown then 0.25 else 1 }, animate)
+    end
+    window:ConnectFor(row, row.interact.MouseButton1Click, function()
+        window:RevealControl(entry.control)
+    end)
+    window:ConnectFor(row, row.remove.MouseButton1Click, function()
+        window:SetFavorite(entry.control, false)
+    end)
+    return tab:_register(row)
+end
+
+function Window:CreateFavorites(properties)
+    if self._favoritesHandle then
+        return self._favoritesHandle
+    end
+    local tab = self:CreateTab({ name = (properties or {}).name or "Favorites", icon = "lucide:star" })
+    self._favoritesTab = tab
+    local handle = { tab = tab, rows = {} }
+    self._favoritesHandle = handle
+    tab:CreateParagraph({
+        title = "Your shortcuts",
+        content = "Pin a control below. Open a favorite to jump to its original page and current value.",
+    })
+    local byPath = {}
+    handle.picker = tab:CreateDropdown({ name = "Control to pin", options = {}, forgetState = true })
+    handle.add = tab:CreateButton({
+        name = "Add favorite",
+        icon = "lucide:star",
+        callback = function()
+            local control = byPath[selected(handle.picker)]
+            if control then
+                self:SetFavorite(control, true)
+            end
+        end,
+    })
+    handle.empty =
+        tab:CreateParagraph({ title = "No favorites yet", content = "Choose a control above to keep it close." })
+    local function refresh()
+        for _, row in handle.rows do
+            require(script.Parent.Parent.utility.elementLifecycle).teardown(self, { row })
+            self:DestroySubtree(row.main)
+            local index = table.find(tab.elements, row)
+            if index then
+                table.remove(tab.elements, index)
+            end
+        end
+        table.clear(handle.rows)
+        table.clear(byPath)
+        local paths = {}
+        local saved = self.settings.favoritesByWindow and self.settings.favoritesByWindow[self.name] or {}
+        for _, entry in self:GetControlIndex() do
+            byPath[entry.path] = entry.control
+            table.insert(paths, entry.path)
+            if saved[entry.key] then
+                table.insert(handle.rows, favoriteRow(self, tab, entry))
+            end
+        end
+        handle.picker:Refresh(paths)
+        handle.empty.main.Visible = #handle.rows == 0
+    end
+    handle.Refresh = refresh
+    self._refreshFavorites = refresh
+    self:_onPageShown(function(page)
+        if page == tab then
+            refresh()
+        end
+    end)
+    refresh()
+    return handle
+end
+
+function Window:_captureControlDefault(control)
+    if
+        not control.flag
+        or string.sub(control.flag, 1, 1) == "_"
+        or control.forgetState
+        or control._journeyDefaultCaptured
+    then
+        return
+    end
+    local ok, value = snapshot(control)
+    if ok then
+        control._journeyDefault = value
+        control._journeyDefaultCaptured = true
+        self._profileBaseline = self._profileBaseline or {}
+        self._profileBaseline[control.flag] = clone(value)
+        self._profileBaselineKeys = self._profileBaselineKeys or {}
+        self._profileBaselineKeys[control.flag] = true
+    end
+end
+
+function Window:CompareConfig(name)
+    if type(name) ~= "string" or name == "" then
+        return nil, "Choose a saved profile"
+    end
+    local _, path = persistence.getPath(self, name)
+    local ok, raw = pcall(filesystem.readfile, path)
+    local saved = if ok then persistence.decode(raw) else nil
+    if not saved then
+        return nil, "Configuration could not be read"
+    end
+    return self:_compareFlags(saved)
+end
+function Window:_compareFlags(saved, known)
+    local changes = {}
+    local ignored = {}
+    for _, flag in self.configuration.ignoreFlags or {} do
+        ignored[flag] = true
+    end
+    for flag, control in self.controls do
+        if not ignored[flag] and not control.forgetState and string.sub(flag, 1, 1) ~= "_" then
+            local ok, current = snapshot(control)
+            if ok and (saved[flag] ~= nil or (known and known[flag])) and not equal(current, saved[flag]) then
+                table.insert(
+                    changes,
+                    { flag = flag, name = control.name or flag, current = current, saved = clone(saved[flag]) }
+                )
+            end
+        end
+    end
+    table.sort(changes, function(a, b)
+        return a.flag < b.flag
+    end)
+    return changes
+end
+function Window:GetPendingChanges()
+    return self:_compareFlags(self._profileBaseline or {}, self._profileBaselineKeys)
+end
+function Window:_markProfileBaseline()
+    local ok, raw = persistence.encode(self)
+    if ok then
+        self._profileBaseline = persistence.decode(raw)
+        self._profileBaselineKeys = {}
+        for flag in self.controls do
+            self._profileBaselineKeys[flag] = true
+        end
+    end
+end
+function Window:_recordRestoredBaseline(control)
+    if control._journeyDefaultCaptured then
+        local ok, value = snapshot(control)
+        if ok then
+            self._profileBaseline[control.flag] = value
+        end
+    end
+end
+function Window:ResetSection(container)
+    local allowed = container == nil
+    for _, tab in self.tabs do
+        if tab == container then
+            allowed = true
+        end
+    end
+    if container and container.window == self then
+        allowed = true
+    end
+    if not allowed then
+        return false
+    end
+    local function reset(elements)
+        for _, control in elements or {} do
+            if control._journeyDefaultCaptured then
+                persistence.applyTo(control, clone(control._journeyDefault))
+            end
+            if control._group then
+                reset(control._group.elements)
+            elseif control.elements then
+                reset(control.elements)
+            elseif control.pages then
+                for _, page in control.pages do
+                    reset(page.elements)
+                end
+            end
+        end
+    end
+    if container then
+        reset(container.elements or (container._group and container._group.elements))
+    else
+        for _, tab in self.tabs do
+            if not tab.neglectSelector and not tab._journeyUtility then
+                reset(tab.elements)
+            end
+        end
+    end
+    return true
+end
+
+function Window:CreateProfileManager(properties)
+    local tab = self:CreateTab({ name = (properties or {}).name or "Profile review", icon = "lucide:files" })
+    tab._journeyUtility = true
+    local handle = { tab = tab }
+    tab:CreateParagraph({
+        title = "Review before loading",
+        content = "Compare saved values with this session. Pending changes are measured from the last successful save or load.",
+    })
+    handle.picker = tab:CreateDropdown({ name = "Saved profile", options = self:ListConfigs(), forgetState = true })
+    handle.table = tab:CreateTable({
+        name = "Changes",
+        columns = {
+            { key = "name", title = "Control" },
+            { key = "current", title = "Current" },
+            { key = "saved", title = "Saved" },
+        },
+        rows = {},
+        emptyText = "No differences.",
+    })
+    local function display(value)
+        if type(value) == "table" then
+            local ok, text = pcall(core.variables.httpService.JSONEncode, core.variables.httpService, value)
+            return if ok then text else tostring(value)
+        end
+        return tostring(value)
+    end
+    local function show(changes)
+        local rows = {}
+        for _, item in changes do
+            table.insert(rows, { name = item.name, current = display(item.current), saved = display(item.saved) })
+        end
+        handle.table:SetRows(rows)
+    end
+    handle.compare = tab:CreateButton({
+        name = "Compare selected profile",
+        callback = function()
+            local changes, err = self:CompareConfig(selected(handle.picker))
+            if changes then
+                show(changes)
+            else
+                self:NotifyWarning({ title = "Could not compare", content = err })
+            end
+        end,
+    })
+    tab:CreateButton({
+        name = "Show pending changes",
+        callback = function()
+            show(self:GetPendingChanges())
+        end,
+    })
+    handle.load = tab:CreateButton({
+        name = "Load selected profile",
+        callback = function()
+            local name = selected(handle.picker)
+            if type(name) == "string" and self:Load(name) then
+                show({})
+            else
+                self:NotifyWarning({ title = "Could not load profile" })
+            end
+        end,
+    })
+    handle.sections = tab:CreateDropdown({ name = "Restore defaults in", options = {}, forgetState = true })
+    local sections = {}
+    tab:CreateButton({
+        name = "Restore selected page defaults",
+        callback = function()
+            local target = sections[selected(handle.sections)]
+            if not target then
+                return
+            end
+            self:Popup({
+                title = "Restore page defaults?",
+                content = target.name .. ": restores the script defaults. Your autosave policy still applies.",
+                options = {
+                    { text = "Cancel" },
+                    {
+                        text = "Restore",
+                        style = "primary",
+                        callback = function()
+                            self:ResetSection(target)
+                        end,
+                    },
+                },
+            })
+        end,
+    })
+    self:_onPageShown(function(page)
+        if page ~= tab then
+            return
+        end
+        handle.picker:Refresh(self:ListConfigs())
+        local names = {}
+        table.clear(sections)
+        for _, candidate in self.tabs do
+            if not candidate.neglectSelector and not candidate._journeyUtility and candidate ~= self._favoritesTab then
+                sections[candidate.name] = candidate
+                table.insert(names, candidate.name)
+            end
+        end
+        handle.sections:Refresh(names)
+    end)
+    return handle
+end
+
+function Window:_clearKeyboardScroll()
+    local state = self._keyboardScroll
+    self._keyboardScroll = nil
+    if state and state.padding.Parent then
+        if state.owned then
+            self:DestroySubtree(state.padding)
+        else
+            state.padding.PaddingBottom = state.original
+        end
+    end
+end
+function Window:_revealMobileField(box)
+    if self.unloaded or not box or not box.Parent or not box:IsFocused() then
+        return
+    end
+    local uis = core.variables.userInputService
+    local ok, top = pcall(function()
+        return if uis.OnScreenKeyboardVisible then uis.OnScreenKeyboardPosition.Y else nil
+    end)
+    if not ok or not top then
+        self:_clearKeyboardScroll()
+        return
+    end
+    local node = box.Parent
+    local overlap = box.AbsolutePosition.Y + box.AbsoluteSize.Y + 16 - top
+    while node and node ~= self.main do
+        if node:IsA("ScrollingFrame") then
+            if overlap > 0 then
+                if not self._keyboardScroll or self._keyboardScroll.scroller ~= node then
+                    self:_clearKeyboardScroll()
+                    local padding = node:FindFirstChildWhichIsA("UIPadding")
+                    local owned = padding == nil
+                    padding = padding or self:Create("UIPadding", { Parent = node })
+                    self._keyboardScroll =
+                        { padding = padding, owned = owned, original = padding.PaddingBottom, scroller = node }
+                end
+                local state = self._keyboardScroll
+                state.padding.PaddingBottom = UDim.new(
+                    state.original.Scale,
+                    state.original.Offset + math.max(0, self.screenGui.AbsoluteSize.Y - top) + 16
+                )
+                task.defer(function()
+                    if not self.unloaded and node.Parent then
+                        node.CanvasPosition += Vector2.new(0, overlap)
+                    end
+                end)
+            end
+            break
+        end
+        node = node.Parent
+    end
+end
+
+function Window:_initJourney()
+    self.rfSettings:CreateDropdown({
+        name = "Search scope",
+        options = { "This page", "All pages" },
+        value = if self.searchScope == "all" then "All pages" else "This page",
+        forgetState = true,
+        callback = function(value)
+            require(script.Parent.search).close(self)
+            self.searchScope = if value == "All pages" then "all" else "tab"
+        end,
+    })
+    self.rfSettings:CreateButton({
+        name = "Open favorites",
+        icon = "lucide:star",
+        callback = function()
+            self:Navigate(self:CreateFavorites().tab)
+        end,
+    })
+    self.rfSettings:CreateButton({
+        name = "Review profiles",
+        icon = "lucide:files",
+        callback = function()
+            self._profileManager = self._profileManager or self:CreateProfileManager()
+            self:Navigate(self._profileManager.tab)
+        end,
+    })
+    -- Only scroll this window's focused field when the on-screen keyboard covers it.
+    local uis = core.variables.userInputService
+    self:Connect(uis.TextBoxFocused, function(box)
+        if not box:IsDescendantOf(self.main) then
+            return
+        end
+        self._keyboardBox = box
+        task.delay(0.25, function()
+            if self._keyboardBox == box then
+                self:_revealMobileField(box)
+            end
+        end)
+    end)
+    self:Connect(uis.TextBoxFocusReleased, function(box)
+        if self._keyboardBox == box then
+            self._keyboardBox = nil
+            self:_clearKeyboardScroll()
+        end
+    end)
+    for _, property in { "OnScreenKeyboardPosition", "OnScreenKeyboardVisible" } do
+        self:Connect(uis:GetPropertyChangedSignal(property), function()
+            self:_revealMobileField(self._keyboardBox)
+        end)
+    end
+    self:OnUnload(function()
+        self:_clearKeyboardScroll()
+    end)
+end
+return Window
+]=====]
+
 sources["components/windowLifecycle"] = [=====[
 --!nonstrict
 
@@ -42682,6 +43716,7 @@ function Window:IsRestoringConfig(): boolean
 end
 
 function Window:_restoreLate(element)
+    self:_captureControlDefault(element)
     self:_enhanceControl(element)
     if not self._loadedConfig or not element.flag or element.forgetState then
         return
@@ -42691,6 +43726,7 @@ function Window:_restoreLate(element)
     self._loading = true -- dont autosave the value we just read back
     persistence.applyTo(element, self._loadedConfig[element.flag])
     self._loading = wasLoading
+    self:_recordRestoredBaseline(element)
 end
 
 -- Autosave a control's value after an interactive or programmatic change, when the window is
@@ -43890,7 +44926,11 @@ end
 function Window:_bindTopbarDrag()
     local uis = variables.userInputService
     local dragging = false
+    local touchInput = nil
     local relative = Vector2.zero
+    local function pointer()
+        return if touchInput then Vector2.new(touchInput.Position.X, touchInput.Position.Y) else uis:GetMouseLocation()
+    end
 
     -- main.Position lives in a space shifted from AbsolutePosition by the gui inset, even
     -- though the ScreenGui ignores it - add it back or the window jumps on the first move
@@ -43900,7 +44940,7 @@ function Window:_bindTopbarDrag()
     end
 
     local function getTarget()
-        local position = uis:GetMouseLocation() + relative + offset
+        local position = pointer() + relative + offset
         local x, y = position.X, position.Y
 
         if self.settings and self.settings.keepOnScreen then
@@ -43947,13 +44987,17 @@ function Window:_bindTopbarDrag()
             return
         end
 
+        if dragging then
+            return
+        end
         dragging = true
+        touchInput = if inputType == "Touch" then input else nil
 
         if self.screenGui and self.screenGui.IgnoreGuiInset then
             offset = variables.guiService:GetGuiInset()
         end
 
-        relative = self.main.AbsolutePosition + self.main.AbsoluteSize * self.main.AnchorPoint - uis:GetMouseLocation()
+        relative = self.main.AbsolutePosition + self.main.AbsoluteSize * self.main.AnchorPoint - pointer()
     end)
 
     -- Letting go of the topbar is a settled position the same way letting go of the drag bar is.
@@ -43976,7 +45020,7 @@ function Window:_bindTopbarDrag()
 
     self:Connect(uis.InputEnded, function(input)
         local inputType = input.UserInputType.Name
-        if inputType == "MouseButton1" or inputType == "Touch" then
+        if (touchInput and input == touchInput) or (not touchInput and inputType == "MouseButton1") then
             releaseTopbar()
         end
     end)
@@ -46583,6 +47627,7 @@ export type TableColumn = {
 }
 
 export type TableProps = {
+    loading: boolean?,
     virtualize: boolean?, -- default true: pool visible rows for tables over 100 entries
     name: string?,
     icon: (string | number)?,
@@ -46600,6 +47645,7 @@ export type TableProps = {
 }
 
 export type Table = Moveable & {
+    SetLoading: (self: Table, loading: boolean) -> (),
     Get: (self: Table) -> { { [string]: any } },
     SetRows: (self: Table, rows: { { [string]: any } }) -> (),
     AddRow: (self: Table, row: { [string]: any }) -> boolean,
@@ -46663,6 +47709,8 @@ export type Countdown = Moveable & {
 export type ChartPoint = number | { value: number, label: string? }
 
 export type ChartProps = {
+    loading: boolean?,
+    legend: string?,
     name: string?,
     icon: (string | number)?,
     description: string?,
@@ -46732,6 +47780,7 @@ export type StackedChart = Moveable & {
 }
 
 export type Chart = Moveable & {
+    SetLoading: (self: Chart, loading: boolean) -> (),
     Get: (self: Chart) -> { number },
     Push: (self: Chart, value: number, label: string?) -> boolean,
     Set: (self: Chart, values: { ChartPoint }) -> (),
@@ -47305,6 +48354,14 @@ export type Window = {
     LoadCustomTheme: (self: Window, name: string) -> (boolean, string?),
     CreateThemeEditor: (self: Window, props: { name: string? }?) -> any,
     CreateShowcase: (self: Window, props: { name: string? }?) -> any,
+    CreateFavorites: (self: Window, props: { name: string? }?) -> any,
+    SetFavorite: (self: Window, control: any, enabled: boolean?) -> boolean,
+    RevealControl: (self: Window, control: any) -> boolean,
+    GetControlIndex: (self: Window, includeUtility: boolean?) -> { any },
+    CompareConfig: (self: Window, name: string) -> ({ any }?, string?),
+    GetPendingChanges: (self: Window) -> { any },
+    ResetSection: (self: Window, container: any?) -> boolean,
+    CreateProfileManager: (self: Window, props: { name: string? }?) -> any,
     unloaded: boolean, -- true once Unload has run; the handle is spent
     Get: (self: Window, flag: string) -> unknown,
     Set: (self: Window, flag: string, value: unknown) -> boolean,
@@ -52477,6 +53534,7 @@ type SettingsWindow = {
         soundEffects: boolean,
         uiScale: number,
         densityByWindow: { [string]: string }?,
+        favoritesByWindow: { [string]: { [string]: boolean } }?,
         customThemesByWindow: { [string]: { [string]: string } }?,
         tourSeen: boolean,
         resizeGripEnabled: boolean,
@@ -52504,6 +53562,7 @@ type DecodedSettings = {
     soundEffects: unknown?,
     uiScale: unknown?,
     densityByWindow: unknown?,
+    favoritesByWindow: unknown?,
     customThemesByWindow: unknown?,
     tourSeen: unknown?,
     resizeGripEnabled: unknown?,
@@ -52555,6 +53614,7 @@ function persistenceSettings.saveSettings(window: SettingsWindow): boolean
         soundEffects = window.settings.soundEffects,
         uiScale = window.settings.uiScale,
         densityByWindow = window.settings.densityByWindow,
+        favoritesByWindow = window.settings.favoritesByWindow,
         customThemesByWindow = window.settings.customThemesByWindow,
         tourSeen = window.settings.tourSeen,
         resizeGripEnabled = window.settings.resizeGripEnabled,
@@ -52664,6 +53724,21 @@ function persistenceSettings.loadSettings(window: SettingsWindow): boolean
         window.settings.soundEffects = settings.soundEffects
     end
 
+    if type(settings.favoritesByWindow) == "table" then
+        local windows = {}
+        for name, favorites in settings.favoritesByWindow :: any do
+            if type(name) == "string" and type(favorites) == "table" then
+                local valid = {}
+                for key, value in favorites do
+                    if type(key) == "string" and #key <= 512 and value == true then
+                        valid[key] = true
+                    end
+                end
+                windows[name] = valid
+            end
+        end
+        window.settings.favoritesByWindow = windows
+    end
     if type(settings.densityByWindow) == "table" then
         local densities = {}
         for name, value in settings.densityByWindow :: any do
@@ -53957,8 +55032,8 @@ function windowSizing.clampUserSize(viewport: Vector2?, size: Vector2): Vector2
     local maxY = math.min(viewport.Y * maxOccupancyY, viewport.Y - marginFloorY)
 
     return Vector2.new(
-        math.clamp(size.X, minSize.X, math.max(minSize.X, maxX)),
-        math.clamp(size.Y, minSize.Y, math.max(minSize.Y, maxY))
+        math.clamp(size.X, math.min(minSize.X, maxX), maxX),
+        math.clamp(size.Y, math.min(minSize.Y, maxY), maxY)
     )
 end
 
