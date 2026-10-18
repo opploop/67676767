@@ -3211,7 +3211,6 @@ local locale = require(utility.locale)
 local image = require(utility.image)
 local constants = require(utility.constants)
 -- the height of a one-line card (see constants.elementHeight)
-local elementHeight = constants.elementHeight
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
 
@@ -3220,8 +3219,6 @@ local chevronSize = 16
 -- the minus/plus swapping: it shrinks to nothing, changes, and springs back
 local swapOutInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 local swapInInfo = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-
-local headerHeight = elementHeight
 
 -- breathing room around the nested group: without it, the first child sits glued to the header
 -- and the last one gets squeezed against the clip's bottom edge the instant the section opens
@@ -3240,6 +3237,7 @@ local strokeRoom = 1
 local cardTransparency = functions.containerTransparency
 
 function Collapsible.new(tab, properties)
+    local headerHeight = tab.window:GetDensityMetrics().rowHeight
     properties = if typeof(properties) == "table" then properties else {}
 
     local self = setmetatable({
@@ -3396,6 +3394,7 @@ end
 -- own Create() call above for why main can't just auto-follow this itself). targetContentHeight
 -- is contentWrapper's own target - main's is headerHeight taller, header + content stacked.
 function Collapsible:_setHeight(targetContentHeight, animate)
+    local headerHeight = self.window:GetDensityMetrics().rowHeight
     local contentSize = UDim2.new(1, 0, 0, targetContentHeight)
     local mainSize = UDim2.new(1, -20, 0, headerHeight + targetContentHeight)
     if animate then
@@ -3408,6 +3407,7 @@ function Collapsible:_setHeight(targetContentHeight, animate)
 end
 
 function Collapsible:_buildHeader()
+    local headerHeight = self.window:GetDensityMetrics().rowHeight
     self.header = self.window:Create("Frame", {
         Size = UDim2.new(1, 0, 0, headerHeight),
         BorderSizePixel = 0,
@@ -3694,13 +3694,11 @@ local lockable = require(utility.lockable)
 local locale = require(utility.locale)
 local constants = require(utility.constants)
 -- the height of a one-line card (see constants.elementHeight)
-local elementHeight = constants.elementHeight
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
 local hsvEditor = require(utility.hsvEditor)
 local chrome = require(utility.pickerChrome)
 
-local headerHeight = elementHeight
 local squareSize = chrome.square
 local narrowWidth = 410
 local glowOnTransparency = 0.9
@@ -3820,6 +3818,7 @@ local defaultPresets = {
 }
 
 function ColorPicker.new(tab, properties)
+    local headerHeight = tab.window:GetDensityMetrics().rowHeight
     properties = if typeof(properties) == "table" then properties else {}
 
     local self = setmetatable({
@@ -3935,6 +3934,7 @@ function ColorPicker.new(tab, properties)
 end
 
 function ColorPicker:_buildHeader()
+    local headerHeight = self.window:GetDensityMetrics().rowHeight
     local container = self.window:Create("Frame", {
         Size = UDim2.new(1, -90, 0, 16),
         Position = UDim2.new(0, constants.elementInset, 0, headerHeight / 2),
@@ -4248,6 +4248,7 @@ function ColorPicker:_open()
 end
 
 function ColorPicker:_close()
+    local headerHeight = self.window:GetDensityMetrics().rowHeight
     if not self._isOpen then
         return
     end
@@ -4282,6 +4283,7 @@ end
 -- Wide: hex/RGB/swatch/presets left, square+hue right, side by side.
 -- Narrow: same stack, full width, with the editor centred underneath.
 function ColorPicker:_applyLayout()
+    local headerHeight = self.window:GetDensityMetrics().rowHeight
     local width = self.main.AbsoluteSize.X
     self._layoutMode = if width > 0 and width < narrowWidth then "narrow" else "wide"
     local top, pad = headerHeight + 10, chrome.inset
@@ -8561,7 +8563,6 @@ local functions = require(utility.functions)
 local image = require(utility.image)
 local constants = require(utility.constants)
 -- the height of a one-line card (see constants.elementHeight)
-local elementHeight = constants.elementHeight
 local locale = require(utility.locale)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
@@ -8573,8 +8574,8 @@ local dotIcon = constants.icons.dot
 local searchIconAsset = constants.icons.search
 
 -- Per-corner radii: an option's edge is rounded when nothing sits next to it, sharp otherwise
-local roundRadius = UDim.new(0, 12)
-local flatRadius = UDim.new(0, 7)
+local roundRadius = UDim.new(0, 8)
+local flatRadius = UDim.new(0, 6)
 
 local searchCollapsedHeight = 30
 local searchExpandedHeight = 38
@@ -8583,12 +8584,11 @@ local searchExpandedHeight = 38
 -- and the list scrolls internally instead - was capped at a flat 180px, tall enough for barely
 -- 2 rows once the header/search/padding overhead was subtracted.
 local maxVisibleOptionRows = 4
-local optionRowHeight = 38
+local optionRowHeight = 36
 local rowGap = 5
 -- height of `maxVisibleOptionRows` option rows plus the gaps between them, no header/search/
 -- padding included - that part (the "base") varies per dropdown (multiSelect adds a row), so
 -- _openHeight adds this on top of its own base rather than this baking in a fixed total.
-local capRowsHeight = maxVisibleOptionRows * optionRowHeight + math.max(0, maxVisibleOptionRows - 1) * rowGap + 2
 
 local quickActionsRowHeight = 20
 local quickActionsRowGap = 5
@@ -8647,6 +8647,7 @@ local function sameSelection(a, b)
 end
 
 function Dropdown.new(tab, properties)
+    local elementHeight = tab.window:GetDensityMetrics().rowHeight
     properties = if typeof(properties) == "table" then properties else {}
 
     local options = properties.options or properties.Options or {}
@@ -8964,11 +8965,16 @@ function Dropdown.new(tab, properties)
 
     local function renderOptionState(data, animate)
         local selected = isOptionSelected(data.name)
-        local bgT = if self._isOpen then (selected and 0.9 or 0.95) else 1
-        local titleT = if self._isOpen then (selected and 0 or 0.3) else 1
+        local bgT = if self._isOpen then (selected and 0.86 or 1) else 1
+        local titleT = if self._isOpen then (selected and 0 or self.window.theme.SecondaryTextTransparency) else 1
         -- Selected shows a bright check; unselected shows a faint dot
         local iconT = if self._isOpen then (selected and 0 or 0.7) else 1
-        local strokeT = if self._isOpen then (selected and 0.85 or 0.93) else 1
+        local strokeT = if self._isOpen and selected then self.window.theme.FocusStrokeTransparency else 1
+        data.frame.BackgroundColor3 = if selected
+            then self.window.theme.AccentColor
+            else self.window.theme.FieldBackground
+        data.stroke.Color = if selected then self.window.theme.AccentStroke else self.window.theme.ElementStroke
+        data.checkIcon.ImageColor3 = if selected then self.window.theme.AccentStroke else self.window.theme.ContentColor
 
         image.assign(data.checkIcon, "Image", if selected then checkIcon else dotIcon)
 
@@ -8994,7 +9000,7 @@ function Dropdown.new(tab, properties)
             elseif n == 1 then
                 self.selectedLabel.Text = self.value[1]
             else
-                self.selectedLabel.Text = locale.resolve("Various")
+                self.selectedLabel.Text = tostring(n) .. " " .. locale.resolve("selected")
             end
         else
             self.selectedLabel.Text = self.value[1] or self.placeholderText
@@ -9007,13 +9013,20 @@ function Dropdown.new(tab, properties)
 
     local function buildOption(optionName)
         local frame = self.window:Create("Frame", {
-            Size = UDim2.new(1, -12, 0, 38),
+            Size = UDim2.new(1, -12, 0, optionRowHeight),
             BorderSizePixel = 0,
 
             BackgroundTransparency = 1,
 
             Parent = self.list,
-        }, { BackgroundColor3 = "DropdownHighlight" })
+        }, {
+            BackgroundColor3 = {
+                "AccentColor",
+                function(color)
+                    return if isOptionSelected(optionName) then color else self.window.theme.FieldBackground
+                end,
+            },
+        })
 
         -- Radius is driven by adjacency in _updateCorners (7 flat / 12 rounded)
         local corner = self.window:Create("UICorner", {
@@ -9040,7 +9053,7 @@ function Dropdown.new(tab, properties)
         local container = self.window:Create("Frame", {
             AnchorPoint = Vector2.new(0, 0.5),
             Position = UDim2.new(0, 14, 0.5, 0),
-            Size = UDim2.fromOffset(170, 16),
+            Size = UDim2.new(1, -24, 0, 16),
             BorderSizePixel = 0,
             BackgroundTransparency = 1,
             ZIndex = 5,
@@ -9067,12 +9080,13 @@ function Dropdown.new(tab, properties)
 
         local title = self.window:Create("TextLabel", {
             Text = optionName,
-            Size = UDim2.fromOffset(170, 16),
+            Size = UDim2.new(1, -24, 0, 16),
             BorderSizePixel = 0,
             BackgroundTransparency = 1,
-            TextSize = 16,
+            TextSize = 15,
             TextXAlignment = Enum.TextXAlignment.Left,
-            TextWrapped = true,
+            TextWrapped = false,
+            TextTruncate = Enum.TextTruncate.AtEnd,
             LayoutOrder = 1,
             TextTransparency = 1,
             ZIndex = 5,
@@ -9131,7 +9145,7 @@ function Dropdown.new(tab, properties)
                     :Create(
                         frame,
                         TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-                        { BackgroundTransparency = 0.95 }
+                        { BackgroundTransparency = 1 }
                     )
                     :Play()
                 variables.tweenService
@@ -9623,6 +9637,10 @@ end
 
 -- match the panel to whats visible. only while open: closed height is the header alone.
 function Dropdown:_resizeToOptions()
+    local rowHeight = math.max(28, 36 + self.window:GetDensityMetrics().rowHeight - 44)
+    for _, data in self._optionFrames do
+        data.frame.Size = UDim2.new(1, -12, 0, rowHeight)
+    end
     if not self._isOpen then
         return
     end
@@ -9663,6 +9681,9 @@ end
 -- just tall enough, no dead space. Sized from what's actually on screen, so a search filter (or
 -- an Add/Remove while open) grows and shrinks the panel to fit rather than leaving dead space.
 function Dropdown:_openHeight()
+    local optionRowHeight = math.max(28, 36 + self.window:GetDensityMetrics().rowHeight - 44)
+    local capRowsHeight = maxVisibleOptionRows * optionRowHeight + math.max(0, maxVisibleOptionRows - 1) * rowGap + 2
+    local elementHeight = self.window:GetDensityMetrics().rowHeight
     local n = 0
     for _, data in self._optionFrames do
         if data.frame.Visible then
@@ -9816,6 +9837,7 @@ function Dropdown:_scrollIntoView(targetHeight)
 end
 
 function Dropdown:_close()
+    local elementHeight = self.window:GetDensityMetrics().rowHeight
     if not self._isOpen then
         return
     end
@@ -10103,6 +10125,13 @@ function Dropdown:_setShown(shown, animate)
     if not shown and self._isOpen then
         self:_close()
     end
+end
+
+function Dropdown:_refreshTheme()
+    for _, data in self._optionFrames do
+        self._renderOptionState(data, false)
+    end
+    self:_fitTitle()
 end
 
 -- Devlog 7: was five hand-rolled Move* methods identical to every other component's own
@@ -11889,13 +11918,11 @@ local lockable = require(utility.lockable)
 local locale = require(utility.locale)
 local constants = require(utility.constants)
 -- the height of a one-line card (see constants.elementHeight)
-local elementHeight = constants.elementHeight
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
 local hsvEditor = require(utility.hsvEditor)
 local chrome = require(utility.pickerChrome)
 
-local headerHeight = elementHeight
 local squareSize = chrome.square
 local narrowWidth = 410
 local glowOnTransparency = 0.93
@@ -12023,6 +12050,7 @@ local function normalizeStops(value)
 end
 
 function GradientPicker.new(tab, properties)
+    local headerHeight = tab.window:GetDensityMetrics().rowHeight
     properties = if typeof(properties) == "table" then properties else {}
 
     local self = setmetatable({
@@ -12139,6 +12167,7 @@ function GradientPicker.new(tab, properties)
 end
 
 function GradientPicker:_buildHeader()
+    local headerHeight = self.window:GetDensityMetrics().rowHeight
     local container = self.window:Create("Frame", {
         Size = UDim2.new(1, -90, 0, 16),
         Position = UDim2.new(0, constants.elementInset, 0, headerHeight / 2),
@@ -12815,6 +12844,7 @@ function GradientPicker:_open()
 end
 
 function GradientPicker:_close()
+    local headerHeight = self.window:GetDensityMetrics().rowHeight
     if not self._isOpen then
         return
     end
@@ -12905,6 +12935,7 @@ end
 -- Wide: rail + buttons left, square+hue right, side by side under the preview bar.
 -- Narrow: stacked, editor centred underneath.
 function GradientPicker:_applyLayout()
+    local headerHeight = self.window:GetDensityMetrics().rowHeight
     local width = self.main.AbsoluteSize.X
     self._layoutMode = if width > 0 and width < narrowWidth then "narrow" else "wide"
     local top, pad = headerHeight + 10, chrome.inset
@@ -19666,10 +19697,10 @@ local sidePadding = 15
 local headerTop = 15
 local headerHeight = 16
 local headerGap = 12
-local rowGap = 4
+local rowGap = 6
 local defaultRowHeight = 34
-local rowInset = 12
-local rowCorner = 9
+local rowInset = 10
+local rowCorner = 7
 local iconSize = 16
 local iconGap = 9
 
@@ -20704,7 +20735,7 @@ function Notification.new(window, properties)
         VerticalAlignment = Enum.VerticalAlignment.Center,
         HorizontalAlignment = Enum.HorizontalAlignment.Left,
         SortOrder = Enum.SortOrder.LayoutOrder,
-        Padding = UDim.new(0, 14),
+        Padding = UDim.new(0, 10),
 
         Parent = self.body,
     })
@@ -20724,6 +20755,18 @@ function Notification.new(window, properties)
             Parent = self.body,
         }, { ImageColor3 = "ContentColor" })
 
+        self.iconWell = self.window:Create("Frame", {
+            Name = "IconWell",
+            Size = UDim2.new(1, 12, 1, 12),
+            Position = UDim2.fromScale(0.5, 0.5),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundColor3 = self.accentColor or self.window.theme.AccentColor,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            ZIndex = constants.zIndex.notification - 1,
+            Parent = self.iconLabel,
+        })
+        self.window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.iconWell })
         -- Plain instance property, set once, after the theme binding above rather than through
         -- it - only ImageTransparency ever gets tweened on this label (see _show/_dismiss), so
         -- there's nothing later that would fight or overwrite a colour set here.
@@ -20775,7 +20818,7 @@ function Notification.new(window, properties)
             Size = UDim2.new(1, 0, 0, 0),
             AutomaticSize = Enum.AutomaticSize.Y,
             BackgroundTransparency = 1,
-            TextSize = 15,
+            TextSize = 14,
             TextWrapped = true,
             TextXAlignment = Enum.TextXAlignment.Left,
             TextYAlignment = Enum.TextYAlignment.Top,
@@ -20783,7 +20826,7 @@ function Notification.new(window, properties)
             ZIndex = constants.zIndex.notification,
 
             -- Animation
-            TextTransparency = 1, -- In = 0.35
+            TextTransparency = 1, -- In = 0.28
 
             Parent = self.container,
         }, { TextColor3 = "ContentColor", FontFace = "Font" })
@@ -20901,7 +20944,7 @@ function Notification:_ensureDescriptionLabel()
         LayoutOrder = 2,
         ZIndex = constants.zIndex.notification,
 
-        TextTransparency = 0.35,
+        TextTransparency = 0.28,
 
         Parent = self.container,
     }, { TextColor3 = "ContentColor", FontFace = "Font" })
@@ -20971,6 +21014,9 @@ function Notification:_show()
         return
     end
 
+    if self.iconWell then
+        variables.tweenService:Create(self.iconWell, fadeShort, { BackgroundTransparency = 0.88 }):Play()
+    end
     hapticEngine.notify()
     soundEngine.notify()
 
@@ -21028,6 +21074,9 @@ function Notification:_dismiss()
         return
     end
 
+    if self.iconWell then
+        variables.tweenService:Create(self.iconWell, fadeShort, { BackgroundTransparency = 1 }):Play()
+    end
     -- Fade everything out (runs during the shrink -> "goes transparent as it scales")
     variables.tweenService:Create(self.body, fadeLong, { BackgroundTransparency = 1 }):Play()
     variables.tweenService:Create(self.stroke, fadeLong, { Transparency = 1 }):Play()
@@ -21161,6 +21210,7 @@ function Panel.new(host, properties)
         tab = assert(host, "Missing argument #1 (Tab or Group expected)"),
         window = host.window,
         name = properties.name or properties.Name or "Panel",
+        showPagePills = functions.readBool(properties, "showPagePills", true),
         forgetState = properties.forgetState or properties.ForgetState or host.forgetState,
         -- Which page is open persists like any other control's value, so a panel reopens on the
         -- page the player left it on. `forgetState = true` opts out.
@@ -21528,7 +21578,7 @@ function Panel:_layoutHeader()
     for i = #self.pages, 1, -1 do
         local page = self.pages[i]
         local pill = page.pill
-        local visible = i ~= self.selectedIndex
+        local visible = self.showPagePills and i ~= self.selectedIndex
         pill.frame.Visible = visible
         if visible then
             local width = self:_pillWidth(page)
@@ -22125,20 +22175,20 @@ local backdropInfo = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.Easi
 -- Back gives the same "landed with a little life in it" feel in one clean overshoot.
 local scaleEnterInfo = TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local scaleExitInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-local scaleFrom = 0.9 -- starting scale on enter
+local scaleFrom = 0.96 -- starting scale on enter
 local scaleTo = 0.96 -- scale settled to on exit (a subtle shrink-away, not a full collapse)
 
 -- Card metrics.
 local cardWidth = 400
-local sidePadding = 22
-local topPadding = 24
-local bottomPadding = 22
-local regionGap = 16 -- between header, content and footer
+local sidePadding = 20
+local topPadding = 20
+local bottomPadding = 20
+local regionGap = 12 -- between header, content and footer
 local innerWidth = cardWidth - sidePadding * 2
 
 local titleSize = 18
 local subtitleSize = 14
-local contentSize = 15
+local contentSize = 14
 local headerIconSize = 16
 local headerIconGap = 12 -- icon to title-column
 local maxContentHeight = 300 -- content region scrolls past this
@@ -27192,7 +27242,10 @@ function Slider:_applyLayout()
     end
     self._layoutMode = mode
 
-    self:_setMainHeight(if mode == "narrow" then narrowHeight else wideHeight)
+    self:_setMainHeight(
+        self.window:GetDensityMetrics().rowHeight
+            + (if mode == "narrow" then narrowHeight - elementHeight else wideHeight - elementHeight)
+    )
     -- Title and value share a header directly above the track at every width.
     self.container.AnchorPoint = Vector2.new(0, 0)
     self.container.Position = UDim2.new(0, constants.elementInset, 0, 12)
@@ -33832,7 +33885,7 @@ function Toast.new(window, properties, container)
     }, { Color = { "WindowColor", functions.toColorSequence } })
 
     self.window:Create("UICorner", {
-        CornerRadius = UDim.new(1, 0),
+        CornerRadius = UDim.new(0, 12),
 
         Parent = self.body,
     })
@@ -34098,7 +34151,7 @@ function Toast:_show()
         return
     end
     if self.subtitleLabel then
-        variables.tweenService:Create(self.subtitleLabel, fadeShort, { TextTransparency = 0.5 }):Play()
+        variables.tweenService:Create(self.subtitleLabel, fadeShort, { TextTransparency = 0.28 }):Play()
     end
 
     -- Dwell, pausing while hovered.
@@ -38144,6 +38197,7 @@ function Window.new(properties)
     self._updateCheck =
         require(script.Parent.updatecheck).new(self, properties.updateCheck or properties.UpdateCheck, self.version)
 
+    self:_initExperience(properties)
     return self
 end
 
@@ -38168,6 +38222,7 @@ require(script.Parent.windowMethods)
 require(script.Parent.windowExtra)
 require(script.Parent.windowSettings)
 require(script.Parent.windowLifecycle)
+require(script.Parent.windowExperience)
 
 return Window
 ]=====]
@@ -38424,6 +38479,502 @@ function core.windowRegistry()
 end
 
 return core
+]=====]
+
+sources["components/windowExperience"] = [=====[
+--!nonstrict
+-- Copyright (c) 2026 Corridon Capital
+-- MPL-2.0: https://mozilla.org/MPL/2.0/
+local core = require(script.Parent.windowCore)
+local Window = core.Window
+local codec = require(script.Parent.Parent.utility.themeCodec)
+local presets = {
+    compact = { rowHeight = 40, spacing = 4 },
+    normal = { rowHeight = 44, spacing = 6 },
+    touch = {
+        rowHeight = 52,
+        spacing = 10,
+    },
+}
+local rows = {
+    Button = true,
+    Toggle = true,
+    Checkbox = true,
+    Input = true,
+    Keybind = true,
+    CopyButton = true,
+    RippleButton = true,
+    HoldButton = true,
+    FlipButton = true,
+    Stat = true,
+}
+
+function Window:GetDensityMetrics()
+    return table.clone(presets[self.density or "normal"] or presets.normal)
+end
+function Window:_applyControlDensity(control)
+    if not control.main or not control.main.Parent then
+        return
+    end
+    local metrics = self:GetDensityMetrics()
+    if control.__type == "Dropdown" and control.top then
+        local height = metrics.rowHeight
+        control.top.Size = UDim2.new(1, 0, 0, height)
+        control.interact.Size = UDim2.new(1, 0, 0, height)
+        control.panel.Size = UDim2.new(1, 0, 1, -(height + 6))
+        if not control._isOpen then
+            control.main.Size = UDim2.new(1, -20, 0, height)
+        else
+            control:_resizeToOptions()
+        end
+    elseif control.__type == "ColorPicker" or control.__type == "GradientPicker" then
+        local height = metrics.rowHeight
+        if not control._isOpen then
+            control.main.Size = UDim2.new(1, -20, 0, height)
+        end
+        control.interact.Size = UDim2.new(1, 0, 0, height)
+        for _, child in { control.title.Parent, control.swatch, control.chevron } do
+            local position = child.Position
+            child.Position = UDim2.new(position.X.Scale, position.X.Offset, 0, height / 2)
+        end
+    elseif control.__type == "ListPicker" then
+        control._baseRowHeight = control._baseRowHeight or control.rowHeight
+        control.rowHeight =
+            math.max(if self.density == "touch" then 44 else 24, control._baseRowHeight + metrics.rowHeight - 44)
+        for _, row in control.rows do
+            row.frame.Size = UDim2.new(1, 0, 0, control.rowHeight)
+        end
+        control:_syncHeight()
+    elseif rows[control.__type] and control._densityBaseHeight then
+        local height = control._densityBaseHeight + (metrics.rowHeight - 44)
+        local size = control.main.Size
+        control.main.Size = UDim2.new(size.X.Scale, size.X.Offset, 0, height)
+        for _, child in control.main:GetChildren() do
+            if child:IsA("GuiObject") then
+                local pos = child.Position
+                if
+                    pos.Y.Scale == 0
+                    and (pos.Y.Offset == 22 or (control._densityCentered and control._densityCentered[child]))
+                then
+                    control._densityCentered = control._densityCentered or setmetatable({}, { __mode = "k" })
+                    control._densityCentered[child] = true
+                    child.Position = UDim2.new(pos.X.Scale, pos.X.Offset, 0, height / 2)
+                end
+            end
+        end
+    elseif control.__type == "Slider" then
+        if not control.minimal then
+            control:_setMainHeight(metrics.rowHeight + (if control._layoutMode == "narrow" then 20 else 12))
+        end
+    end
+    if control.__type == "Group" and control.layout then
+        control.layout.Padding = UDim.new(0, metrics.spacing)
+    end
+end
+function Window:_enhanceControl(control)
+    self._experienceControls = self._experienceControls or setmetatable({}, { __mode = "k" })
+    if not self._experienceControls[control] then
+        self._experienceControls[control] = true
+        if control.main and rows[control.__type] then
+            control._densityBaseHeight = control.main.Size.Y.Offset
+        end
+        if control._applyLayout then
+            local layout = control._applyLayout
+            control._applyLayout = function(element, ...)
+                local result = layout(element, ...)
+                self:_applyControlDensity(element)
+                return result
+            end
+        end
+    end
+    self:_applyControlDensity(control)
+end
+function Window:SetDensity(name, save)
+    name = string.lower(tostring(name))
+    if not presets[name] then
+        return false
+    end
+    self.density = name
+    for control in self._experienceControls or {} do
+        if control._applyLayout then
+            control:_applyLayout()
+        end
+        if control._setHeight and control.contentWrapper then
+            control:_setHeight(if control.expanded then control:_contentHeight() else 0, false)
+            control.header.Size = UDim2.new(1, 0, 0, self:GetDensityMetrics().rowHeight)
+            control.contentWrapper.Position = UDim2.fromOffset(0, self:GetDensityMetrics().rowHeight)
+        end
+        self:_applyControlDensity(control)
+    end
+    for _, tab in self.tabs do
+        local layout = tab.tabPage:FindFirstChildWhichIsA("UIListLayout")
+        if layout then
+            layout.Padding = UDim.new(0, self:GetDensityMetrics().spacing)
+        end
+    end
+    if save ~= false and self.settings then
+        self.settings.densityByWindow = self.settings.densityByWindow or {}
+        self.settings.densityByWindow[self.name] = name
+        self:SaveSettings()
+    end
+    for picker in self._densityPickers or {} do
+        if picker.main.Parent then
+            picker:Set(name, true)
+        end
+    end
+    return true
+end
+
+function Window:ExportTheme()
+    return codec.encode(self.theme)
+end
+function Window:ImportTheme(text)
+    local theme, err = codec.decode(text)
+    if not theme then
+        return false, err
+    end
+    self:ChangeTheme(theme)
+    return true
+end
+function Window:SaveCustomTheme(name)
+    if type(name) ~= "string" or name:match("^%s*$") or #name > 64 then
+        return false
+    end
+    local all = self.settings.customThemesByWindow or {}
+    all[self.name] = all[self.name] or {}
+    all[self.name][name] = self:ExportTheme()
+    self.settings.customThemesByWindow = all
+    return self:SaveSettings()
+end
+function Window:LoadCustomTheme(name)
+    local all = self.settings.customThemesByWindow or {}
+    local saved = all[self.name] and all[self.name][name]
+    if not saved then
+        return false, "Theme not found"
+    end
+    return self:ImportTheme(saved)
+end
+function Window:CreateThemeEditor(properties)
+    properties = properties or {}
+    local tab = self:CreateTab({ name = properties.name or "Theme Studio", icon = "lucide:palette" })
+    local initial = table.clone(self.theme)
+    local editor = { tab = tab, fields = {} }
+    tab:CreateParagraph({
+        title = "Theme Studio",
+        content = "Changes preview in this window. Restore undoes this session; save keeps a named preset. Export/import uses JSON, never executable code.",
+    })
+    local fields = {
+        { "Accent", "AccentColor" },
+        { "Accent outline", "AccentStroke" },
+        { "Text", "ContentColor" },
+        { "Field fill", "FieldBackground" },
+        { "Surface outline", "SurfaceStroke" },
+    }
+    for _, entry in fields do
+        local key = entry[2]
+        editor.fields[key] = tab:CreateColorPicker({
+            name = entry[1],
+            color = self.theme[key],
+            forgetState = true,
+            callback = function(value)
+                self:ChangeTheme({ [key] = value })
+            end,
+        })
+    end
+    editor.windowGradient = tab:CreateGradientPicker({
+        name = "Window background",
+        value = self.theme.WindowColor,
+        forgetState = true,
+        callback = function(value)
+            self:ChangeTheme({ WindowColor = value })
+        end,
+    })
+    editor.elementGradient = tab:CreateGradientPicker({
+        name = "Control surface",
+        value = self.theme.ElementGradient,
+        forgetState = true,
+        callback = function(value)
+            self:ChangeTheme({ ElementGradient = value })
+        end,
+    })
+    editor.radius = tab:CreateSlider({
+        name = "Control corners",
+        range = { 0, 24 },
+        increment = 1,
+        value = self.theme.ElementCornerRadius.Offset,
+        forgetState = true,
+        callback = function(value)
+            self:ChangeTheme({ ElementCornerRadius = UDim.new(0, value) })
+        end,
+    })
+    local function sync()
+        for key, field in editor.fields do
+            if field.value ~= self.theme[key] then
+                field:Set(self.theme[key], true)
+            end
+        end
+        if editor.windowGradient.value ~= self.theme.WindowColor then
+            editor.windowGradient:Set(self.theme.WindowColor, true)
+        end
+        if editor.elementGradient.value ~= self.theme.ElementGradient then
+            editor.elementGradient:Set(self.theme.ElementGradient, true)
+        end
+        if editor.radius.value ~= self.theme.ElementCornerRadius.Offset then
+            editor.radius:Set(self.theme.ElementCornerRadius.Offset, true)
+        end
+    end
+    self:OnThemeChanged(function()
+        if not self.unloaded then
+            sync()
+        end
+    end)
+    editor.name = tab:CreateInput({ name = "Preset name", value = "My theme", forgetState = true })
+    local saved = tab:CreateDropdown({
+        name = "Saved presets",
+        options = {},
+        forgetState = true,
+        callback = function(value)
+            local name = if type(value) == "table" then value[1] else value
+            if name then
+                self:LoadCustomTheme(name)
+                sync()
+            end
+        end,
+    })
+    local function refresh()
+        local names = {}
+        for name in (self.settings.customThemesByWindow or {})[self.name] or {} do
+            table.insert(names, name)
+        end
+        table.sort(names)
+        saved:Refresh(names)
+    end
+    editor.save = tab:CreateButton({
+        name = "Save preset",
+        callback = function()
+            if self:SaveCustomTheme(editor.name.value) then
+                refresh()
+                self:NotifySuccess({ title = "Theme saved", content = editor.name.value })
+            else
+                self:NotifyError({ title = "Could not save", content = "Check the preset name and file access." })
+            end
+        end,
+    })
+    editor.restore = tab:CreateButton({
+        name = "Restore opening theme",
+        callback = function()
+            self:ChangeTheme(initial)
+            sync()
+        end,
+    })
+    editor.export = tab:CreateButton({
+        name = "Copy theme JSON",
+        callback = function()
+            if not core.clipboard.copy(self:ExportTheme()) then
+                self:NotifyWarning({
+                    title = "Clipboard unavailable",
+                    content = "Use window:ExportTheme() to obtain the JSON.",
+                })
+            end
+        end,
+    })
+    editor.import = tab:CreateInput({ name = "Import theme JSON", value = "", forgetState = true })
+    tab:CreateButton({
+        name = "Apply imported theme",
+        callback = function()
+            local ok, err = self:ImportTheme(editor.import.value)
+            if ok then
+                sync()
+            else
+                self:NotifyError({ title = "Invalid theme", content = err })
+            end
+        end,
+    })
+    refresh()
+    return editor
+end
+
+function Window:CreateShowcase(properties)
+    properties = properties or {}
+    local tab = self:CreateTab({ name = properties.name or "Component Catalog", icon = "lucide:layout-grid" })
+    local catalog = { tab = tab, samples = {}, codes = {} }
+    tab:CreateParagraph({
+        title = "Component Catalog",
+        content = "Try real controls, switch themes and density, then copy a minimal example. Use the page selector to browse.",
+    })
+    catalog.themePicker = tab:CreateDropdown({
+        name = "Preview theme",
+        options = { "Current theme", "cobalt", "frost", "highcontrast" },
+        value = "Current theme",
+        forgetState = true,
+        callback = function(value)
+            if value and value ~= "Current theme" then
+                self:ChangeTheme(value)
+            end
+        end,
+    })
+    local densityPicker = tab:CreateDropdown({
+        name = "Preview density",
+        options = { "compact", "normal", "touch" },
+        value = self.density or "normal",
+        forgetState = true,
+        callback = function(value)
+            self:SetDensity(value, false)
+        end,
+    })
+    self._densityPickers = self._densityPickers or setmetatable({}, { __mode = "k" })
+    self._densityPickers[densityPicker] = true
+    catalog.densityPicker = densityPicker
+    local entries = {
+        {
+            "Button",
+            'tab:CreateButton({name = "Save", callback = function() print("Saved") end})',
+            function(page)
+                return page:CreateButton({
+                    name = "Save",
+                    callback = function()
+                        self:NotifySuccess({ title = "Saved", content = "Catalog demonstration" })
+                    end,
+                })
+            end,
+        },
+        {
+            "Toggle",
+            'tab:CreateToggle({name = "Enabled", value = true, callback = function(value) print(value) end})',
+            function(page)
+                return page:CreateToggle({ name = "Enabled", value = true, forgetState = true })
+            end,
+        },
+        {
+            "Slider",
+            'tab:CreateSlider({name = "Volume", range = {0,100}, value = 50, increment = 1})',
+            function(page)
+                return page:CreateSlider({ name = "Volume", range = { 0, 100 }, value = 50, forgetState = true })
+            end,
+        },
+        {
+            "Dropdown",
+            'tab:CreateDropdown({name = "Quality", options = {"Low","Medium","High"}, value = "High"})',
+            function(page)
+                return page:CreateDropdown({
+                    name = "Quality",
+                    options = { "Low", "Medium", "High" },
+                    value = "High",
+                    forgetState = true,
+                })
+            end,
+        },
+        {
+            "Input",
+            'tab:CreateInput({name = "Profile", value = "Main"})',
+            function(page)
+                return page:CreateInput({ name = "Profile", value = "Main", forgetState = true })
+            end,
+        },
+        {
+            "Color",
+            'tab:CreateColorPicker({name = "Accent", color = Color3.fromRGB(0,174,210)})',
+            function(page)
+                return page:CreateColorPicker({
+                    name = "Accent",
+                    color = Color3.fromRGB(0, 174, 210),
+                    forgetState = true,
+                })
+            end,
+        },
+        {
+            "Gradient",
+            'tab:CreateGradientPicker({name = "Gradient", colors = {Color3.fromRGB(0,174,210),Color3.fromRGB(142,88,255)}})',
+            function(page)
+                return page:CreateGradientPicker({
+                    name = "Gradient",
+                    colors = { Color3.fromRGB(0, 174, 210), Color3.fromRGB(142, 88, 255) },
+                    forgetState = true,
+                })
+            end,
+        },
+        {
+            "Notification",
+            'window:NotifySuccess({title = "Saved", content = "Your profile is ready."})',
+            function(page)
+                return page:CreateButton({
+                    name = "Show notification",
+                    callback = function()
+                        self:NotifySuccess({ title = "Saved", content = "Your profile is ready." })
+                    end,
+                })
+            end,
+        },
+        {
+            "Popup",
+            'window:Popup({title = "Apply changes?", content = "This is a demonstration.", options = {{text = "Cancel"},{text = "Apply", style = "primary"}}})',
+            function(page)
+                return page:CreateButton({
+                    name = "Show confirmation",
+                    callback = function()
+                        self:Popup({
+                            title = "Apply changes?",
+                            content = "This is a demonstration.",
+                            options = { { text = "Cancel" }, { text = "Apply", style = "primary" } },
+                        })
+                    end,
+                })
+            end,
+        },
+    }
+    local names = {}
+    for _, entry in entries do
+        table.insert(names, entry[1])
+    end
+    local panel
+    catalog.selector = tab:CreateDropdown({
+        name = "Component",
+        options = names,
+        value = names[1],
+        forgetState = true,
+        callback = function(value)
+            if panel then
+                panel:SelectPage(value)
+            end
+        end,
+    })
+    panel = tab:CreatePanel({ name = "Examples", forgetState = true, showPagePills = false })
+    catalog.panel = panel
+    for _, entry in entries do
+        local page = panel:CreatePage({ name = entry[1] })
+        catalog.samples[entry[1]] = entry[3](page)
+        catalog.codes[entry[1]] = entry[2]
+        page:CreateParagraph({ title = "Example code", content = entry[2] })
+        page:CreateCopyButton({ name = "Copy example", text = entry[2] })
+    end
+    return catalog
+end
+
+function Window:_initExperience(properties)
+    local saved = self.settings.densityByWindow or {}
+    self:SetDensity(properties.density or saved[self.name] or "normal", false)
+    local densityPicker = self.rfSettings:CreateDropdown({
+        name = "Control density",
+        options = { "compact", "normal", "touch" },
+        value = self.density,
+        forgetState = true,
+        callback = function(value)
+            self:SetDensity(value)
+        end,
+    })
+    self._densityPickers = self._densityPickers or setmetatable({}, { __mode = "k" })
+    self._densityPickers[densityPicker] = true
+    self.rfSettings:CreateButton({
+        name = "Open Theme Studio",
+        icon = "lucide:palette",
+        callback = function()
+            self._themeEditor = self._themeEditor or self:CreateThemeEditor()
+            self:Navigate(self._themeEditor.tab)
+        end,
+    })
+end
+
+return Window
 ]=====]
 
 sources["components/windowExtra"] = [=====[
@@ -42131,6 +42682,7 @@ function Window:IsRestoringConfig(): boolean
 end
 
 function Window:_restoreLate(element)
+    self:_enhanceControl(element)
     if not self._loadedConfig or not element.flag or element.forgetState then
         return
     end
@@ -45178,6 +45730,7 @@ export type TourStep = {
 }
 
 export type WindowProps = {
+    density: string?, -- compact, normal or touch; scoped to this window
     name: string?,
     -- what the Search action looks through: "tab" (default) filters the page the player is on,
     -- following them to another tab with the query; "all" gathers every page into one list
@@ -45343,6 +45896,7 @@ export type Tabbox = Moveable & {
 }
 
 export type PanelProps = {
+    showPagePills: boolean?, -- false when a separate selector owns page navigation
     name: string?, -- the card's instance name; the header shows the CURRENT page, not this
     onPageChanged: ((page: string) -> ())?, -- a page change the player (or SelectPage) made
     flag: string?, -- config key for the open page; derived from the name when omitted
@@ -46743,6 +47297,14 @@ export type FlagControl = {
 }
 
 export type Window = {
+    SetDensity: (self: Window, name: string, save: boolean?) -> boolean,
+    GetDensityMetrics: (self: Window) -> { rowHeight: number, spacing: number },
+    ExportTheme: (self: Window) -> string,
+    ImportTheme: (self: Window, json: string) -> (boolean, string?),
+    SaveCustomTheme: (self: Window, name: string) -> boolean,
+    LoadCustomTheme: (self: Window, name: string) -> (boolean, string?),
+    CreateThemeEditor: (self: Window, props: { name: string? }?) -> any,
+    CreateShowcase: (self: Window, props: { name: string? }?) -> any,
     unloaded: boolean, -- true once Unload has run; the handle is spent
     Get: (self: Window, flag: string) -> unknown,
     Set: (self: Window, flag: string, value: unknown) -> boolean,
@@ -51914,6 +52476,8 @@ type SettingsWindow = {
         haptics: boolean,
         soundEffects: boolean,
         uiScale: number,
+        densityByWindow: { [string]: string }?,
+        customThemesByWindow: { [string]: { [string]: string } }?,
         tourSeen: boolean,
         resizeGripEnabled: boolean,
         loadingAnimationEnabled: boolean,
@@ -51939,6 +52503,8 @@ type DecodedSettings = {
     haptics: unknown?,
     soundEffects: unknown?,
     uiScale: unknown?,
+    densityByWindow: unknown?,
+    customThemesByWindow: unknown?,
     tourSeen: unknown?,
     resizeGripEnabled: unknown?,
     loadingAnimationEnabled: unknown?,
@@ -51988,6 +52554,8 @@ function persistenceSettings.saveSettings(window: SettingsWindow): boolean
         haptics = window.settings.haptics,
         soundEffects = window.settings.soundEffects,
         uiScale = window.settings.uiScale,
+        densityByWindow = window.settings.densityByWindow,
+        customThemesByWindow = window.settings.customThemesByWindow,
         tourSeen = window.settings.tourSeen,
         resizeGripEnabled = window.settings.resizeGripEnabled,
         loadingAnimationEnabled = window.settings.loadingAnimationEnabled,
@@ -52096,6 +52664,30 @@ function persistenceSettings.loadSettings(window: SettingsWindow): boolean
         window.settings.soundEffects = settings.soundEffects
     end
 
+    if type(settings.densityByWindow) == "table" then
+        local densities = {}
+        for name, value in settings.densityByWindow :: any do
+            if type(name) == "string" and (value == "compact" or value == "normal" or value == "touch") then
+                densities[name] = value
+            end
+        end
+        window.settings.densityByWindow = densities
+    end
+    if type(settings.customThemesByWindow) == "table" then
+        local windows = {}
+        for name, presets in settings.customThemesByWindow :: any do
+            if type(name) == "string" and type(presets) == "table" then
+                local valid = {}
+                for label, json in presets do
+                    if type(label) == "string" and #label <= 64 and type(json) == "string" and #json <= 12000 then
+                        valid[label] = json
+                    end
+                end
+                windows[name] = valid
+            end
+        end
+        window.settings.customThemesByWindow = windows
+    end
     if type(settings.uiScale) == "number" then
         window.settings.uiScale = math.clamp(settings.uiScale, 85, 115)
     end
@@ -53117,6 +53709,83 @@ function textMetrics.textHeight(font: Font, size: number, text: any, width: numb
 end
 
 return textMetrics
+]=====]
+
+sources["utility/themeCodec"] = [=====[
+--!nonstrict
+-- Copyright (c) 2026 Corridon Capital
+-- MPL-2.0: https://mozilla.org/MPL/2.0/
+local variables = require(script.Parent.variables)
+local codec = {}
+local colors = { "AccentColor", "AccentStroke", "ContentColor", "FieldBackground", "SurfaceStroke", "ElementStroke" }
+local sequences = { "WindowColor", "ElementGradient" }
+function codec.encode(theme)
+    local data = { version = 1, colors = {}, sequences = {}, radius = theme.ElementCornerRadius.Offset }
+    for _, key in colors do
+        data.colors[key] = theme[key]:ToHex()
+    end
+    for _, key in sequences do
+        local points = {}
+        for _, point in theme[key].Keypoints do
+            table.insert(points, { time = point.Time, color = point.Value:ToHex() })
+        end
+        data.sequences[key] = points
+    end
+    return variables.httpService:JSONEncode(data)
+end
+function codec.decode(text)
+    if type(text) ~= "string" or #text > 12000 then
+        return nil, "Invalid theme document"
+    end
+    local ok, data = pcall(variables.httpService.JSONDecode, variables.httpService, text)
+    if
+        not ok
+        or type(data) ~= "table"
+        or data.version ~= 1
+        or type(data.colors) ~= "table"
+        or type(data.sequences) ~= "table"
+    then
+        return nil, "Unsupported theme document"
+    end
+    local result = {}
+    local valid = pcall(function()
+        for _, key in colors do
+            local hex = data.colors[key]
+            assert(type(hex) == "string" and hex:match("^%x%x%x%x%x%x$"), "Invalid color")
+            result[key] = Color3.fromHex(hex)
+        end
+        for _, key in sequences do
+            local raw = data.sequences[key]
+            assert(type(raw) == "table" and #raw >= 2 and #raw <= 20, "Invalid gradient")
+            local points, previous = {}, -1
+            for i, p in raw do
+                assert(
+                    type(p) == "table"
+                        and type(p.time) == "number"
+                        and p.time == p.time
+                        and p.time > previous
+                        and p.time <= 1,
+                    "Invalid position"
+                )
+                assert((i ~= 1 or p.time == 0) and (i ~= #raw or p.time == 1), "Missing endpoints")
+                assert(type(p.color) == "string" and p.color:match("^%x%x%x%x%x%x$"), "Invalid color")
+                table.insert(points, ColorSequenceKeypoint.new(p.time, Color3.fromHex(p.color)))
+                previous = p.time
+            end
+            result[key] = ColorSequence.new(points)
+        end
+        assert(
+            type(data.radius) == "number" and data.radius == data.radius and data.radius >= 0 and data.radius <= 24,
+            "Invalid radius"
+        )
+        result.ElementCornerRadius = UDim.new(0, data.radius)
+    end)
+    if not valid then
+        return nil, "Invalid theme values"
+    end
+    return result
+end
+return codec
 ]=====]
 
 sources["utility/variables"] = [=====[
