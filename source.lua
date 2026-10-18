@@ -6493,10 +6493,126 @@ function Dashboard:_button(parent, text: string, size: UDim2, position: UDim2, o
             variables.tweenService:Create(button, hoverInfo, { BackgroundTransparency = 0.93 }):Play()
         end
     end)
-    window:ConnectFor(self, button.MouseButton1Click, function()
+
+    local scale = window:Create("UIScale", { Scale = 1, Parent = button })
+    local copying = text == "Copy Job ID" or text == "Copy Place ID" or text == "Copy Universe"
+    local server = text == "Rejoin" or text == "Server Hop" or text == "Join Lowest Server"
+    local feedback = if server
+        then self:_icon(button, "lucide:loader-circle", 13, UDim2.new(1, -9, 0.5, 0), Vector2.new(1, 0.5), 0)
+        else nil
+    if feedback then
+        feedback.Visible = false
+    end
+    local state: {
+        busy: boolean,
+        epoch: number,
+        button: TextButton,
+        scale: UIScale,
+        label: string,
+        spin: Tween?,
+        Activate: (() -> ())?,
+    } =
+        { busy = false, epoch = 0, button = button, scale = scale, label = button.Text }
+    self._buttonActions = self._buttonActions or {}
+    self._buttonActions[button] = state
+    local function live(epoch)
+        return not window.unloaded and button.Parent ~= nil and state.epoch == epoch
+    end
+    local function reset(epoch)
+        if not live(epoch) then
+            return
+        end
+        if state.spin then
+            state.spin:Cancel()
+            state.spin = nil
+        end
+        if feedback then
+            feedback.Visible = false
+            feedback.Rotation = 0
+        end
+        button.Text = state.label or locale.resolve(text)
+        state.busy = false
+        if server then
+            self._serverActionBusy = false
+        end
+    end
+    local function activate()
+        if state.busy or window.unloaded or not button.Parent or (server and self._serverActionBusy) then
+            return
+        end
         hapticEngine.click()
         soundEngine.click()
-        onClick()
+        state.busy = true
+        state.epoch += 1
+        state.label = button.Text
+        local epoch = state.epoch
+        if server then
+            self._serverActionBusy = true
+        end
+        scale.Scale = 0.96
+        variables.tweenService
+            :Create(scale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 })
+            :Play()
+        if copying then
+            button.Text = locale.resolve("Copying...")
+        elseif server then
+            button.Text = locale.resolve(if text == "Rejoin" then "Rejoining..." else "Finding...")
+            feedback.Visible = true
+            local spin = variables.tweenService:Create(
+                feedback,
+                TweenInfo.new(0.75, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1),
+                { Rotation = 360 }
+            )
+            state.spin = spin
+            spin:Play()
+        end
+        if copying or server then
+            task.delay(15, function()
+                if live(epoch) and state.busy then
+                    state.epoch += 1
+                    reset(state.epoch)
+                    window:Toast({
+                        title = locale.resolve("Action timed out. Try again."),
+                        icon = "lucide:x",
+                        duration = 3,
+                    })
+                end
+            end)
+        end
+        task.spawn(function()
+            local ok, result = pcall(onClick)
+            if not live(epoch) then
+                return
+            end
+            if copying or server then
+                if copying then
+                    button.Text = locale.resolve(if ok and result ~= false then "Copied!" else "Try again")
+                else
+                    button.Text = locale.resolve(if not ok or result == false then "Try again" else "Joining...")
+                end
+                task.delay(1.8, function()
+                    reset(epoch)
+                end)
+            else
+                reset(epoch)
+            end
+            if not ok then
+                window:Toast({ title = locale.resolve("Action failed. Try again."), icon = "lucide:x", duration = 3 })
+            end
+        end)
+    end
+    state.Activate = activate
+    window:ConnectFor(self, button.MouseButton1Click, activate)
+    window:ConnectFor(self, button.Destroying, function()
+        state.epoch += 1
+        if state.spin then
+            state.spin:Cancel()
+            state.spin = nil
+        end
+        self._buttonActions[button] = nil
+        if server and state.busy then
+            self._serverActionBusy = false
+        end
     end)
     return button
 end
@@ -6937,26 +7053,31 @@ function Dashboard:_buildGame()
     local first = second - buttonWidth - 8
     local size = UDim2.fromOffset(buttonWidth, buttonHeight)
     self.rejoinButton = self:_button(card, "Rejoin", size, UDim2.new(1, first, 0, 16), function()
-        self:Rejoin()
+        return self:Rejoin()
     end)
     self.hopButton = self:_button(card, "Server Hop", size, UDim2.new(1, second, 0, 16), function()
-        self:ServerHop(false)
+        return self:ServerHop(false)
     end)
     self:_button(card, "Copy Job ID", size, UDim2.new(1, first, 0, 16 + buttonHeight + 8), function()
-        self:_copy(jobId, "Job ID copied")
+        return self:_copy(jobId, "Job ID copied")
     end)
-    self:_button(card, "Copy Universe", size, UDim2.new(1, second, 0, 16 + buttonHeight + 8), function()
-        self:_copy(tostring(universeId), "Universe ID copied")
+
+    self:_button(card, "Copy Place ID", size, UDim2.new(1, second, 0, 16 + buttonHeight + 8), function()
+        return self:_copy(tostring(placeId), "Place ID copied")
     end)
-    self:_button(
+    self:_button(card, "Copy Universe", size, UDim2.new(1, first, 0, 16 + (buttonHeight + 8) * 2), function()
+        return self:_copy(tostring(universeId), "Universe ID copied")
+    end)
+    local lowest = self:_button(
         card,
         "Join Lowest Server",
-        UDim2.fromOffset(buttonWidth * 2 + 8, buttonHeight),
+        size,
         UDim2.new(1, second, 0, 16 + (buttonHeight + 8) * 2),
         function()
-            self:ServerHop(true)
+            return self:ServerHop(true)
         end
     )
+    lowest.TextSize = 11
 end
 
 function Dashboard:_buildExecutor()
@@ -7110,8 +7231,10 @@ end
 function Dashboard:_copy(text: string, done: string)
     if clipboard.copy(text) then
         self.window:Toast({ title = locale.resolve(done), icon = "lucide:check", duration = 2.5 })
+        return true
     else
         self.window:Toast({ title = locale.resolve("Couldn't copy on this executor"), icon = "lucide:x", duration = 3 })
+        return false
     end
 end
 
@@ -31564,7 +31687,9 @@ function SubTabs.new(tab)
         if height <= 0 then
             height = tab.tabPage.AbsoluteSize.Y
         end
-        self.main.Size = UDim2.new(1, 0, 0, math.max(height - pageTop, pillHeight + pageGap))
+        local scale = if window.contentScale then window.contentScale.Scale else 1
+        -- AbsoluteWindowSize is already scaled; Size offsets are in local UI units.
+        self.main.Size = UDim2.new(1, 0, 0, math.max(height / math.max(scale, 0.01) - pageTop, pillHeight + pageGap))
     end
     window:Connect(tab.tabPage:GetPropertyChangedSignal("AbsoluteWindowSize"), fit)
     window:Connect(tab.tabPage:GetPropertyChangedSignal("AbsoluteSize"), fit)
@@ -31891,7 +32016,8 @@ end
 function SubTabs:_syncCanvas()
     local page = self.selected
     local height = if page then page.frame.AbsoluteSize.Y else 0
-    self.pageArea.CanvasSize = UDim2.fromOffset(0, height + pagesTop + pagesBottom)
+    local scale = if self.window.contentScale then self.window.contentScale.Scale else 1
+    self.pageArea.CanvasSize = UDim2.fromOffset(0, height / math.max(scale, 0.01) + pagesTop + pagesBottom)
 end
 
 function SubTabs:GetSelected(): string?
@@ -43607,6 +43733,10 @@ function Window:RevealControl(control)
             host:_selectIndex(ancestor.index)
         end
     end
+    if target.tab._subTabs then
+        -- SubTabs owns an inner scrolling area; the outer page keeps its header fixed.
+        target.tab.tabPage.CanvasPosition = Vector2.zero
+    end
     self._revealGeneration = (self._revealGeneration or 0) + 1
     local generation = self._revealGeneration
     task.delay(self.elementsLayout.TweenTime + 0.05, function()
@@ -43620,24 +43750,38 @@ function Window:RevealControl(control)
         end
         local node = control.main.Parent
         while node and node ~= self.main do
-            if node:IsA("ScrollingFrame") then
-                local y = node.CanvasPosition.Y + control.main.AbsolutePosition.Y - node.AbsolutePosition.Y - 12
-                node.CanvasPosition = Vector2.new(node.CanvasPosition.X, math.max(0, y))
+            if node:IsA("ScrollingFrame") and node.ScrollingEnabled ~= false then
+                local viewport = node.AbsoluteWindowSize.Y
+                if viewport > 0 then
+                    local top = control.main.AbsolutePosition.Y
+                    local bottom = top + control.main.AbsoluteSize.Y
+                    local viewTop = node.AbsolutePosition.Y + 12
+                    local viewBottom = node.AbsolutePosition.Y + viewport - 12
+                    local delta = 0
+                    -- Preserve a visible target's context, including nearby sub-tab headers.
+                    if top < viewTop or bottom - top > viewBottom - viewTop then
+                        delta = top - viewTop
+                    elseif bottom > viewBottom then
+                        delta = bottom - viewBottom
+                    end
+                    if math.abs(delta) > 0.5 then
+                        local y = node.CanvasPosition.Y + delta
+                        local maxY = math.max(0, node.AbsoluteCanvasSize.Y - viewport)
+                        node.CanvasPosition = Vector2.new(node.CanvasPosition.X, math.clamp(y, 0, maxY))
+                    end
+                end
             end
             node = node.Parent
         end
-        local highlight = self:Create("Frame", {
+        local highlight = self:Create("UIStroke", {
             Name = "SearchHighlight",
-            BackgroundColor3 = self.theme.AccentColor,
-            BackgroundTransparency = 0.86,
-            BorderSizePixel = 0,
-            Active = false,
-            Size = UDim2.fromScale(1, 1),
-            ZIndex = 6,
+            Color = self.theme.AccentColor,
+            Transparency = 0.15,
+            Thickness = 2,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
             Parent = control.main,
         })
-        self:Create("UICorner", { CornerRadius = self.theme.ElementCornerRadius, Parent = highlight })
-        core.variables.tweenService:Create(highlight, TweenInfo.new(1.1), { BackgroundTransparency = 1 }):Play()
+        core.variables.tweenService:Create(highlight, TweenInfo.new(1.1), { Transparency = 1 }):Play()
         task.delay(1.2, function()
             if not self.unloaded and highlight.Parent then
                 self:DestroySubtree(highlight)
@@ -43834,9 +43978,11 @@ function Window:CompareConfig(name)
     end
     local _, path = persistence.getPath(self, name)
     local ok, raw = pcall(filesystem.readfile, path)
-    local saved = if ok then persistence.decode(raw, self) else nil
+    -- Comparison validation must not replace the result of an actual save/load.
+    local context: any = { configuration = self.configuration, controls = self.controls }
+    local saved = if ok then persistence.decode(raw, context) else nil
     if not saved then
-        return nil, "Configuration could not be read"
+        return nil, (context._configResult and context._configResult.message) or "Configuration could not be read"
     end
     return self:_compareFlags(saved)
 end
@@ -43927,14 +44073,34 @@ function Window:ResetSection(container)
 end
 
 function Window:CreateProfileManager(properties)
+    local existing = self._profileManagerHandle
+    if existing and existing.tab.tabPage and existing.tab.tabPage.Parent then
+        return existing
+    end
     local tab = self:CreateTab({ name = (properties or {}).name or "Profile review", icon = "lucide:files" })
     tab._journeyUtility = true
-    local handle = { tab = tab }
+    local handle = { tab = tab, mode = "idle" }
+    self._profileManagerHandle = handle
+    self._profileManager = handle
     tab:CreateParagraph({
         title = "Review before loading",
         content = "Compare saved values with this session. Pending changes are measured from the last successful save or load.",
     })
-    handle.picker = tab:CreateDropdown({ name = "Saved profile", options = self:ListConfigs(), forgetState = true })
+    handle.status = tab:CreateParagraph({
+        title = "Choose a profile",
+        content = "Select a saved profile to compare. No preferences have been loaded.",
+    })
+    local compare
+    handle.picker = tab:CreateDropdown({
+        name = "Saved profile",
+        options = self:ListConfigs(),
+        forgetState = true,
+        callback = function()
+            if compare then
+                compare()
+            end
+        end,
+    })
     handle.table = tab:CreateTable({
         name = "Changes",
         columns = {
@@ -43943,9 +44109,15 @@ function Window:CreateProfileManager(properties)
             { key = "saved", title = "Saved" },
         },
         rows = {},
-        emptyText = "No differences.",
+        emptyText = "Choose a saved profile to compare.",
     })
     local function display(value)
+        if value == nil then
+            return "Not set"
+        end
+        if type(value) == "boolean" then
+            return if value then "On" else "Off"
+        end
         if type(value) == "table" then
             local ok, text = pcall(core.variables.httpService.JSONEncode, core.variables.httpService, value)
             return if ok then text else tostring(value)
@@ -43959,39 +44131,81 @@ function Window:CreateProfileManager(properties)
         end
         handle.table:SetRows(rows)
     end
-    handle.compare = tab:CreateButton({
-        name = "Compare selected profile",
-        callback = function()
-            local changes, err = self:CompareConfig(selected(handle.picker))
-            if changes then
-                show(changes)
-            else
-                self:NotifyWarning({ title = "Could not compare", content = err })
-            end
-        end,
-    })
-    tab:CreateButton({
-        name = "Show pending changes",
-        callback = function()
-            show(self:GetPendingChanges())
-        end,
-    })
-    handle.load = tab:CreateButton({
+    local function status(title, content, emptyText)
+        handle.status:SetTitle(title)
+        handle.status:SetContent(content)
+        handle.table.emptyText = emptyText
+    end
+    compare = function()
+        local name = selected(handle.picker)
+        local changes, err = self:CompareConfig(name)
+        handle.mode = "profile"
+        if changes then
+            status(
+                if #changes == 0
+                    then "Profile matches this session"
+                    elseif #changes == 1 then "1 difference found"
+                    else tostring(#changes) .. " differences found",
+                "Comparing " .. tostring(name) .. ". Current values are unchanged; Load applies this profile.",
+                "This profile already matches your current preferences."
+            )
+            show(changes)
+            return true
+        end
+        status("Could not compare profile", err or "Choose a saved profile.", "No comparison available.")
+        show({})
+        return false
+    end
+    local actions = tab:CreateGroup({ direction = "row" })
+    handle.compare = actions:CreateButton({ name = "Compare selected profile", callback = compare })
+    handle.load = actions:CreateButton({
         name = "Load selected profile",
         callback = function()
             local name = selected(handle.picker)
-            if type(name) == "string" and self:Load(name) then
+            if type(name) ~= "string" then
+                status("Choose a profile", "Select a saved profile before loading.", "No profile selected.")
+                show({})
+                return
+            end
+            if self:Load(name) then
+                handle.mode = "profile"
+                status(
+                    "Profile loaded",
+                    name .. " is now applied to this session. Undo restores the previous preferences.",
+                    "The selected profile is applied."
+                )
                 show({})
             else
-                self:NotifyWarning({ title = "Could not load profile" })
+                local result = self:GetConfigResult()
+                status(
+                    "Could not load profile",
+                    result.message or "The saved profile could not be loaded.",
+                    "Your saved file was preserved."
+                )
+                show({})
             end
+        end,
+    })
+    handle.pending = tab:CreateButton({
+        name = "Show pending changes",
+        callback = function()
+            handle.mode = "pending"
+            local changes = self:GetPendingChanges()
+            status(
+                if #changes == 0 then "No unsaved changes" else tostring(#changes) .. " unsaved changes",
+                if self.configuration.autoSave
+                    then "Autosave is on. Successful saves become the new baseline, so this list can return to zero. Compare a named profile to see how it differs."
+                    else "Measured against the last successful save or load.",
+                "There are no changes since the last successful save or load."
+            )
+            show(changes)
         end,
     })
     handle.undo = tab:CreateButton({
         name = "Undo last preference change",
         callback = function()
             if self:UndoPreferences() then
-                show(self:GetPendingChanges())
+                handle.pending.callback()
             else
                 self:Toast({ title = "Nothing to undo" })
             end
@@ -44004,6 +44218,12 @@ function Window:CreateProfileManager(properties)
         callback = function()
             local target = sections[selected(handle.sections)]
             if not target then
+                status(
+                    "Choose a page",
+                    "Select a page in Restore defaults in before restoring its defaults.",
+                    "No page selected."
+                )
+                show({})
                 return
             end
             self:Popup({
@@ -44022,11 +44242,12 @@ function Window:CreateProfileManager(properties)
             })
         end,
     })
-    self:_onPageShown(function(page)
-        if page ~= tab then
+    function handle.Refresh()
+        if self.unloaded or not tab.tabPage or not tab.tabPage.Parent then
             return
         end
-        handle.picker:Refresh(self:ListConfigs())
+        local profiles = self:ListConfigs()
+        handle.picker:Refresh(profiles)
         local names = {}
         table.clear(sections)
         for _, candidate in self.tabs do
@@ -44036,7 +44257,39 @@ function Window:CreateProfileManager(properties)
             end
         end
         handle.sections:Refresh(names)
+        if #profiles == 0 then
+            handle.mode = "idle"
+            status(
+                "No saved profiles yet",
+                "Save a named configuration in Settings to compare it here.",
+                "No saved profiles available."
+            )
+            show({})
+            handle.compare:Lock("Save a profile first.")
+            handle.load:Lock("Save a profile first.")
+        else
+            handle.compare:Unlock()
+            handle.load:Unlock()
+            if handle.mode == "profile" and selected(handle.picker) then
+                compare()
+            end
+        end
+    end
+    local disconnect = self:_onPageShown(function(page)
+        if page == tab then
+            handle.Refresh()
+        end
     end)
+    handle.status._disconnectPageHook = function()
+        disconnect()
+        if self._profileManagerHandle == handle then
+            self._profileManagerHandle = nil
+        end
+        if self._profileManager == handle then
+            self._profileManager = nil
+        end
+    end
+    handle.Refresh()
     return handle
 end
 
