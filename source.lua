@@ -3886,6 +3886,9 @@ function ColorPicker.new(tab, properties)
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
         presets = properties.presets or properties.Presets or defaultPresets,
 
+        _callbackPolicy = properties.callbackPolicy or "live",
+        _callbackInterval = math.clamp(tonumber(properties.callbackInterval) or 0.1, 0.016, 10),
+        _continuousToken = 0,
         callback = properties.callback or properties.Callback or function() end,
 
         _isOpen = false,
@@ -4151,9 +4154,10 @@ function ColorPicker:_buildBody()
             self.hue, self.sat, self.val = h, s, v
             self.value = Color3.fromHSV(h, s, v)
             self:_render("drag")
-            self:_fireCallback()
+            self.window:_dispatchContinuousCallback(self, self.value)
         end,
         onCommit = function()
+            self.window:_flushContinuousCallback(self)
             self.window:_persist(self)
         end,
     })
@@ -4538,6 +4542,9 @@ function ColorSwatch.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
     local self = setmetatable({
         tab = tab,
+        _callbackPolicy = properties.callbackPolicy or "live",
+        _callbackInterval = math.clamp(tonumber(properties.callbackInterval) or 0.1, 0.016, 10),
+        _continuousToken = 0,
         window = tab.window,
         name = properties.name or properties.Name or "Color",
         icon = properties.icon or properties.Icon,
@@ -4610,6 +4617,7 @@ function ColorSwatch.new(tab, properties)
     if self.description then
         self.descriptor = require(script.Parent.descriptor).new(tab, { description = self.description })
     end
+    self.callback = self.swatch.callback
     return self
 end
 
@@ -12350,6 +12358,9 @@ function GradientPicker.new(tab, properties)
         tooltip = properties.tooltip or properties.Tooltip,
         forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
 
+        _callbackPolicy = properties.callbackPolicy or "live",
+        _callbackInterval = math.clamp(tonumber(properties.callbackInterval) or 0.1, 0.016, 10),
+        _continuousToken = 0,
         callback = properties.callback or properties.Callback or function() end,
 
         _isOpen = false,
@@ -12626,9 +12637,10 @@ function GradientPicker:_buildBody()
             self.selected.color = Color3.fromHSV(hue, sat, val)
             self.value = buildSequence(self.stops)
             self:_render("drag")
-            self:_fireCallback()
+            self.window:_dispatchContinuousCallback(self, self.value)
         end,
         onCommit = function()
+            self.window:_flushContinuousCallback(self)
             self.window:_persist(self)
         end,
     })
@@ -12815,7 +12827,7 @@ function GradientPicker:_pumpDrag()
     end
     self:_moveStop(self._drag, t)
     self:_render("drag")
-    self:_fireCallback()
+    self.window:_dispatchContinuousCallback(self, self.value)
 end
 
 -- Endpoints remain anchored; interior stops cannot cross their neighbours.
@@ -12839,6 +12851,7 @@ function GradientPicker:_moveStop(stop, time)
 end
 
 function GradientPicker:_endDrag()
+    self.window:_flushContinuousCallback(self)
     local stop = self._drag
     self._drag = nil
     if stop then
@@ -13554,6 +13567,10 @@ end
 -- Leaves carry no margin, so the same pull would just overlap them: a row holding any leaf
 -- keeps the leaf gap and lets the columns sit a touch wider apart.
 function Group:_reflowRow()
+    if self.window._batchState then
+        self.window._batchState.layouts[self] = true
+        return
+    end
     if self.direction ~= Enum.FillDirection.Horizontal then
         return
     end
@@ -18387,7 +18404,7 @@ function ItemPicker:_buildPage()
         window:Create("UICorner", { CornerRadius = hostCorner.CornerRadius, Parent = page })
     end
     self:_paintPage()
-    window:OnThemeChanged(function()
+    self._disconnectThemeHook = window:OnThemeChanged(function()
         if self.page then
             self:_paintPage()
         end
@@ -18638,6 +18655,11 @@ function ItemPicker:_buildPage()
         end
     end)
 
+    window:ConnectFor(self, self.grid:GetPropertyChangedSignal("CanvasPosition"), function()
+        if self._pooledCards then
+            self:_renderCards()
+        end
+    end)
     self:_rebuildCards()
 end
 
@@ -18818,11 +18840,18 @@ function ItemPicker:_applyColumns()
     local columns = math.max(math.floor((width + cardGap) / (minCardWidth + cardGap)), 1)
     local cardWidth = math.floor((width - cardGap * (columns - 1)) / columns)
     self.gridLayout.CellSize = UDim2.fromOffset(cardWidth, cardHeight)
+    self._poolColumns, self._poolCardWidth = columns, cardWidth
+    if self._pooledCards then
+        self:_renderCards()
+    end
 end
 
 function ItemPicker:_buildCard(entry, order: number)
     local window = self.window
-    local card = { entry = entry }
+    local card = { entry = entry, connections = {} }
+    local function connect(signal, callback)
+        table.insert(card.connections, window:ConnectFor(self, signal, callback))
+    end
 
     card.frame = window:Create("TextButton", {
         Name = entry.name,
@@ -18856,7 +18885,7 @@ function ItemPicker:_buildCard(entry, order: number)
         Transparency = NumberSequence.new(0.6, 0),
         Parent = card.well,
     })
-    if entry.image then
+    if entry.image or self._pooledCards then
         card.picture = window:Create("ImageLabel", {
             Size = UDim2.fromOffset(thumbSize, thumbSize),
             Position = UDim2.fromScale(0.5, 0.5),
@@ -18866,7 +18895,7 @@ function ItemPicker:_buildCard(entry, order: number)
             ZIndex = z(4),
             Parent = card.well,
         })
-        image.assign(card.picture, "Image", entry.image)
+        image.assign(card.picture, "Image", entry.image or "")
     end
 
     local below = 6 + wellHeight + 6
@@ -18886,12 +18915,12 @@ function ItemPicker:_buildCard(entry, order: number)
 
     local metaTop = below + 34
     local metaLeft = 9
-    if entry.color then
+    if entry.color or self._pooledCards then
         card.dot = window:Create("Frame", {
             Size = UDim2.fromOffset(6, 6),
             Position = UDim2.fromOffset(9, metaTop + 7),
             AnchorPoint = Vector2.new(0, 0.5),
-            BackgroundColor3 = entry.color,
+            BackgroundColor3 = entry.color or window.theme.AccentColor,
             BorderSizePixel = 0,
             ZIndex = z(3),
             Parent = card.frame,
@@ -18899,7 +18928,7 @@ function ItemPicker:_buildCard(entry, order: number)
         window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = card.dot })
         metaLeft += 11
     end
-    if entry.rarity then
+    if entry.rarity or self._pooledCards then
         card.rarity = window:Create("TextLabel", {
             Text = tostring(entry.rarity),
             Size = UDim2.new(1, -(metaLeft + 50), 0, 14),
@@ -18926,7 +18955,7 @@ function ItemPicker:_buildCard(entry, order: number)
             Parent = card.frame,
         }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
     end
-    if entry.subtitle then
+    if entry.subtitle or self._pooledCards then
         card.subtitle = window:Create("TextLabel", {
             Text = tostring(entry.subtitle),
             Size = UDim2.new(1, -18, 0, 14),
@@ -18965,18 +18994,18 @@ function ItemPicker:_buildCard(entry, order: number)
     })
     image.assign(card.check, "Image", "lucide:check")
 
-    window:ConnectFor(self, card.frame.MouseEnter, function()
+    connect(card.frame.MouseEnter, function()
         card.hovered = true
         self:_paintCard(card, true)
     end)
-    window:ConnectFor(self, card.frame.MouseLeave, function()
+    connect(card.frame.MouseLeave, function()
         card.hovered = false
         self:_paintCard(card, true)
     end)
-    window:ConnectFor(self, card.frame.MouseButton1Click, function()
+    connect(card.frame.MouseButton1Click, function()
         hapticEngine.click()
         soundEngine.click()
-        self:Toggle(entry.id)
+        self:Toggle(card.entry.id)
     end)
 
     self:_paintCard(card, false)
@@ -18984,6 +19013,9 @@ function ItemPicker:_buildCard(entry, order: number)
 end
 
 function ItemPicker:_paintCard(card, animate)
+    if self._pooledCards then
+        animate = false
+    end
     local theme = self.window.theme
     local picked = self.selected[card.entry.id] == true
     local goals = {
@@ -19025,15 +19057,84 @@ function ItemPicker:_rebuildCards()
     if not self.grid then
         return
     end
-    for _, card in self.cards do
-        card.frame:Destroy()
+    for _, card in self._cardPool or self.cards do
+        for _, connection in card.connections or {} do
+            self.window:Disconnect(connection)
+            local i = table.find(self.connections, connection)
+            if i then
+                table.remove(self.connections, i)
+            end
+        end
+        self.window:DestroySubtree(card.frame)
     end
-    self.cards = {}
-    for index, entry in self.entries do
-        self.cards[entry.id] = self:_buildCard(entry, index)
+    self.cards, self._cardPool = {}, nil
+    self._pooledCards = #self.entries >= 100
+    if not self._gridStorage then
+        self._gridStorage = self.window:Create("Folder", { Parent = self.page })
+    end
+    self.gridLayout.Parent = if self._pooledCards then self._gridStorage else self.grid
+    self.grid.AutomaticCanvasSize = if self._pooledCards then Enum.AutomaticSize.None else Enum.AutomaticSize.Y
+    if not self._pooledCards then
+        for index, entry in self.entries do
+            self.cards[entry.id] = self:_buildCard(entry, index)
+        end
+    else
+        self._cardPool = {}
     end
     self:_applyColumns()
     self:_applyFilter()
+end
+
+function ItemPicker:_renderCards()
+    if self._renderingCards or self._removed or self.window.unloaded or not self._cardPool then
+        return
+    end
+    self._renderingCards = true
+    local entries = self._filteredEntries or {}
+    local columns, width = self._poolColumns or 3, self._poolCardWidth or minCardWidth
+    local view = self.grid.AbsoluteWindowSize.Y
+    if view <= 0 then
+        view = 500
+    end
+    local budget = math.min(#self.entries, math.max(36, columns * (math.ceil(view / (cardHeight + cardGap)) + 2)))
+    for i = #self._cardPool + 1, budget do
+        self._cardPool[i] = self:_buildCard(self.entries[1], i)
+    end
+    local height = math.ceil(#entries / columns) * (cardHeight + cardGap) + 14
+    self.grid.CanvasSize = UDim2.fromOffset(0, height)
+    local y = math.clamp(self.grid.CanvasPosition.Y, 0, math.max(0, height - view))
+    local first = math.max(0, math.floor(y / (cardHeight + cardGap)) - 1) * columns + 1
+    self.cards = {}
+    for slot, card in self._cardPool do
+        local index = first + slot - 1
+        local entry = entries[index]
+        card.frame.Visible = entry ~= nil and slot <= budget
+        if entry and slot <= budget then
+            card.entry = entry
+            card.hovered = false
+            self.cards[entry.id] = card
+            card.frame.Position = UDim2.fromOffset(
+                ((index - 1) % columns) * (width + cardGap),
+                math.floor((index - 1) / columns) * (cardHeight + cardGap)
+            )
+            card.frame.Size = UDim2.fromOffset(width, cardHeight)
+            card.frame.Name = entry.name
+            card.name.Text = entry.name
+            image.assign(card.picture, "Image", entry.image or "")
+            card.picture.Visible = entry.image ~= nil
+            card.dot.Visible = entry.color ~= nil
+            card.dot.BackgroundColor3 = entry.color or self.window.theme.AccentColor
+            card.rarity.Text = tostring(entry.rarity or "")
+            card.rarity.TextColor3 = entry.color or self.window.theme.ContentColor
+            card.rarity.Position = UDim2.fromOffset(if entry.color then 20 else 9, 6 + wellHeight + 6 + 34)
+            card.rarity.Visible = entry.rarity ~= nil
+            card.subtitle.Text = tostring(entry.subtitle or "")
+            card.subtitle.Visible = entry.subtitle ~= nil
+            self:_paintCard(card, false)
+        end
+    end
+    self._renderingCards = false
+    self:_syncThumb()
 end
 
 function ItemPicker:_matches(entry): boolean
@@ -19049,6 +19150,19 @@ function ItemPicker:_matches(entry): boolean
 end
 
 function ItemPicker:_applyFilter()
+    if self._pooledCards and self.grid then
+        self._filteredEntries = {}
+        for _, entry in self.entries do
+            if self:_matches(entry) then
+                table.insert(self._filteredEntries, entry)
+            end
+        end
+        self.grid.CanvasPosition = Vector2.new(0, 0)
+        self:_renderCards()
+        self.emptyLabel.Visible = #self._filteredEntries == 0
+        self:_syncCount()
+        return
+    end
     if not self.grid then
         return
     end
@@ -19299,15 +19413,7 @@ function ItemPicker:_minWidth(): number
 end
 
 function ItemPicker:Remove()
-    self:Close()
-    if self.page then
-        self.page:Destroy()
-        self.page = nil
-    end
-    if self.descriptor then
-        self.descriptor:Remove()
-    end
-    self.main:Destroy()
+    return self:Destroy()
 end
 
 moveable(ItemPicker)
@@ -20034,6 +20140,7 @@ sources["components/listpicker"] = [=====[
 -- history of AutomaticSize-inside-a-list-layout growth loops). That height is capped - see
 -- defaultMaxHeight - so a long list scrolls inside the element instead of pushing the page.
 
+local image = require(script.Parent.Parent.utility.image)
 local ListPicker = {}
 ListPicker.__index = ListPicker
 ListPicker.__type = "ListPicker"
@@ -20159,6 +20266,16 @@ function ListPicker.new(tab, properties)
 
     self.window:_registerControl(self)
     self:_build()
+    self.window:ConnectFor(self, self.list:GetPropertyChangedSignal("CanvasPosition"), function()
+        if self._pooledRows then
+            self:_renderRows()
+        end
+    end)
+    self.window:ConnectFor(self, self.list:GetPropertyChangedSignal("AbsoluteWindowSize"), function()
+        if self._pooledRows then
+            self:_renderRows()
+        end
+    end)
     self:_rebuildRows()
     if self._autoLoading then
         task.delay(listLoadingGrace, function()
@@ -20202,6 +20319,9 @@ function ListPicker:_rowsHeight(count: number): number
 end
 
 function ListPicker:_known(id): boolean
+    if self._entryIndex then
+        return self._entryIndex[id] == true
+    end
     for _, entry in self.entries do
         if entry.id == id then
             return true
@@ -20362,9 +20482,9 @@ function ListPicker:_buildRow(entry, order)
 
     local left = rowInset
 
-    if entry.icon then
+    if entry.icon or self._pooledRows then
         row.iconLabel = window:Create("ImageLabel", {
-            Image = entry.icon,
+            Image = entry.icon or "",
             Size = UDim2.fromOffset(iconSize, iconSize),
             Position = UDim2.new(0, left, 0.5, 0),
             AnchorPoint = Vector2.new(0, 0.5),
@@ -20419,9 +20539,9 @@ function ListPicker:_buildRow(entry, order)
             return
         end
         if self.multiSelect then
-            self:Toggle(entry.id)
+            self:Toggle(row.entry.id)
         else
-            self:Set(entry.id)
+            self:Set(row.entry.id)
         end
     end)
 
@@ -20431,6 +20551,9 @@ end
 -- One place that decides what a row looks like. Only selected rows are filled, so selection reads
 -- at a glance down the column - one row single-select, however many are ticked multi-select.
 function ListPicker:_applyRow(row, animate)
+    if self._pooledRows then
+        animate = false
+    end
     local theme = self.window.theme
     local selected = self:_isSelected(row.entry.id)
     local fill = row.entry.color or theme.AccentColor
@@ -20478,9 +20601,12 @@ function ListPicker:_applyRow(row, animate)
 end
 
 function ListPicker:_syncHeight()
+    if self._pooledRows then
+        self.list.CanvasSize = UDim2.fromOffset(0, self:_rowsHeight(#self.entries))
+    end
     self:_syncSkeleton()
     local placeholders = self.skeleton ~= nil
-    local count = #self.rows
+    local count = if self._pooledRows then #self.entries else #self.rows
     -- the rows it has, up to the ceiling; past it the list scrolls. Measured off every option, so the
     -- element never changes size while the player scrolls it.
     local listHeight = if placeholders
@@ -20492,17 +20618,81 @@ function ListPicker:_syncHeight()
     self.main.Size = UDim2.new(1, -20, 0, self:_listTop() + listHeight + sidePadding)
     self.empty.frame.Visible = count == 0 and not placeholders
     self.list.Visible = count > 0
+    if self._pooledRows then
+        self:_renderRows()
+    end
+end
+
+function ListPicker:_renderRows()
+    if self._renderingRows or self._removed or self.window.unloaded then
+        return
+    end
+    self._renderingRows = true
+    local pitch = self.rowHeight + rowGap
+    local viewport = self.list.AbsoluteWindowSize.Y
+    if viewport <= 0 then
+        viewport = self.height
+    end
+    local budget = math.min(#self.entries, math.ceil(viewport / pitch) + 4)
+    for i = #self.rows + 1, budget do
+        self.rows[i] = self:_buildRow(self.entries[1], i)
+    end
+    local y = math.clamp(self.list.CanvasPosition.Y, 0, math.max(0, self:_rowsHeight(#self.entries) - viewport))
+    local first = math.max(1, math.floor(y / pitch))
+    for i, row in self.rows do
+        local index = first + i - 1
+        local entry = self.entries[index]
+        row.frame.Visible = entry ~= nil and i <= budget
+        if entry and i <= budget then
+            row.entry = entry
+            row.hovered = false
+            row.frame.Name = entry.name
+            row.frame.Position = UDim2.fromOffset(0, (index - 1) * pitch)
+            row.frame.Size = UDim2.new(1, 0, 0, self.rowHeight)
+            self.window:_bindLocale(row.title, "Text", entry.name)
+            local left = rowInset + (if entry.icon then iconSize + iconGap else 0)
+            row.title.Position = UDim2.fromOffset(left, 0)
+            row.title.Size = UDim2.new(1, -(left + rowInset), 1, 0)
+            if row.iconLabel then
+                row.iconLabel.Visible = entry.icon ~= nil
+                image.assign(row.iconLabel, "Image", entry.icon or "")
+            end
+            self:_applyRow(row, false)
+        end
+    end
+    self._renderingRows = false
 end
 
 function ListPicker:_rebuildRows()
     for _, row in self.rows do
         for _, connection in row.connections do
             self.window:Disconnect(connection)
+            local owned = table.find(self.connections, connection)
+            if owned then
+                table.remove(self.connections, owned)
+            end
         end
         self.window:DestroySubtree(row.frame)
     end
     table.clear(self.rows)
 
+    self._entryIndex = {}
+    for _, entry in self.entries do
+        self._entryIndex[entry.id] = true
+    end
+    self._pooledRows = #self.entries >= 100
+    if not self._layoutStorage then
+        self._layoutStorage = self.window:Create("Folder", { Parent = self.main })
+    end
+    self.listLayout.Parent = if self._pooledRows then self._layoutStorage else self.list
+    self.list.AutomaticCanvasSize = if self._pooledRows then Enum.AutomaticSize.None else Enum.AutomaticSize.Y
+    if self._pooledRows then
+        self.list.CanvasPosition = Vector2.new(0, 0)
+        self:_syncHeight()
+        self:_renderRows()
+        self._built = true
+        return
+    end
     for order, entry in self.entries do
         local row = self:_buildRow(entry, order)
         table.insert(self.rows, row)
@@ -22686,7 +22876,11 @@ function Popup:_build()
     self:_fade(self.backdrop, "BackgroundTransparency", backdropShown)
 
     -- Card: the window's own look (white base + gradient + rounded corner + stroke + glow).
-    self.card = window:Create("Frame", {
+    self.card = window:Create("ScrollingFrame", {
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        CanvasSize = UDim2.new(),
+        ScrollBarThickness = 3,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
         Name = "Card",
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         AnchorPoint = Vector2.new(0.5, 0.5),
@@ -22788,6 +22982,15 @@ function Popup:_build()
         + regionGap * (regions - 1)
     self.card.Size = UDim2.fromOffset(self.cardWidth, cardHeight)
     self.card.AutomaticSize = Enum.AutomaticSize.None
+    self:_reflow(viewport)
+    table.insert(
+        self._connections,
+        window:Connect(self.screenGui:GetPropertyChangedSignal("AbsoluteSize"), function()
+            if not self._closed then
+                self:_reflow(self.screenGui.AbsoluteSize)
+            end
+        end)
+    )
 
     -- dismiss surfaces
     if self.dismissable then
@@ -22825,6 +23028,7 @@ function Popup:_buildHeader(hasIcon, headerHeight)
         Parent = self.card,
     })
 
+    self.header = header
     window:Create("UIListLayout", {
         FillDirection = Enum.FillDirection.Horizontal,
         VerticalAlignment = Enum.VerticalAlignment.Center,
@@ -22870,7 +23074,8 @@ function Popup:_buildHeader(hasIcon, headerHeight)
         Parent = textColumn,
     })
 
-    self:_fade(
+    self.headerColumn = textColumn
+    self.headerTitle = self:_fade(
         window:Create("TextLabel", {
             Text = locale.t(self.title),
             Size = UDim2.new(1, 0, 0, self._titleH),
@@ -22889,7 +23094,7 @@ function Popup:_buildHeader(hasIcon, headerHeight)
     )
 
     if self.subtitle and self.subtitle ~= "" then
-        self:_fade(
+        self.headerSubtitle = self:_fade(
             window:Create("TextLabel", {
                 Text = locale.t(self.subtitle),
                 Size = UDim2.new(1, 0, 0, self._subH),
@@ -22936,6 +23141,7 @@ function Popup:_buildContent()
 
         Parent = self.card,
     })
+    self.contentFrame = content
     self:_fade(content, "ScrollBarImageTransparency", 0.8)
 
     -- the scroll clips, so pad the region to keep box strokes off the edge
@@ -22961,7 +23167,7 @@ function Popup:_buildContent()
             self:_buildBox(content, box, index)
         end
     else
-        self:_fade(
+        self.contentLabel = self:_fade(
             window:Create("TextLabel", {
                 Text = locale.t(self.content),
                 Size = UDim2.new(1, 0, 0, measured),
@@ -23016,6 +23222,7 @@ function Popup:_buildInput()
     }, { Color = "SurfaceStroke" })
     self:_fade(fieldStroke, "Transparency", 0.85)
 
+    self.inputFrame = field
     self.inputGlow = window:CreateGlow(field, "FieldGlow", 20, 1)
     self._inputGlowIdle = 1 -- hidden at rest; flashed red on a rejected submit (see Close/_flashInputError)
 
@@ -23163,7 +23370,7 @@ function Popup:_buildBox(parent, box, order)
         Parent = textColumn,
     })
 
-    self:_fade(
+    local titleLabel = self:_fade(
         window:Create("TextLabel", {
             Text = locale.t(box.title or box.Title or ""),
             Size = UDim2.new(1, 0, 0, titleH),
@@ -23181,9 +23388,12 @@ function Popup:_buildBox(parent, box, order)
         0
     )
 
+    self._boxHandles = self._boxHandles or {}
+    local handle = { frame = frame, column = textColumn, title = titleLabel, box = box }
+    table.insert(self._boxHandles, handle)
     local description = box.description or box.Description
     if description and description ~= "" then
-        self:_fade(
+        handle.description = self:_fade(
             window:Create("TextLabel", {
                 Text = locale.t(description),
                 Size = UDim2.new(1, 0, 0, descH),
@@ -23247,7 +23457,8 @@ function Popup:_buildFooter()
         Parent = self.card,
     })
 
-    window:Create("UIListLayout", {
+    self.footer = footer
+    self.footerLayout = window:Create("UIListLayout", {
         FillDirection = if self.stackFooter then Enum.FillDirection.Vertical else Enum.FillDirection.Horizontal,
         VerticalAlignment = Enum.VerticalAlignment.Center,
         HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -23299,8 +23510,9 @@ function Popup:_buildButton(parent, option, order)
     })
     self:_fade(button, "BackgroundTransparency", 0)
 
+    local flex
     if not self.stackFooter then
-        window:Create("UIFlexItem", { FlexMode = Enum.UIFlexMode.Fill, Parent = button })
+        flex = window:Create("UIFlexItem", { FlexMode = Enum.UIFlexMode.Fill, Parent = button })
     end
     window:Create("UICorner", { CornerRadius = buttonCorner, Parent = button })
 
@@ -23312,7 +23524,7 @@ function Popup:_buildButton(parent, option, order)
     })
     self:_fade(stroke, "Transparency", strokeShown)
 
-    self:_fade(
+    local textLabel = self:_fade(
         window:Create("TextLabel", {
             Text = locale.t(label),
             Size = UDim2.new(1, -24, 1, -12),
@@ -23333,6 +23545,8 @@ function Popup:_buildButton(parent, option, order)
         0
     )
 
+    self._buttonHandles = self._buttonHandles or {}
+    table.insert(self._buttonHandles, { frame = button, flex = flex, label = textLabel })
     local interact = window:Create("TextButton", {
         Text = "",
         BackgroundTransparency = 1,
@@ -23464,6 +23678,85 @@ end
 
 -- Enter: darken the backdrop, drift the card up into place and fade everything in. No UIScale -
 -- scaling the card scales its text, which reads as the font size settling after the reveal.
+
+-- Reflow existing instances so field focus, typed text, callbacks and in-progress choices survive.
+-- The complete card can scroll when headers/actions themselves exceed the available height.
+function Popup:_reflow(viewport)
+    if self._closed or self._reflowing or not self.footer or viewport.X <= 0 or viewport.Y <= 0 then
+        return
+    end
+    self._reflowing = true
+    self.cardWidth = math.max(100, math.min(cardWidth, viewport.X - 32))
+    self.innerWidth = math.max(60, self.cardWidth - sidePadding * 2)
+    self.contentWidth = math.max(40, self.innerWidth - contentInset * 2)
+    local hasIcon = self.icon ~= nil and self.icon ~= 0 and self.icon ~= ""
+    local headerHeight = self:_measureHeader(hasIcon)
+    self:_measureFooter()
+    self.header.Size = UDim2.new(1, 0, 0, headerHeight)
+    self.headerColumn.Size = UDim2.new(1, if hasIcon then -(headerIconSize + headerIconGap) else 0, 0, self._columnH)
+    self.headerTitle.Size = UDim2.new(1, 0, 0, self._titleH)
+    if self.headerSubtitle then
+        self.headerSubtitle.Size = UDim2.new(1, 0, 0, self._subH)
+    end
+    self.contentCeiling = math.max(
+        32,
+        math.min(
+            maxContentHeight,
+            viewport.Y
+                - 48
+                - topPadding
+                - bottomPadding
+                - headerHeight
+                - self.footerHeight
+                - regionGap * (if self.inputConfig then 3 else 2)
+                - (if self.inputConfig then 44 else 0)
+                - contentInset * 2
+        )
+    )
+    local contentHeight = 0
+    if self.contentFrame then
+        local measured = if self.boxes and #self.boxes > 0 then self:_measureBoxes() else self:_measureText()
+        contentHeight = math.min(measured, self.contentCeiling) + contentInset * 2
+        self.contentFrame.Size = UDim2.new(1, 0, 0, contentHeight)
+        if self.contentLabel then
+            self.contentLabel.Size = UDim2.new(1, 0, 0, measured)
+        end
+        for _, h in self._boxHandles or {} do
+            local height, titleH, descH, columnH = self:_measureBox(h.box)
+            h.frame.Size = UDim2.new(1, -boxWidthInset, 0, height)
+            h.column.Size = UDim2.new(h.column.Size.X.Scale, h.column.Size.X.Offset, 0, columnH)
+            h.title.Size = UDim2.new(1, 0, 0, titleH)
+            if h.description then
+                h.description.Size = UDim2.new(1, 0, 0, descH)
+            end
+        end
+    end
+    self.footer.Size = UDim2.new(1, 0, 0, self.footerHeight)
+    self.footerLayout.FillDirection = if self.stackFooter
+        then Enum.FillDirection.Vertical
+        else Enum.FillDirection.Horizontal
+    for i, h in self._buttonHandles or {} do
+        h.frame.Size = UDim2.new(if self.stackFooter then 1 else 0, 0, 0, self.buttonHeights[i])
+        if self.stackFooter and h.flex then
+            self.window:DestroySubtree(h.flex)
+            h.flex = nil
+        elseif not self.stackFooter and not h.flex then
+            h.flex = self.window:Create("UIFlexItem", { FlexMode = Enum.UIFlexMode.Fill, Parent = h.frame })
+        end
+    end
+    local inputHeight = if self.inputFrame then 44 else 0
+    local regions = 2 + (if contentHeight > 0 then 1 else 0) + (if inputHeight > 0 then 1 else 0)
+    local full = topPadding
+        + headerHeight
+        + contentHeight
+        + inputHeight
+        + self.footerHeight
+        + bottomPadding
+        + regionGap * (regions - 1)
+    self.card.Size = UDim2.fromOffset(self.cardWidth, math.min(full, math.max(80, viewport.Y - 32)))
+    self._reflowing = false
+end
+
 function Popup:_show()
     if not self.screenGui.Parent then
         return
@@ -27368,6 +27661,9 @@ function Slider.new(tab, properties)
         increment = properties.increment or properties.Increment or 1,
         suffix = properties.suffix or properties.Suffix or "",
 
+        _callbackPolicy = properties.callbackPolicy or "live",
+        _callbackInterval = math.clamp(tonumber(properties.callbackInterval) or 0.1, 0.016, 10),
+        _continuousToken = 0,
         callback = properties.callback or properties.Callback or function() end,
 
         dragging = false,
@@ -27567,6 +27863,7 @@ function Slider.new(tab, properties)
             and self.dragging
         then
             self.dragging = false
+            self.window:_flushContinuousCallback(self)
             self:_setHeld(false)
 
             if self._dragConnection then
@@ -27818,7 +28115,7 @@ function Slider:_updateFromMouse()
         end
         self._lastValue = value
         self:_renderProgress(followInfo)
-        self:_fireCallback(value)
+        self.window:_dispatchContinuousCallback(self, value)
     end
 end
 
@@ -37453,6 +37750,9 @@ function Window.new(properties)
                 fileName = readFirst(cfg.fileName, cfg.FileName, legacy.FileName, legacy.fileName),
                 customFolder = readFirst(cfg.customFolder, cfg.CustomFolder, legacy.FolderName, legacy.folderName),
                 ignoreFlags = cfg.ignoreFlags or cfg.IgnoreFlags,
+                version = cfg.version,
+                migrations = cfg.migrations,
+                validate = cfg.validate,
                 scopeByPlace = readFirst(cfg.scopeByPlace, cfg.ScopeByPlace),
             }
         end)(),
@@ -40504,7 +40804,9 @@ function Window:Load(name)
     local undo = self:_capturePreferenceUndo("Profile loaded")
     local loaded = persistence.load(self, name)
     if loaded then
+        local result = self._configResult
         self:_markProfileBaseline()
+        self._configResult = result
         self:_offerPreferenceUndo(undo)
     end
     return loaded
@@ -40562,10 +40864,10 @@ end
 -- currently-built control. Doesn't touch the config *file* - same relationship Load() has to
 -- Save(), importing only changes the running UI unless the caller also calls Save() to carry it
 -- across sessions the way the Settings "Configurations" UI's own Load button does.
-function Window:ImportConfig(raw: string): boolean
-    local flags = persistence.decode(raw)
+function Window:ImportConfig(raw: string): (boolean, string?)
+    local flags = persistence.decode(raw, self)
     if not flags then
-        return false
+        return false, self:GetConfigResult().message
     end
     local undo = self:_capturePreferenceUndo("Configuration imported")
     local applied = persistence.applyFlags(self, flags)
@@ -41245,6 +41547,16 @@ end
 -- slider firing every frame flashes once. shared by every interactive element. elements whose
 -- `main` is a transparent wrapper (the dropdown) set `flashTarget` to the frame to tint.
 function Window:_runGuarded(element, fn, ...)
+    local batch = self._batchState
+    if batch and fn == element.callback and batch.policy ~= "live" then
+        if batch.policy == "defer" then
+            if not batch.callbacks[element] then
+                table.insert(batch.order, element)
+            end
+            batch.callbacks[element] = { fn = fn, args = table.pack(...) }
+        end
+        return
+    end
     if self.unloaded or element._removed or element._busy then
         return
     end
@@ -43012,7 +43324,7 @@ function Window:CompareConfig(name)
     end
     local _, path = persistence.getPath(self, name)
     local ok, raw = pcall(filesystem.readfile, path)
-    local saved = if ok then persistence.decode(raw) else nil
+    local saved = if ok then persistence.decode(raw, self) else nil
     if not saved then
         return nil, "Configuration could not be read"
     end
@@ -43046,7 +43358,7 @@ end
 function Window:_markProfileBaseline()
     local ok, raw = persistence.encode(self)
     if ok then
-        self._profileBaseline = persistence.decode(raw)
+        self._profileBaseline = persistence.decode(raw, self)
         self._profileBaselineKeys = {}
         for flag in self.controls do
             self._profileBaselineKeys[flag] = true
@@ -43616,6 +43928,12 @@ end
 -- at label-creation time) that has no other way to hear about a later swap.
 function Window:OnThemeChanged(callback: (theme: { [string]: any }) -> ())
     table.insert(self._themeChangedCallbacks, callback)
+    return function()
+        local i = table.find(self._themeChangedCallbacks, callback)
+        if i then
+            table.remove(self._themeChangedCallbacks, i)
+        end
+    end
 end
 
 -- Devlog 6/7 Settings > Font picker: "Auto" (the brand font) or any built-in Roblox font by
@@ -44234,6 +44552,12 @@ end
 -- persistence stays uniform across elements.
 function Window:_persist(control)
     self:_notifyControlChanged(control)
+    if self._batchState then
+        if control.flag and not control.forgetState and not self._loading then
+            self._batchState.persist = true
+        end
+        return
+    end
     -- _loading: a config restore fires every control's callback, but must not autosave back over
     -- the file it's reading (or storm Save once per control)
     if not control.flag or control.forgetState or self._loading then
@@ -44262,10 +44586,19 @@ local autoSaveDebounce = 0.2
 -- config Load starts mid-debounce (a real risk here: a Load's control-by-control apply is
 -- exactly the kind of rapid-fire burst this debounce exists to collapse in the first place).
 function Window:_scheduleAutoSave()
+    if self._configLoadBlocked or self.unloaded or self._unloading then
+        return
+    end
     self._autoSaveGeneration = (self._autoSaveGeneration or 0) + 1
     local generation = self._autoSaveGeneration
     task.delay(autoSaveDebounce, function()
-        if self._autoSaveGeneration ~= generation or self._loading then
+        if
+            self._autoSaveGeneration ~= generation
+            or self._loading
+            or self._configLoadBlocked
+            or self.unloaded
+            or self._unloading
+        then
             return
         end
         -- Not before the saved config has been read. A control set while a hub is still building -
@@ -44289,6 +44622,9 @@ end
 -- (not just at schedule time) since either can change mid-debounce - e.g. switching the
 -- dropdown's selection again before the first save actually lands.
 function Window:_scheduleAutoSaveConfig()
+    if self._configLoadBlocked or self.unloaded or self._unloading then
+        return
+    end
     self._autoSaveConfigGeneration = (self._autoSaveConfigGeneration or 0) + 1
     local generation = self._autoSaveConfigGeneration
     task.delay(autoSaveDebounce, function()
@@ -44296,6 +44632,9 @@ function Window:_scheduleAutoSaveConfig()
         if
             self._autoSaveConfigGeneration == generation
             and not self._loading
+            and not self._configLoadBlocked
+            and not self.unloaded
+            and not self._unloading
             and not self:_awaitingAutoLoad()
             and self._autoSaveConfigEnabled
             and name
@@ -46054,13 +46393,14 @@ function Window:_buildSettingsUI()
                     self:Toast({ title = locale.resolve("Paste a configuration first") })
                     return
                 end
-                if self:ImportConfig(raw) then
+                local imported, reason = self:ImportConfig(raw)
+                if imported then
                     importInput:Set("")
                     self:Save()
                     refreshConfigs()
                     self:Toast({ title = locale.resolve("Imported configuration") })
                 else
-                    self:Toast({ title = locale.resolve("That doesn't look like a valid configuration") })
+                    self:Toast({ title = reason or locale.resolve("That doesn't look like a valid configuration") })
                 end
             end,
         })
@@ -46587,6 +46927,156 @@ function Window:_initUsability(properties)
             end
         end
     end)
+end
+
+-- Only interactive drag updates use these policies. Set/config restoration keep their normal contract.
+function Window:_dispatchContinuousCallback(control, ...)
+    if control._removed or self.unloaded or control.locked then
+        return
+    end
+    local mode = control._callbackPolicy or "live"
+    local args = contract.copy(table.pack(...))
+    if mode == "live" then
+        self:_runGuarded(control, control.callback, table.unpack(args, 1, args.n))
+        return
+    end
+    control._continuousPending = args
+    if mode == "commit" then
+        return
+    end
+    local interval = control._callbackInterval or 0.1
+    local now = os.clock()
+    if not control._continuousLast or now - control._continuousLast >= interval then
+        control._continuousLast = now
+        control._continuousPending = nil
+        self:_runGuarded(control, control.callback, table.unpack(args, 1, args.n))
+    elseif not control._continuousScheduled then
+        control._continuousScheduled = true
+        local token = control._continuousToken or 0
+        task.delay(math.max(0, interval - (now - control._continuousLast)), function()
+            if control._continuousToken ~= token or control._removed or self.unloaded or control.locked then
+                return
+            end
+            control._continuousScheduled = nil
+            self:_flushContinuousCallback(control)
+        end)
+    end
+end
+function Window:_flushContinuousCallback(control)
+    control._continuousToken = (control._continuousToken or 0) + 1
+    control._continuousScheduled = nil
+    local args = control._continuousPending
+    control._continuousPending = nil
+    if args and not control._removed and not self.unloaded and not control.locked then
+        control._continuousLast = os.clock()
+        self:_runGuarded(control, control.callback, table.unpack(args, 1, args.n))
+    end
+end
+
+-- The outermost batch owns policy; partial values are retained if the developer callback throws.
+-- Native callbacks and observers are reconciled once at the end, never game effects rolled back.
+function Window:Batch(callback, options)
+    assert(type(callback) == "function", "Batch expects a function")
+    if self.unloaded then
+        return false, "Window is unloaded"
+    end
+    if self._batchState then
+        local ok, err = pcall(callback, self)
+        if not ok then
+            error(err, 0)
+        end
+        return true
+    end
+    options = options or {}
+    local policy = options.callbacks or "defer"
+    assert(policy == "defer" or policy == "suppress" or policy == "live", "Invalid batch callback policy")
+    local batch = {
+        policy = policy,
+        changed = {},
+        changedOrder = {},
+        layouts = {},
+        callbacks = {},
+        order = {},
+        persist = false,
+    }
+    self._batchState = batch
+    local ok, err = pcall(callback, self)
+    self._batchState = nil
+    for group in batch.layouts do
+        if not group._removed then
+            group:_reflowRow()
+        end
+    end
+    for _, control in batch.order do
+        local pending = batch.callbacks[control]
+        if pending and not control._removed and not self.unloaded then
+            self:_runGuarded(control, pending.fn, table.unpack(pending.args, 1, pending.args.n))
+        end
+    end
+    for _, control in batch.changedOrder do
+        if not control._removed and not self.unloaded then
+            contract.notify(self, control)
+        end
+    end
+    if batch.persist and not self.unloaded and not self._loading then
+        if self.configuration.autoSave then
+            self:_scheduleAutoSave()
+        end
+        if self._autoSaveConfigEnabled and self._selectedConfigName then
+            self:_scheduleAutoSaveConfig()
+        end
+    end
+    return ok, if not ok then tostring(err) else nil
+end
+
+function Window:_setDataLoadState(control, status)
+    if control._removed or self.unloaded then
+        return
+    end
+    control._dataState = { status = status, requestId = control._dataGeneration or 0 }
+    local options = control._dataOptions or {}
+    if control.SetLoading then
+        control:SetLoading(status == "loading")
+    end
+    if status == "loading" or status == "error" then
+        if not control._loadHint then
+            control._loadHint = require(script.Parent.descriptor).new(control.tab, { description = "" })
+            control._loadHint.titleLabel.RichText = false
+            control._loadHint.titleLabel.Size = UDim2.new(1, -64, 0, 0)
+            control._loadRetry = self:Create("TextButton", {
+                Text = "Retry",
+                LayoutOrder = 2,
+                Size = UDim2.fromOffset(56, 28),
+                Position = UDim2.new(1, -56, 0, 0),
+                BackgroundTransparency = 1,
+                TextSize = 13,
+                Parent = control._loadHint.main,
+            }, { TextColor3 = "AccentStroke", FontFace = "Font" })
+            self:ConnectFor(control, control._loadRetry.MouseButton1Click, function()
+                control:RetryLoad()
+            end)
+        end
+        local hint = control._loadHint
+        hint.main.LayoutOrder = control.main.LayoutOrder + 3
+        hint.titleLabel.Text = if status == "loading"
+            then options.loadingText or "Loading options…"
+            else options.errorText or "Could not load options. Try again."
+        hint.titleLabel.TextColor3 = if status == "error" then self.theme.ErrorStrokeColor else self.theme.ContentColor
+        hint.titleLabel.TextTransparency = 0
+        hint.main.Visible = control._shown ~= false and not control._userHidden
+        control._loadRetry.Visible = status == "error"
+    elseif control._loadHint then
+        control._loadHint.main.Visible = false
+    end
+    if options.onStateChanged then
+        local ok = pcall(options.onStateChanged, control:GetLoadState())
+        if not ok then
+            self:_recordUsabilityError("data-state", control.__type)
+        end
+    end
+end
+function Window:GetConfigResult()
+    return contract.copy(self._configResult or { ok = true, code = "idle" })
 end
 return Window
 ]=====]
@@ -47570,6 +48060,9 @@ export type Translator = (source: string, localeId: string) -> string?
 export type Translations = { [string]: { [string]: string } }
 
 export type WindowConfiguration = {
+    version: number?,
+    migrations: { [number]: ({ [string]: any }) -> { [string]: any } }?,
+    validate: (({ [string]: any }) -> boolean)?,
     autoSave: boolean?,
     autoLoad: boolean?,
     fileName: string?,
@@ -47979,6 +48472,8 @@ export type ShimmerLabelProps = {
 }
 
 export type SliderProps = {
+    callbackPolicy: ("live" | "throttle" | "commit")?,
+    callbackInterval: number?,
     name: string?,
     description: string?,
     icon: (string | number)?,
@@ -48169,6 +48664,8 @@ export type KeybindProps = {
 }
 
 export type ColorPickerProps = {
+    callbackPolicy: ("live" | "throttle" | "commit")?,
+    callbackInterval: number?,
     name: string?,
     description: string?,
     icon: (string | number)?,
@@ -48188,6 +48685,8 @@ export type GradientStop = {
 }
 
 export type GradientPickerProps = {
+    callbackPolicy: ("live" | "throttle" | "commit")?,
+    callbackInterval: number?,
     name: string?,
     description: string?,
     icon: (string | number)?,
@@ -48410,6 +48909,15 @@ export type KeySystemProps = {
 -- Handles ------------------------------------------------------------------
 -- Every element can be reordered within its tab.
 export type Moveable = {
+    SetCallbackPolicy: (self: any, mode: "live" | "throttle" | "commit", interval: number?) -> any,
+    LoadOptions: (
+        self: any,
+        loader: ({ requestId: number, isCancelled: () -> boolean }) -> { any },
+        options: any?
+    ) -> number | boolean,
+    GetLoadState: (self: any) -> { status: string, requestId: number },
+    RetryLoad: (self: any) -> number | boolean,
+    CancelLoad: (self: any) -> (),
     GetValue: (self: any) -> any,
     SetControlValue: (self: any, value: any, silent: boolean?) -> any,
     OnChanged: (self: any, callback: (any, any, { restoring: boolean }) -> ()) -> () -> (),
@@ -48785,6 +49293,8 @@ export type ItemGrid = Moveable & {
 }
 
 export type ColorSwatchProps = {
+    callbackPolicy: ("live" | "throttle" | "commit")?,
+    callbackInterval: number?,
     name: string?,
     icon: (string | number)?,
     description: string?,
@@ -49205,6 +49715,12 @@ export type FlagControl = {
 }
 
 export type Window = {
+    Batch: (
+        self: Window,
+        callback: (Window) -> (),
+        options: { callbacks: ("live" | "defer" | "suppress")? }?
+    ) -> (boolean, string?),
+    GetConfigResult: (self: Window) -> any,
     SetDensity: (self: Window, name: string, save: boolean?) -> boolean,
     GetDensityMetrics: (self: Window) -> { rowHeight: number, spacing: number },
     ExportTheme: (self: Window) -> string,
@@ -49233,7 +49749,7 @@ export type Window = {
     Get: (self: Window, flag: string) -> unknown,
     Set: (self: Window, flag: string, value: unknown) -> boolean,
     RegisterFlag: (self: Window, flag: string, initial: unknown, onChanged: ((unknown) -> ())?) -> FlagControl,
-    OnThemeChanged: (self: Window, callback: (theme: { [string]: any }) -> ()) -> (),
+    OnThemeChanged: (self: Window, callback: (theme: { [string]: any }) -> ()) -> () -> (),
     OnSidebarWidthChanged: (self: Window, callback: (width: number) -> ()) -> (),
     SetSidebarWidth: (self: Window, width: number) -> (),
     SetSidebarCollapsed: (self: Window, collapsed: boolean?) -> (),
@@ -49250,7 +49766,7 @@ export type Window = {
     NotifyOnce: (self: Window, key: string, props: NotifyProps, cooldownSeconds: number?) -> Notification?,
     DebugLog: (self: Window, tag: string, ...any) -> (),
     ExportConfig: (self: Window) -> (boolean, string?),
-    ImportConfig: (self: Window, raw: string) -> boolean,
+    ImportConfig: (self: Window, raw: string) -> (boolean, string?),
     SetAutoloadConfig: (self: Window, name: string) -> boolean,
     StartTour: (self: Window, steps: { TourStep }?) -> (),
     CreateTab: (self: Window, props: TabProps) -> Tab,
@@ -50591,12 +51107,21 @@ local function popover(window)
                 chip.value = color
                 chip.frame.BackgroundColor3 = color
                 popoverState.hex.Text = "#" .. string.upper(color:ToHex())
-                window:_runGuarded(chip.owner, chip.callback, color)
+                if chip.owner.__type == "ColorSwatch" then
+                    chip.owner.value = color
+                    window:_dispatchContinuousCallback(chip.owner, color)
+                else
+                    window:_runGuarded(chip.owner, chip.callback, color)
+                end
             end
         end,
         onCommit = function()
             local chip = window._openSwatch
             if chip and chip.control then
+                if chip.owner.__type == "ColorSwatch" then
+                    window:_flushContinuousCallback(chip.owner)
+                    window:_notifyControlChanged(chip.owner)
+                end
                 chip.control.value = chip.value:ToHex()
                 window:_persist(chip.control)
             end
@@ -50702,6 +51227,15 @@ function colorSwatch._place(window, chip)
 end
 
 function colorSwatch.close(window)
+    local chip = window._openSwatch
+    if chip and chip.owner.__type == "ColorSwatch" then
+        window:_flushContinuousCallback(chip.owner)
+        window:_notifyControlChanged(chip.owner)
+        if chip.control and chip.control.value ~= chip.value:ToHex() then
+            chip.control.value = chip.value:ToHex()
+            window:_persist(chip.control)
+        end
+    end
     window._openSwatch = nil
     local state = window._swatchPopover
     if state then
@@ -50861,7 +51395,7 @@ reference.entries = {
     {
         name = "CreateSlider",
         code = 'local control = tab:CreateSlider({name = "Volume", range = {0, 100}, value = 50})',
-        properties = "export type SliderProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    range: { number }?, -- { min, max }\n    increment: number?,\n    value: number?,\n    suffix: string?,\n    minimal: boolean?, -- track only, no name/value (for dense rows)\n    forgetState: boolean?,\n    callback: ((value: number) -> ())?,\n}",
+        properties = 'export type SliderProps = {\n    callbackPolicy: ("live" | "throttle" | "commit")?,\n    callbackInterval: number?,\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    range: { number }?, -- { min, max }\n    increment: number?,\n    value: number?,\n    suffix: string?,\n    minimal: boolean?, -- track only, no name/value (for dense rows)\n    forgetState: boolean?,\n    callback: ((value: number) -> ())?,\n}',
         methods = "export type Slider = Moveable & {\n    value: number,\n    locked: boolean,\n    Set: (self: Slider, value: number, skipCallback: boolean?) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): dims the element and covers it\n    -- with an input-blocking scrim. `reason` replaces its description while locked.\n    Lock: (self: Slider, reason: string?) -> (),\n    Unlock: (self: Slider) -> (),\n    IsLocked: (self: Slider) -> boolean,\n}",
         props = { name = "Volume", range = { 0, 100 }, value = 50 },
     },
@@ -50973,7 +51507,7 @@ reference.entries = {
     {
         name = "CreateColorSwatch",
         code = 'local control = tab:CreateColorSwatch({name = "ColorSwatch"})',
-        properties = "export type ColorSwatchProps = {\n    name: string?,\n    icon: (string | number)?,\n    description: string?,\n    tooltip: string?,\n    color: (Color3 | string)?, -- a Color3 or a hex string\n    flag: string?,\n    forgetState: boolean?,\n    callback: ((color: Color3) -> ())?,\n}",
+        properties = 'export type ColorSwatchProps = {\n    callbackPolicy: ("live" | "throttle" | "commit")?,\n    callbackInterval: number?,\n    name: string?,\n    icon: (string | number)?,\n    description: string?,\n    tooltip: string?,\n    color: (Color3 | string)?, -- a Color3 or a hex string\n    flag: string?,\n    forgetState: boolean?,\n    callback: ((color: Color3) -> ())?,\n}',
         methods = "export type ColorSwatch = Moveable & {\n    value: Color3,\n    Get: (self: ColorSwatch) -> Color3,\n    Set: (self: ColorSwatch, color: Color3 | string, skipCallback: boolean?) -> (),\n    Open: (self: ColorSwatch) -> (),\n    Remove: (self: ColorSwatch) -> (),\n}",
         props = { name = "ColorSwatch" },
     },
@@ -51036,14 +51570,14 @@ reference.entries = {
     {
         name = "CreateColorPicker",
         code = 'local control = tab:CreateColorPicker({name = "ColorPicker"})',
-        properties = "export type ColorPickerProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    color: Color3?, -- initial colour (accepts a hex string too)\n    alpha: number?, -- initial alpha 0..1 (default 1, no dedicated control in this layout - set via code)\n    presets: { Color3 }?, -- quick-pick swatches under the RGB row\n    glow: boolean?, -- ambient glow behind the card (default true)\n    forgetState: boolean?,\n    callback: ((value: Color3, alpha: number) -> ())?,\n}",
+        properties = 'export type ColorPickerProps = {\n    callbackPolicy: ("live" | "throttle" | "commit")?,\n    callbackInterval: number?,\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    color: Color3?, -- initial colour (accepts a hex string too)\n    alpha: number?, -- initial alpha 0..1 (default 1, no dedicated control in this layout - set via code)\n    presets: { Color3 }?, -- quick-pick swatches under the RGB row\n    glow: boolean?, -- ambient glow behind the card (default true)\n    forgetState: boolean?,\n    callback: ((value: Color3, alpha: number) -> ())?,\n}',
         methods = "export type ColorPicker = Moveable & {\n    value: Color3,\n    alpha: number,\n    locked: boolean,\n    Set: (self: ColorPicker, value: Color3 | string, skipCallback: boolean?) -> (),\n    SetAlpha: (self: ColorPicker, alpha: number, skipCallback: boolean?) -> (),\n    SetGlow: (self: ColorPicker, shown: boolean) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): dims the element and covers it\n    -- with an input-blocking scrim. `reason` replaces its description while locked.\n    Lock: (self: ColorPicker, reason: string?) -> (),\n    Unlock: (self: ColorPicker) -> (),\n    IsLocked: (self: ColorPicker) -> boolean,\n}",
         props = { name = "ColorPicker" },
     },
     {
         name = "CreateGradientPicker",
         code = 'local control = tab:CreateGradientPicker({name = "GradientPicker"})',
-        properties = "export type GradientPickerProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    gradient: (ColorSequence | { Color3 } | { GradientStop })?, -- initial value\n    glow: boolean?, -- ambient glow behind the card (default true)\n    forgetState: boolean?,\n    callback: ((value: ColorSequence) -> ())?,\n}",
+        properties = 'export type GradientPickerProps = {\n    callbackPolicy: ("live" | "throttle" | "commit")?,\n    callbackInterval: number?,\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    gradient: (ColorSequence | { Color3 } | { GradientStop })?, -- initial value\n    glow: boolean?, -- ambient glow behind the card (default true)\n    forgetState: boolean?,\n    callback: ((value: ColorSequence) -> ())?,\n}',
         methods = "export type GradientPicker = Moveable & {\n    value: ColorSequence,\n    Set: (self: GradientPicker, value: ColorSequence | { Color3 } | { GradientStop }, skipCallback: boolean?) -> (),\n    SetGlow: (self: GradientPicker, shown: boolean) -> (),\n}",
         props = { name = "GradientPicker" },
     },
@@ -51117,6 +51651,205 @@ function reference.create(tab, entry)
     return control
 end
 return reference
+]=====]
+
+sources["utility/configurationDocument"] = [=====[
+--!nonstrict
+-- Copyright (c) 2026 Corridon Capital
+-- MPL-2.0: https://mozilla.org/MPL/2.0/
+local document = {}
+local enums = require(script.Parent.enums)
+document.maxBytes = 1024 * 1024
+local function copy(value)
+    if type(value) ~= "table" then
+        return value
+    end
+    local out = {}
+    for k, v in value do
+        out[k] = copy(v)
+    end
+    return out
+end
+local function validTree(value)
+    local count, seen = 0, {}
+    local function visit(v, depth)
+        count += 1
+        if count > 20000 or depth > 16 then
+            return false
+        end
+        local kind = type(v)
+        if kind == "number" then
+            return v == v and math.abs(v) < math.huge
+        end
+        if kind ~= "table" then
+            return kind == "string" or kind == "boolean" or kind == "nil"
+        end
+        if seen[v] then
+            return false
+        end
+        seen[v] = true
+        for key, child in v do
+            if (type(key) ~= "string" and type(key) ~= "number") or not visit(child, depth + 1) then
+                return false
+            end
+        end
+        seen[v] = nil
+        return true
+    end
+    return visit(value, 0)
+end
+function document.issue(window, code, message)
+    if window then
+        window._configResult = { ok = false, code = code, message = message }
+    end
+    return nil, message
+end
+function document.wrap(window, flags)
+    local version = window.configuration.version
+    if version == nil then
+        return flags
+    end
+    assert(
+        type(version) == "number" and version % 1 == 0 and version >= 1 and version <= 64,
+        "Configuration version must be an integer from 1 to 64"
+    )
+    return { __rayfieldConfig = "flags-v1", version = version, flags = flags }
+end
+function document.prepare(window, parsed)
+    if type(parsed) ~= "table" or not validTree(parsed) then
+        return document.issue(window, "invalid-document", "Configuration contains invalid or excessive data.")
+    end
+    local cfg = if window then window.configuration or {} else {}
+    local flags, from = parsed, 1
+    if parsed.__rayfieldConfig ~= nil and type(parsed.flags) == "table" then
+        if parsed.__rayfieldConfig ~= "flags-v1" then
+            return document.issue(window, "unsupported-format", "This configuration format is not supported.")
+        end
+        flags, from = parsed.flags, parsed.version
+    end
+    local target = cfg.version or from
+    if
+        type(from) ~= "number"
+        or from % 1 ~= 0
+        or from < 1
+        or from > 64
+        or type(target) ~= "number"
+        or target % 1 ~= 0
+        or target < 1
+        or target > 64
+    then
+        return document.issue(window, "invalid-version", "Configuration has an invalid version.")
+    end
+    if from > target then
+        return document.issue(window, "future-version", "This profile needs a newer script version.")
+    end
+    local original = from
+    flags = copy(flags)
+    while from < target do
+        local migration = (cfg.migrations or {})[from]
+        if type(migration) ~= "function" then
+            return document.issue(
+                window,
+                "missing-migration",
+                "This profile cannot be converted to the current version."
+            )
+        end
+        local ok, migrated = pcall(migration, flags)
+        if not ok or type(migrated) ~= "table" or not validTree(migrated) then
+            return document.issue(
+                window,
+                "migration-failed",
+                "The profile conversion failed. Your saved file was preserved."
+            )
+        end
+        flags = copy(migrated)
+        from += 1
+    end
+    local ignored = {}
+    for _, flag in cfg.ignoreFlags or {} do
+        ignored[flag] = true
+    end
+    for flag, value in flags do
+        if type(flag) ~= "string" then
+            return document.issue(window, "invalid-flag", "Configuration flag names must be strings.")
+        end
+        local control = window and window.controls[flag]
+        if control and not ignored[flag] then
+            local kind = control.__type
+            local valid = true
+            if kind == "Toggle" or kind == "Checkbox" then
+                valid = type(value) == "boolean"
+            elseif kind == "Slider" or kind == "Stepper" then
+                valid = type(value) == "number"
+                if valid and control.range then
+                    valid = value >= control.range[1] and value <= control.range[2]
+                end
+            elseif kind == "Input" then
+                valid = type(value) == "string"
+                if valid and control.Validate then
+                    local ok, accepted = pcall(control.Validate, control, value)
+                    valid = ok and accepted == true
+                end
+            elseif kind == "Dropdown" or kind == "PlayerDropdown" then
+                valid = type(value) == "string" or type(value) == "table"
+                if type(value) == "table" then
+                    for _, item in value do
+                        if type(item) ~= "string" then
+                            valid = false
+                        end
+                    end
+                end
+            elseif kind == "ColorPicker" then
+                valid = type(value) == "string" and value:match("^%x%x%x%x%x%x$") ~= nil
+            elseif kind == "Keybind" then
+                valid = type(value) == "table" and type(value[1]) == "string" and type(value[2]) == "number"
+                if valid then
+                    local ok, item = pcall(function()
+                        return enums.itemFromValue(Enum[value[1]:gsub("^Enum%.", "")], value[2])
+                    end)
+                    valid = ok and item ~= nil
+                end
+            elseif kind == "GradientPicker" then
+                valid = type(value) == "string"
+                if valid then
+                    local parts = {}
+                    for part in value:gmatch("[^,]+") do
+                        local position, hex = part:match("^([%d%.]+):(%x%x%x%x%x%x)$")
+                        local t = tonumber(position)
+                        if not hex or not t or t < 0 or t > 1 then
+                            valid = false
+                        end
+                        table.insert(parts, part)
+                    end
+                    valid = valid and #parts >= 2 and #parts <= 20 and table.concat(parts, ",") == value
+                end
+            end
+            if not valid then
+                return document.issue(
+                    window,
+                    "invalid-value",
+                    "A profile value is incompatible with the current controls."
+                )
+            end
+        end
+    end
+    if cfg.validate then
+        local ok, accepted = pcall(cfg.validate, copy(flags))
+        if not ok or accepted ~= true then
+            return document.issue(
+                window,
+                "validation-failed",
+                "The script rejected this profile. No values were applied."
+            )
+        end
+    end
+    if window then
+        window._configResult =
+            { ok = true, code = "ready", fromVersion = original, toVersion = target, migrated = original ~= target }
+    end
+    return flags
+end
+return document
 ]=====]
 
 sources["utility/constants"] = [=====[
@@ -51351,6 +52084,13 @@ function contract.notify(window, control)
     if not control._contractInstalled or control._removed or (control._silentChanges or 0) > 0 then
         return
     end
+    if window._batchState then
+        if not window._batchState.changed[control] then
+            table.insert(window._batchState.changedOrder, control)
+        end
+        window._batchState.changed[control] = true
+        return
+    end
     local value = contract.value(control)
     if same(value, control._observedValue) then
         return
@@ -51380,8 +52120,85 @@ function contract.install(window, control)
         return
     end
     control._contractInstalled = true
+    if control._callbackPolicy then
+        assert(
+            control._callbackPolicy == "live"
+                or control._callbackPolicy == "throttle"
+                or control._callbackPolicy == "commit",
+            "Unknown callback policy"
+        )
+    end
     control._changeListeners = {}
     control._observedValue = contract.value(control)
+    function control:SetCallbackPolicy(mode, interval)
+        assert(mode == "live" or mode == "throttle" or mode == "commit", "Unknown callback policy")
+        if type(self.swatch) == "table" and self.swatch.SetCallbackPolicy then
+            self.swatch:SetCallbackPolicy(mode, interval)
+        end
+        self._callbackPolicy = mode
+        self._callbackInterval = math.clamp(tonumber(interval) or 0.1, 0.016, 10)
+        self._continuousToken = (self._continuousToken or 0) + 1
+        self._continuousPending = nil
+        self._continuousScheduled = nil
+        self._continuousLast = nil
+        return self
+    end
+    function control:GetLoadState()
+        return contract.copy(self._dataState or { status = "idle", requestId = 0 })
+    end
+    function control:CancelLoad()
+        self._dataGeneration = (self._dataGeneration or 0) + 1
+        window:_setDataLoadState(self, "idle")
+    end
+    function control:RetryLoad()
+        if not self._dataSource then
+            return false
+        end
+        return self:LoadOptions(self._dataSource, self._dataOptions)
+    end
+    function control:LoadOptions(loader, options)
+        assert(type(loader) == "function", "LoadOptions expects a function")
+        assert(type(self.Refresh) == "function", "This control does not support Refresh")
+        if self._removed or window.unloaded then
+            return false
+        end
+        self._dataSource, self._dataOptions = loader, contract.copy(options or {})
+        self._dataGeneration = (self._dataGeneration or 0) + 1
+        local id = self._dataGeneration
+        local config = self._dataOptions
+        local function current()
+            return not self._removed
+                and self.main
+                and self.main.Parent ~= nil
+                and not window.unloaded
+                and self._dataGeneration == id
+        end
+        window:_setDataLoadState(self, "loading")
+        task.spawn(function()
+            if not current() then
+                return
+            end
+            local ok, result = pcall(loader, {
+                requestId = id,
+                isCancelled = function()
+                    return not current()
+                end,
+            })
+            if not current() then
+                return
+            end
+            if ok and type(result) == "table" then
+                ok = pcall(self.Refresh, self, result, config.silent == true)
+            else
+                ok = false
+            end
+            if not current() then
+                return
+            end
+            window:_setDataLoadState(self, if ok then "ready" else "error")
+        end)
+        return id
+    end
     function control:GetValue()
         return contract.value(self)
     end
@@ -51454,7 +52271,13 @@ function contract.install(window, control)
         local host = self.tab
         lifecycle.teardown(window, { self })
         for _, node in
-            { self.main, self.descriptor and self.descriptor.main, self._validationHint and self._validationHint.main }
+            {
+                self.main,
+                self.descriptor and self.descriptor.main,
+                self._validationHint and self._validationHint.main,
+                self._loadHint and self._loadHint.main,
+                if self.__type == "ItemPicker" then self.page else nil,
+            }
         do
             if node then
                 window:DestroySubtree(node)
@@ -51572,6 +52395,8 @@ function elementLifecycle.teardown(window, elements)
         end
         seen[element] = true
         element._removed = true
+        element._dataGeneration = (element._dataGeneration or 0) + 1
+        element._continuousPending = nil
         element._busy = false
         if element._changeListeners then
             table.clear(element._changeListeners)
@@ -51603,6 +52428,13 @@ function elementLifecycle.teardown(window, elements)
         end
         if element._stopLoop then
             element:_stopLoop()
+        end
+        if element._disconnectThemeHook then
+            element._disconnectThemeHook()
+            element._disconnectThemeHook = nil
+        end
+        if element.__type == "ItemPicker" then
+            element:Close()
         end
         window:_unregisterControl(element)
 
@@ -53974,6 +54806,10 @@ local function moveable<T>(class: T): T
 
             if visible then
                 self._userHidden = false
+                if self._loadHint and self._dataState then
+                    self._loadHint.main.Visible = self._dataState.status == "loading"
+                        or self._dataState.status == "error"
+                end
                 if self.main then
                     self.main.Visible = true
                 end
@@ -53985,6 +54821,9 @@ local function moveable<T>(class: T): T
                 end
             else
                 self._userHidden = true
+                if self._loadHint then
+                    self._loadHint.main.Visible = false
+                end
                 self:_setShown(false, true)
 
                 local token = (self._hideToken or 0) + 1
@@ -54482,10 +55321,14 @@ sources["utility/ordering"] = [=====[
 type OrderedElement = {
     main: GuiObject,
     descriptor: { main: GuiObject }?,
+    _loadHint: { main: GuiObject }?,
 }
 
 local function assignOrder(element: OrderedElement, order: number)
     element.main.LayoutOrder = order
+    if element._loadHint then
+        element._loadHint.main.LayoutOrder = order + 3
+    end
     if element.descriptor then
         element.descriptor.main.LayoutOrder = order + 1
     end
@@ -54602,6 +55445,7 @@ local log = require(script.Parent.log)
 local path = require(script.Parent.path)
 local paths = require(script.Parent.persistencePaths)
 local atomic = require(script.Parent.persistenceWrite)
+local document = require(script.Parent.configurationDocument)
 
 local persistenceConfig = {}
 
@@ -54622,6 +55466,8 @@ type ConfigWindow = {
         ignoreFlags: { string }?,
     },
     name: string,
+    _configResult: any?,
+    _configLoadBlocked: boolean?,
     _loading: boolean?,
     _loadedConfig: { [string]: unknown }?,
     _loadedConfigPath: string?,
@@ -54736,12 +55582,17 @@ function persistenceConfig.save(window: ConfigWindow, name: unknown?): boolean
         end
     end
 
-    local encodeSuccess, encoded = pcall(variables.httpService.JSONEncode, variables.httpService, flags)
+    local encodeSuccess, encoded =
+        pcall(variables.httpService.JSONEncode, variables.httpService, document.wrap(window, flags))
     if not encodeSuccess then
         log.warn("Rayfield: Failed to encode configuration - " .. tostring(encoded))
         return false
     end
 
+    if #encoded > document.maxBytes then
+        document.issue(window, "too-large", "Configuration exceeds the supported size.")
+        return false
+    end
     local ok, err = pcall(function()
         atomic.write(dir, fullPath, encoded)
     end)
@@ -54751,12 +55602,13 @@ function persistenceConfig.save(window: ConfigWindow, name: unknown?): boolean
         return false
     end
 
+    window._configLoadBlocked = nil
     return true
 end
 
 -- Decode a saved config. Also hands back the raw text, so a file that read fine but isn't a
 -- config can be backed up.
-local function decodeFile(fullPath: string): ({ [string]: unknown }?, string?)
+local function decodeFile(fullPath: string, window: ConfigWindow): ({ [string]: unknown }?, string?, boolean?)
     if not filesystem.isfile(fullPath) then
         return nil, nil
     end
@@ -54767,6 +55619,10 @@ local function decodeFile(fullPath: string): ({ [string]: unknown }?, string?)
         return nil, nil
     end
 
+    if #contents > document.maxBytes then
+        document.issue(window, "too-large", "Configuration exceeds the supported size. Your file was preserved.")
+        return nil, nil, true
+    end
     local decodeOk, parsed = pcall(variables.httpService.JSONDecode, variables.httpService, contents)
 
     -- a scalar root is valid JSON but not a config, so it resets like any other bad file
@@ -54774,7 +55630,8 @@ local function decodeFile(fullPath: string): ({ [string]: unknown }?, string?)
         return nil, contents
     end
 
-    return parsed :: { [string]: unknown }, contents
+    local prepared = document.prepare(window, parsed)
+    return prepared, if prepared then contents else nil, prepared == nil
 end
 
 -- Every corrupt file gets its own backup. Reusing one name would let a second corruption
@@ -54799,12 +55656,12 @@ function persistenceConfig.load(window: ConfigWindow, name: unknown?): boolean
         return false
     end
 
-    local parsedFlags, raw = decodeFile(fullPath)
+    local parsedFlags, raw, rejected = decodeFile(fullPath, window)
 
     -- a save that died mid-overwrite leaves its whole copy parked beside the wreck, so take
     -- that instead. only when the real file is really there, or a deleted config could come back.
-    if not parsedFlags and filesystem.isfile(fullPath) then
-        local parked, parkedRaw = decodeFile(atomic.tempPathFor(fullPath))
+    if not parsedFlags and not rejected and filesystem.isfile(fullPath) then
+        local parked, parkedRaw = decodeFile(atomic.tempPathFor(fullPath), window)
         if parked and parkedRaw then
             parsedFlags = parked
             -- put it back where it belongs so the next load reads it straight
@@ -54813,6 +55670,9 @@ function persistenceConfig.load(window: ConfigWindow, name: unknown?): boolean
     end
 
     if not parsedFlags then
+        if rejected then
+            window._configLoadBlocked = true
+        end
         if raw then
             log.warn("Rayfield: Configuration file has an invalid format, backing up and resetting")
             local backupPath = backupPathFor(fullPath)
@@ -54825,6 +55685,7 @@ function persistenceConfig.load(window: ConfigWindow, name: unknown?): boolean
         return false
     end
 
+    window._configLoadBlocked = nil
     local flags = parsedFlags :: { [string]: unknown }
     local ignored = ignoreSet(window)
     local wasLoading = window._loading
@@ -54876,7 +55737,8 @@ end
 -- exact same flags-JSON shape .save() writes to disk, so a string round-trips through either
 -- path interchangeably.
 function persistenceConfig.encode(window: ConfigWindow): (boolean, string?)
-    local ok, encoded = pcall(variables.httpService.JSONEncode, variables.httpService, collectFlags(window))
+    local ok, encoded =
+        pcall(variables.httpService.JSONEncode, variables.httpService, document.wrap(window, collectFlags(window)))
     if not ok then
         log.warn("Rayfield: Failed to encode configuration - " .. tostring(encoded))
         return false, nil
@@ -54891,15 +55753,17 @@ end
 -- executor API involved, so the player pastes into an ordinary input field and this just parses
 -- whatever text ended up there - the same reason config import UIs across this kind of library
 -- tend to be "paste into a box" rather than "click an import button that reads the clipboard".
-function persistenceConfig.decode(raw: string): { [string]: unknown }?
-    if type(raw) ~= "string" or raw == "" then
+function persistenceConfig.decode(raw: string, window: any?): { [string]: unknown }?
+    if type(raw) ~= "string" or raw == "" or #raw > document.maxBytes then
+        document.issue(window, "invalid-document", "Configuration is empty or exceeds the supported size.")
         return nil
     end
     local ok, parsed = pcall(variables.httpService.JSONDecode, variables.httpService, raw)
     if not ok or type(parsed) ~= "table" then
+        document.issue(window, "invalid-json", "Configuration is not a valid JSON object.")
         return nil
     end
-    return parsed :: { [string]: unknown }
+    return document.prepare(window, parsed)
 end
 
 -- Apply a decoded flags table to every currently-built control, same restore path .load() uses
