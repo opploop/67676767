@@ -9277,9 +9277,17 @@ function Dropdown.new(tab, properties)
             end)
         )
 
+        local acceptPress = functions.guardPress(interact, function()
+            return data.name
+        end, function(signal, handler)
+            table.insert(data.connections, self.window:ConnectFor(self, signal, handler))
+        end)
         table.insert(
             data.connections,
             self.window:ConnectFor(self, interact.MouseButton1Click, function()
+                if not acceptPress() then
+                    return
+                end
                 -- options stay visible through the close tween; a click mid-fade must not land.
                 -- locked forces the panel closed itself (see _applyLocked), but guard here too
                 -- in case a click is already in flight the same frame it locks.
@@ -10222,6 +10230,14 @@ end
 -- belongs to - a sectioned dropdown that needs to reload its options would need a dedicated
 -- API this doesn't attempt to be.
 function Dropdown:Refresh(newOptions)
+    local anchor, offset
+    local oldY = self.list.CanvasPosition.Y
+    for _, row in self._virtualRows or {} do
+        if not row.header and row.y + row.height >= oldY then
+            anchor, offset = row.name, oldY - row.y
+            break
+        end
+    end
     self.options = dedupStrings(newOptions or {})
     self._lowerOptions = nil
     self._sectionStarts = {}
@@ -10255,6 +10271,22 @@ function Dropdown:Refresh(newOptions)
     self._updateSelectedLabel()
     -- reconcile with any active search (also refreshes corners); empty query shows all
     self:_applyFilter(if self._searchOpen then self.searchInput.Text else "")
+    if anchor and self._virtual then
+        local y = oldY
+        for _, row in self._virtualRows or {} do
+            if not row.header and row.name == anchor then
+                y = row.y + offset
+                break
+            end
+        end
+        local view = self.list.AbsoluteWindowSize.Y
+        if view <= 0 then
+            view = self.list.Size.Y.Offset
+        end
+        self.list.CanvasPosition =
+            Vector2.new(0, math.clamp(y, 0, math.max(0, (self._virtualContentHeight or 0) - view)))
+        self:_renderVirtualRows()
+    end
 
     -- the visible selection changed (options arrived or dropped): tell the dev and save it
     if selectionChanged then
@@ -13375,6 +13407,7 @@ Group.__type = "Group"
 -- The public API calls these "row"/"column"; "horizontal"/"vertical" work too.
 
 local moveable = require(script.Parent.Parent.utility.moveable)
+local functions = require(script.Parent.Parent.utility.functions)
 local log = require(script.Parent.Parent.utility.log)
 local assignOrder = require(script.Parent.Parent.utility.ordering)
 
@@ -13512,6 +13545,7 @@ function Group.new(tab, properties)
 end
 
 function Group:_add(componentName, properties)
+    functions.validateProperties(componentName, properties)
     if self.compact and not compactCapable[componentName] then
         log.warn(
             `Rayfield: a row only holds compact elements `
@@ -13750,6 +13784,7 @@ end
 
 -- a nested group: a column (for a grid) or another row inside this one
 function Group:_addGroup(properties)
+    functions.validateProperties("Group", properties)
     properties = if typeof(properties) == "table" then table.clone(properties) else {}
 
     -- adapt a row that's about to hold columns instead of compact leaves:
@@ -16131,9 +16166,11 @@ function ItemGrid.new(tab, properties)
     -- the author's column count is the ceiling; a narrow window only ever drops below it
     self.requestedColumns = self.columns
 
+    local seen = {}
     for _, entry in (properties.items or properties.Items or {}) do
         local normalised = normalise(entry)
-        if normalised then
+        if normalised and not seen[normalised.id] then
+            seen[normalised.id] = true
             table.insert(self.entries, normalised)
         end
     end
@@ -17148,7 +17185,15 @@ function ItemGrid:_buildCell(entry, order)
         end
     end)
 
+    local acceptPress = functions.guardPress(cell.interact, function()
+        return cell.entry
+    end, function(signal, handler)
+        self:_cellConnect(cell, signal, handler)
+    end)
     self:_cellConnect(cell, cell.interact.MouseButton1Click, function()
+        if not acceptPress() then
+            return
+        end
         if self.locked or not self.selectable then
             return
         end
@@ -17457,11 +17502,71 @@ function ItemGrid:_applyFilter()
     end
     local placeholders = self:_showingSkeleton()
     self.empty.frame.Visible = #filtered == 0 and not placeholders
+    self:_refreshEmptyState()
     self.scroll.Visible = #filtered > 0 or placeholders
     self:_syncValue()
     if self.onFilterChanged then
         self.window:_runGuarded(self, self.onFilterChanged, self:GetFilter())
     end
+end
+
+-- Clearing user filters never removes the developer's standing scope.
+function ItemGrid:ClearFilters()
+    self:Filter(nil)
+end
+
+function ItemGrid:_refreshEmptyState()
+    if not self.empty then
+        return
+    end
+    local filtering = self.searchText ~= "" or next(self.activeTags) ~= nil or self.customFilter ~= nil
+    local failed = self._dataState and self._dataState.status == "error"
+    self._embeddedLoadError = failed and #(self._filtered or {}) == 0
+    if self._loadHint and failed then
+        self._loadHint.main.Visible = not self._embeddedLoadError and self._revealed == true and not self._userHidden
+    end
+    local action = if failed and self._dataSource then "Retry" elseif filtering then "Clear filters" else nil
+    local options = self._dataOptions or {}
+    local text = if failed and self._dataState.reason == "timeout"
+        then options.timeoutText or "Loading took too long. Try again."
+        elseif failed then options.errorText or "Could not load items."
+        elseif filtering then "Nothing matches your filters."
+        else "No items available."
+    self.empty.label.Text = if self.emptyText ~= "Nothing matches that filter." then self.emptyText else text
+    if not self.emptyAction then
+        self.emptyAction = self.window:Create("TextButton", {
+            Name = "EmptyAction",
+            Text = "",
+            RichText = false,
+            AutoButtonColor = false,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, -16, 0, 24),
+            Position = UDim2.new(0, 8, 1, -24),
+            TextSize = 13,
+            Parent = self.empty.frame,
+        }, { TextColor3 = "AccentStroke", FontFace = "Font" })
+        self.window:ConnectFor(self, self.emptyAction.MouseButton1Click, function()
+            if self.locked then
+                return
+            end
+            if self._dataState and self._dataState.status == "error" then
+                self:RetryLoad()
+            else
+                self:ClearFilters()
+            end
+        end)
+    end
+    self.empty.icon.Position = if action then UDim2.fromOffset(16, 16) else UDim2.new(0.5, 0, 0, 6)
+    self.empty.label.AnchorPoint = if action then Vector2.zero else Vector2.new(0.5, 0)
+    self.empty.label.Position = if action then UDim2.fromOffset(36, 6) else UDim2.new(0.5, 0, 0, 34)
+    self.empty.label.Size = UDim2.new(1, if action then -44 else -20, 0, 18)
+    self.empty.label.TextXAlignment = if action then Enum.TextXAlignment.Left else Enum.TextXAlignment.Center
+    self.emptyAction.Position = UDim2.fromOffset(36, 29)
+    self.emptyAction.Size = UDim2.new(1, -44, 0, 24)
+    self.emptyAction.TextXAlignment = Enum.TextXAlignment.Left
+    self.emptyAction.TextTransparency = if self._revealed then 0 else 1
+    self.emptyAction.Text = action or ""
+    self.emptyAction.Visible = action ~= nil
 end
 
 function ItemGrid:_discardCell(cell)
@@ -18085,6 +18190,12 @@ function ItemGrid:SetValue(id, value): boolean
 end
 
 function ItemGrid:Refresh(items, skipCallback)
+    local anchor = functions.captureScrollAnchor(
+        self._filtered or self.entries,
+        self.scroll,
+        self.cellHeight + cellGap,
+        self.columns
+    )
     local rebuilt, seen = {}, {}
     for _, entry in (items or {}) do
         local normalised = normalise(entry)
@@ -18107,8 +18218,18 @@ function ItemGrid:Refresh(items, skipCallback)
         end
     end
     self:_claimPending(seen)
-
+    self._filtered = nil
     self:_rebuildCells()
+    functions.restoreScrollAnchor(
+        anchor,
+        self._filtered or self.entries,
+        self.scroll,
+        self.cellHeight + cellGap,
+        self.columns
+    )
+    if self._virtual then
+        self:_renderCells()
+    end
 
     if not skipCallback then
         self.window:_runGuarded(self, self.callback, self:Get())
@@ -18142,6 +18263,9 @@ function ItemGrid:_setShown(shown, animate)
         w:_reveal(self.counter, { TextTransparency = 0.45 }, animate)
         w:_reveal(self.emptyLabel, { TextTransparency = 0.55 }, animate)
         w:_reveal(self.empty.icon, { ImageTransparency = 0.65 }, animate)
+        if self.emptyAction then
+            w:_reveal(self.emptyAction, { TextTransparency = 0 }, animate)
+        end
 
         if self.searchBox then
             w:_reveal(self.searchBox, { BackgroundTransparency = w.theme.FieldTransparency }, animate)
@@ -18199,6 +18323,9 @@ function ItemGrid:_setShown(shown, animate)
         w:_reveal(self.counter, { TextTransparency = 1 }, animate)
         w:_reveal(self.emptyLabel, { TextTransparency = 1 }, animate)
         w:_reveal(self.empty.icon, { ImageTransparency = 1 }, animate)
+        if self.emptyAction then
+            w:_reveal(self.emptyAction, { TextTransparency = 1 }, animate)
+        end
 
         if self.searchBox then
             w:_reveal(self.searchBox, { BackgroundTransparency = 1 }, animate)
@@ -19193,7 +19320,13 @@ function ItemPicker:_buildCard(entry, order: number)
         card.hovered = false
         self:_paintCard(card, true)
     end)
+    local acceptPress = functions.guardPress(card.frame, function()
+        return card.entry
+    end, connect)
     connect(card.frame.MouseButton1Click, function()
+        if not acceptPress() then
+            return
+        end
         hapticEngine.click()
         soundEngine.click()
         self:Toggle(card.entry.id)
@@ -19498,6 +19631,15 @@ function ItemPicker:SetFilter(tag: string?)
 end
 
 function ItemPicker:Refresh(items, skipCallback)
+    local oldFiltered = {}
+    for _, entry in self.entries do
+        if self:_matches(entry) then
+            table.insert(oldFiltered, entry)
+        end
+    end
+    local anchor = if self.grid
+        then functions.captureScrollAnchor(oldFiltered, self.grid, cardHeight + cardGap, self._poolColumns or 3)
+        else nil
     self.entries = {}
     for _, entry in (items or {}) do
         local item = normalise(entry)
@@ -19506,6 +19648,18 @@ function ItemPicker:Refresh(items, skipCallback)
         end
     end
     self:_rebuildCards()
+    if anchor then
+        local filtered = {}
+        for _, entry in self.entries do
+            if self:_matches(entry) then
+                table.insert(filtered, entry)
+            end
+        end
+        functions.restoreScrollAnchor(anchor, filtered, self.grid, cardHeight + cardGap, self._poolColumns or 3)
+        if self._pooledCards then
+            self:_renderCards()
+        end
+    end
     self:_changed(skipCallback)
 end
 
@@ -20725,7 +20879,15 @@ function ListPicker:_buildRow(entry, order)
         row.hovered = false
         self:_applyRow(row, true)
     end)
+    local acceptPress = functions.guardPress(row.interact, function()
+        return row.entry
+    end, function(signal, handler)
+        self:_rowConnect(row, signal, handler)
+    end)
     self:_rowConnect(row, row.interact.MouseButton1Click, function()
+        if not acceptPress() then
+            return
+        end
         if self.locked then
             return
         end
@@ -21133,6 +21295,13 @@ end
 -- Replace the options, keeping the current pick when it survives - a category rail rebuilding
 -- around a new category should not throw the player back to the first one.
 function ListPicker:Refresh(options, skipCallback)
+    local anchor = functions.captureScrollAnchor(self.entries, self.list, self.rowHeight + rowGap, 1)
+    local function restoreAnchor()
+        functions.restoreScrollAnchor(anchor, self.entries, self.list, self.rowHeight + rowGap, 1)
+        if self._pooledRows then
+            self:_renderRows()
+        end
+    end
     local rebuilt, seen = {}, {}
     for _, entry in (options or {}) do
         local normalised = normalise(entry)
@@ -21179,6 +21348,7 @@ function ListPicker:Refresh(options, skipCallback)
         -- only report it when the ticks actually changed (one disappeared, or a pending one arrived);
         -- a refresh that kept everything is not a change the dev needs to hear about
         self:_setMany(kept, if lost or #arriving > 0 then skipCallback else true)
+        restoreAnchor()
         return
     end
 
@@ -21196,6 +21366,7 @@ function ListPicker:Refresh(options, skipCallback)
         self:Set(if rebuilt[1] then rebuilt[1].id else nil, skipCallback)
         self.pending = if waiting ~= nil then { waiting } else {}
     end
+    restoreAnchor()
 end
 
 -- A ceiling below one row would cut the only row in half, so one row is the floor. nil (or
@@ -31764,6 +31935,7 @@ local utility = script.Parent.Parent.utility
 
 -- Variables
 local variables = require(utility.variables)
+local functions = require(utility.functions)
 local assignOrder = require(utility.ordering)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
@@ -32074,202 +32246,242 @@ end
 
 -- Button
 function Tab:CreateButton(properties)
+    functions.validateProperties("Button", properties)
     return self:_register(require(script.Parent.button).new(self, properties))
 end
 
 -- Flip button: a two-faced Button whose title flips on hover
 function Tab:CreateFlipButton(properties)
+    functions.validateProperties("FlipButton", properties)
     return self:_register(require(script.Parent.flipbutton).new(self, properties))
 end
 
 -- Copy button: title left, a checkmark-swapping icon well right that copies to the clipboard
 function Tab:CreateCopyButton(properties)
+    functions.validateProperties("CopyButton", properties)
     return self:_register(require(script.Parent.copybutton).new(self, properties))
 end
 
 -- Ripple button: a Button whose press feedback is a ripple from the press point
 function Tab:CreateRippleButton(properties)
+    functions.validateProperties("RippleButton", properties)
     return self:_register(require(script.Parent.ripplebutton).new(self, properties))
 end
 
 -- Switch/Toggle
 function Tab:CreateToggle(properties)
+    functions.validateProperties("Toggle", properties)
     return self:_register(require(script.Parent.toggle).new(self, properties))
 end
 
 function Tab:CreateSwitch(properties)
+    functions.validateProperties("Switch", properties)
     return self:CreateToggle(properties)
 end
 
 -- Checkbox: a compact alternative to Toggle
 function Tab:CreateCheckbox(properties)
+    functions.validateProperties("Checkbox", properties)
     return self:_register(require(script.Parent.checkbox).new(self, properties))
 end
 
 -- Section
 function Tab:CreateSection(properties)
+    functions.validateProperties("Section", properties)
     return self:_register(require(script.Parent.section).new(self, properties))
 end
 
 -- Label: a bare line of text, no card - for copy too slight for its own Paragraph
 function Tab:CreateLabel(properties)
+    functions.validateProperties("Label", properties)
     return self:_register(require(script.Parent.label).new(self, properties))
 end
 
 -- Paragraph: a title + body card, for copy too long to hang off an element as a description
 function Tab:CreateParagraph(properties)
+    functions.validateProperties("Paragraph", properties)
     return self:_register(require(script.Parent.paragraph).new(self, properties))
 end
 
 -- Divider: a subtle rule (plain, captioned, or spacing-only) that splits a page into groups
 -- without a full Section header
 function Tab:CreateDivider(properties)
+    functions.validateProperties("Divider", properties)
     return self:_register(require(script.Parent.divider).new(self, properties))
 end
 
 -- Stat
 function Tab:CreateStat(properties)
+    functions.validateProperties("Stat", properties)
     return self:_register(require(script.Parent.stat).new(self, properties))
 end
 
 -- Compact, collapsible multi-row status widget - see statuscard.luau's own header comment.
 function Tab:CreateStatusCard(properties)
+    functions.validateProperties("StatusCard", properties)
     return self:_register(require(script.Parent.statuscard).new(self, properties))
 end
 
 -- Slider
 function Tab:CreateSlider(properties)
+    functions.validateProperties("Slider", properties)
     return self:_register(require(script.Parent.slider).new(self, properties))
 end
 
 -- Dropdown
 function Tab:CreateDropdown(properties)
+    functions.validateProperties("Dropdown", properties)
     return self:_register(require(script.Parent.dropdown).new(self, properties))
 end
 
 -- Dropdown pre-filled with the server's players, kept in step with joins and leaves
 function Tab:CreatePlayerDropdown(properties)
+    functions.validateProperties("PlayerDropdown", properties)
     return self:_register(require(script.Parent.playerdropdown).new(self, properties))
 end
 
 -- Drag-to-reorder list: the order is the value, and it persists
 function Tab:CreateReorderList(properties)
+    functions.validateProperties("ReorderList", properties)
     return self:_register(require(script.Parent.reorderlist).new(self, properties))
 end
 
 -- Scrolling multi-select grid of cards, with search/tag filtering
 function Tab:CreateItemGrid(properties)
+    functions.validateProperties("ItemGrid", properties)
     return self:_register(require(script.Parent.itemgrid).new(self, properties))
 end
 
 -- Vertical single-select category rail, for beside the panel it drives
 function Tab:CreateListPicker(properties)
+    functions.validateProperties("ListPicker", properties)
     return self:_register(require(script.Parent.listpicker).new(self, properties))
 end
 
 -- Progress bar: read-only gradient fill + readout, animates on Set
 function Tab:CreateProgressBar(properties)
+    functions.validateProperties("ProgressBar", properties)
     return self:_register(require(script.Parent.progressbar).new(self, properties))
 end
 
 -- A monospaced, self-scrolling block for code or log output. See console.luau's own header
 -- comment. Ported from upstream Rayfield Gen2 1.2.
 function Tab:CreateConsole(properties)
+    functions.validateProperties("Console", properties)
     return self:_register(require(script.Parent.console).new(self, properties))
 end
 
 -- A number with a minus and a plus - see stepper.luau's own header.
 function Tab:CreateStepper(properties)
+    functions.validateProperties("Stepper", properties)
     return self:_register(require(script.Parent.stepper).new(self, properties))
 end
 
 -- Rows under named, sortable columns - see datatable.luau's own header.
 function Tab:CreateTable(properties)
+    functions.validateProperties("Table", properties)
     return self:_register(require(script.Parent.datatable).new(self, properties))
 end
 
 -- A countdown with a bar that empties - see countdown.luau's own header.
 function Tab:CreateCountdown(properties)
+    functions.validateProperties("Countdown", properties)
     return self:_register(require(script.Parent.countdown).new(self, properties))
 end
 
 function Tab:CreateFAQ(properties)
+    functions.validateProperties("FAQ", properties)
     return self:_register(require(script.Parent.faq).new(self, properties))
 end
 
 -- A small line or bar chart of a number the hub already tracks - see chart.luau's own header.
 function Tab:CreateChart(properties)
+    functions.validateProperties("Chart", properties)
     return self:_register(require(script.Parent.chart).new(self, properties))
 end
 
 -- Rows of stacked bars under a legend - see stackedchart.luau's own header.
 function Tab:CreateStackedChart(properties)
+    functions.validateProperties("StackedChart", properties)
     return self:_register(require(script.Parent.stackedchart).new(self, properties))
 end
 
 -- The mob, boss or player a feature is working on - see target.luau's own header.
 function Tab:CreateTarget(properties)
+    functions.validateProperties("Target", properties)
     return self:_register(require(script.Parent.target).new(self, properties))
 end
 
 -- A name and a small colour chip that opens a picker - see colorswatch.luau's own header.
 function Tab:CreateColorSwatch(properties)
+    functions.validateProperties("ColorSwatch", properties)
     return self:_register(require(script.Parent.colorswatch).new(self, properties))
 end
 
 -- What the hub's ESP settings draw, on the player's character - see esppreview.luau's own header.
 function Tab:CreateESPPreview(properties)
+    functions.validateProperties("ESPPreview", properties)
     return self:_register(require(script.Parent.esppreview).new(self, properties))
 end
 
 -- A hub's home page in one call - see dashboard.luau's own header.
 function Tab:CreateDashboard(properties)
+    functions.validateProperties("Dashboard", properties)
     return self:_register(require(script.Parent.dashboard).new(self, properties))
 end
 
 -- A row that opens a whole page of cards to pick from - see itempicker.luau's own header.
 function Tab:CreateItemPicker(properties)
+    functions.validateProperties("ItemPicker", properties)
     return self:_register(require(script.Parent.itempicker).new(self, properties))
 end
 
 -- Scroll hint: centred text + bouncing arrow, points further down a page
 function Tab:CreateScrollHint(properties)
+    functions.validateProperties("ScrollHint", properties)
     return self:_register(require(script.Parent.scrollhint).new(self, properties))
 end
 
 -- Segmented picker: pill bar with a sliding indicator, segments can nest a couple of sub-options
 function Tab:CreateSegmentedPicker(properties)
+    functions.validateProperties("SegmentedPicker", properties)
     return self:_register(require(script.Parent.segmentedpicker).new(self, properties))
 end
 
 -- Shimmer label: a big heading with a light band sweeping across the text on a loop
 function Tab:CreateShimmerLabel(properties)
+    functions.validateProperties("ShimmerLabel", properties)
     return self:_register(require(script.Parent.shimmerlabel).new(self, properties))
 end
 
 -- Input
 function Tab:CreateInput(properties)
+    functions.validateProperties("Input", properties)
     return self:_register(require(script.Parent.input).new(self, properties))
 end
 
 -- Keybind
 function Tab:CreateKeybind(properties)
+    functions.validateProperties("Keybind", properties)
     return self:_register(require(script.Parent.keybind).new(self, properties))
 end
 
 -- Color picker
 function Tab:CreateColorPicker(properties)
+    functions.validateProperties("ColorPicker", properties)
     return self:_register(require(script.Parent.colorpicker).new(self, properties))
 end
 
 -- Gradient picker: a collapsible stops-rail editor producing a real ColorSequence
 function Tab:CreateGradientPicker(properties)
+    functions.validateProperties("GradientPicker", properties)
     return self:_register(require(script.Parent.gradientpicker).new(self, properties))
 end
 
 -- Group (layout container). A row that wraps by default; pass direction="column" for a
 -- column. Nest a row of columns for a grid. Add elements via group:CreateX.
 function Tab:CreateGroup(properties)
+    functions.validateProperties("Group", properties)
     return self:_register(require(script.Parent.group).new(self, properties))
 end
 
@@ -32278,28 +32490,33 @@ end
 -- it has the same main/_setShown shape _register expects even though it carries no flag of its
 -- own (each of its own pages' children register their own flags independently).
 function Tab:CreateTabbox(properties)
+    functions.validateProperties("Tabbox", properties)
     return self:_register(require(script.Parent.tabbox).new(self, properties))
 end
 
 -- A card with pages, the header naming the current one - see panel.luau's own header comment.
 function Tab:CreatePanel(properties)
+    functions.validateProperties("Panel", properties)
     return self:_register(require(script.Parent.panel).new(self, properties))
 end
 
 -- Hold button: press-and-hold confirm, fill bar completes the callback only at 100%
 function Tab:CreateHoldButton(properties)
+    functions.validateProperties("HoldButton", properties)
     return self:_register(require(script.Parent.holdbutton).new(self, properties))
 end
 
 -- Collapsible section: a header that expands/collapses to reveal its own nested elements,
 -- built via the same CreateX surface as a Tab or Group (collapsible:CreateToggle, etc).
 function Tab:CreateCollapsible(properties)
+    functions.validateProperties("Collapsible", properties)
     return self:_register(require(script.Parent.collapsible).new(self, properties))
 end
 
 -- Changelog / update log: a title + version/date header over a list of ADDED/FIXED/CHANGED/
 -- REMOVED tagged entries. Static once built.
 function Tab:CreateChangelog(properties)
+    functions.validateProperties("Changelog", properties)
     return self:_register(require(script.Parent.changelog).new(self, properties))
 end
 
@@ -32308,6 +32525,7 @@ end
 -- Sub tabs: a row of pills at the top of the tab, each a page of its own (see subtabs.luau).
 -- The first call builds the row where it is made; returns the page, which takes any CreateX.
 function Tab:CreateSubTab(properties)
+    functions.validateProperties("SubTab", properties)
     if not self._subTabs then
         self._subTabs = self:_register(require(script.Parent.subtabs).new(self))
     end
@@ -32320,6 +32538,7 @@ function Tab:SelectSubTab(target): boolean
 end
 
 function Tab:CreateSpacer(properties)
+    functions.validateProperties("Spacer", properties)
     return self:_register(require(script.Parent.spacer).new(self, properties))
 end
 
@@ -47321,11 +47540,11 @@ function Window:Batch(callback, options)
     return ok, if not ok then tostring(err) else nil
 end
 
-function Window:_setDataLoadState(control, status)
+function Window:_setDataLoadState(control, status, reason)
     if control._removed or self.unloaded then
         return
     end
-    control._dataState = { status = status, requestId = control._dataGeneration or 0 }
+    control._dataState = { status = status, requestId = control._dataGeneration or 0, reason = reason }
     local options = control._dataOptions or {}
     if control.SetLoading then
         control:SetLoading(status == "loading")
@@ -47352,6 +47571,7 @@ function Window:_setDataLoadState(control, status)
         hint.main.LayoutOrder = control.main.LayoutOrder + 3
         hint.titleLabel.Text = if status == "loading"
             then options.loadingText or "Loading options…"
+            elseif reason == "timeout" then options.timeoutText or "Loading took too long. Try again."
             else options.errorText or "Could not load options. Try again."
         hint.titleLabel.TextColor3 = if status == "error" then self.theme.ErrorStrokeColor else self.theme.ContentColor
         hint.titleLabel.TextTransparency = 0
@@ -47359,6 +47579,9 @@ function Window:_setDataLoadState(control, status)
         control._loadRetry.Visible = status == "error"
     elseif control._loadHint then
         control._loadHint.main.Visible = false
+    end
+    if control._refreshEmptyState then
+        control:_refreshEmptyState()
     end
     if options.onStateChanged then
         local ok = pcall(options.onStateChanged, control:GetLoadState())
@@ -49204,14 +49427,37 @@ export type KeySystemProps = {
 
 -- Handles ------------------------------------------------------------------
 -- Every element can be reordered within its tab.
+export type AsyncRequest = { requestId: number, isCancelled: () -> boolean }
+export type DataLoadState = {
+    status: "idle" | "loading" | "ready" | "error",
+    requestId: number,
+    reason: ("provider" | "timeout")?,
+}
+export type DataLoadOptions = {
+    timeout: number?,
+    silent: boolean?,
+    loadingText: string?,
+    errorText: string?,
+    timeoutText: string?,
+    onStateChanged: ((DataLoadState) -> ())?,
+}
+export type RunOptions = {
+    timeout: number?,
+    busyText: string?,
+    successText: string?,
+    errorText: string?,
+    timeoutText: string?,
+    onComplete: ((boolean, any) -> ())?,
+}
+
 export type Moveable = {
     SetCallbackPolicy: (self: any, mode: "live" | "throttle" | "commit", interval: number?) -> any,
     LoadOptions: (
         self: any,
-        loader: ({ requestId: number, isCancelled: () -> boolean }) -> { any },
-        options: any?
+        loader: (AsyncRequest) -> { any },
+        options: DataLoadOptions?
     ) -> number | boolean,
-    GetLoadState: (self: any) -> { status: string, requestId: number },
+    GetLoadState: (self: any) -> DataLoadState,
     RetryLoad: (self: any) -> number | boolean,
     CancelLoad: (self: any) -> (),
     GetValue: (self: any) -> any,
@@ -49220,7 +49466,7 @@ export type Moveable = {
     Destroy: (self: any) -> boolean,
     IsBusy: (self: any) -> boolean,
     SetBusy: (self: any, busy: boolean, text: string?) -> boolean,
-    Run: (self: any, callback: (any) -> any, options: any?) -> boolean,
+    Run: (self: any, callback: (any, AsyncRequest) -> any, options: RunOptions?) -> boolean,
     ShowHelp: (self: any) -> boolean,
     MoveTo: (self: any, index: number) -> (),
     MoveToTop: (self: any) -> (),
@@ -49572,6 +49818,7 @@ export type ItemGrid = Moveable & {
     Deselect: (self: ItemGrid, id: string, skipCallback: boolean?) -> (),
     SelectAll: (self: ItemGrid, skipCallback: boolean?) -> (), -- only what the filter shows
     Clear: (self: ItemGrid, skipCallback: boolean?) -> (),
+    ClearFilters: (self: ItemGrid) -> (),
     Filter: (self: ItemGrid, query: GridFilter?) -> (), -- nil clears it, chips included
     ToggleTag: (self: ItemGrid, tag: string) -> (), -- the programmatic half of clicking a chip
     GetFilter: (self: ItemGrid) -> { text: string, tags: { string } },
@@ -49838,13 +50085,26 @@ export type Collapsible = Moveable & {
     CreateToggle: (self: Collapsible, props: ToggleProps) -> Toggle,
     CreateSwitch: (self: Collapsible, props: ToggleProps) -> Toggle,
     CreateCheckbox: (self: Collapsible, props: CheckboxProps) -> Checkbox,
-    CreateStat: (self: Collapsible, props: StatProps) -> Stat,
-    CreateStatusCard: (self: Collapsible, props: StatusCardProps) -> StatusCard,
     CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,
     CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,
     CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateReorderList: (self: Collapsible, props: ReorderListProps) -> ReorderList,
     CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,
+    CreateListPicker: (self: Collapsible, props: ListPickerProps) -> ListPicker,
+    CreateTabbox: (self: Collapsible, props: TabboxProps) -> Tabbox,
+    CreatePanel: (self: Collapsible, props: PanelProps) -> Panel,
+    CreateInput: (self: Collapsible, props: InputProps) -> Input,
+    CreateKeybind: (self: Collapsible, props: KeybindProps) -> Keybind,
+    CreateColorPicker: (self: Collapsible, props: ColorPickerProps) -> ColorPicker,
+    CreateGradientPicker: (self: Collapsible, props: GradientPickerProps?) -> GradientPicker,
+    CreateStat: (self: Collapsible, props: StatProps) -> Stat,
+    CreateStatusCard: (self: Collapsible, props: StatusCardProps) -> StatusCard,
+    CreateSection: (self: Collapsible, props: SectionProps) -> Section,
+    CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,
+    CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,
+    CreateDivider: (self: Collapsible, props: DividerProps?) -> Divider,
+    CreateProgressBar: (self: Collapsible, props: ProgressBarProps) -> ProgressBar,
+    CreateConsole: (self: Collapsible, props: ConsoleProps) -> Console,
     CreateChart: (self: Collapsible, props: ChartProps) -> Chart,
     CreateStackedChart: (self: Collapsible, props: StackedChartProps) -> StackedChart,
     CreateTarget: (self: Collapsible, props: TargetProps) -> Target,
@@ -49856,14 +50116,14 @@ export type Collapsible = Moveable & {
     CreateFAQ: (self: Collapsible, props: FAQProps) -> FAQ,
     CreateTable: (self: Collapsible, props: TableProps) -> Table,
     CreateStepper: (self: Collapsible, props: StepperProps) -> Stepper,
-    CreateListPicker: (self: Collapsible, props: ListPickerProps) -> ListPicker,
-    CreateTabbox: (self: Collapsible, props: TabboxProps) -> Tabbox,
-    CreatePanel: (self: Collapsible, props: PanelProps) -> Panel,
-    CreateSection: (self: Collapsible, props: SectionProps) -> Section,
-    CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,
-    CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,
-    CreateDivider: (self: Collapsible, props: DividerProps?) -> Divider,
+    CreateScrollHint: (self: Collapsible, props: ScrollHintProps?) -> ScrollHint,
+    CreateSegmentedPicker: (self: Collapsible, props: SegmentedPickerProps?) -> SegmentedPicker,
+    CreateShimmerLabel: (self: Collapsible, props: ShimmerLabelProps?) -> ShimmerLabel,
     CreateGroup: (self: Collapsible, props: GroupProps?) -> Group,
+    CreateHoldButton: (self: Collapsible, props: HoldButtonProps?) -> HoldButton,
+    CreateCollapsible: (self: Collapsible, props: CollapsibleProps?) -> Collapsible,
+    CreateChangelog: (self: Collapsible, props: ChangelogProps?) -> Changelog,
+    CreateSpacer: (self: Collapsible, props: SpacerProps?) -> Spacer,
 }
 
 -- Tags sit in the window's title bar and order themselves, so they aren't Moveable.
@@ -49882,8 +50142,7 @@ export type Popup = {
 -- A group lays elements along one axis and nests, so a row of columns builds a grid.
 -- A row accepts the compact elements
 -- (button/toggle/stat/checkbox/copybutton/flipbutton/ripplebutton) + slider; a column also
--- takes dropdown and section. Input, keybind, colorpicker, progressbar and scrollhint stay
--- tab-level for now.
+-- takes the complete factory surface except CreateSubTab. Row layout restrictions still apply.
 export type Group = Moveable & {
     CreateButton: (self: Group, props: ButtonProps) -> Button,
     CreateFlipButton: (self: Group, props: FlipButtonProps) -> FlipButton,
@@ -49892,13 +50151,26 @@ export type Group = Moveable & {
     CreateToggle: (self: Group, props: ToggleProps) -> Toggle,
     CreateSwitch: (self: Group, props: ToggleProps) -> Toggle,
     CreateCheckbox: (self: Group, props: CheckboxProps) -> Checkbox,
-    CreateStat: (self: Group, props: StatProps) -> Stat,
-    CreateStatusCard: (self: Group, props: StatusCardProps) -> StatusCard,
     CreateSlider: (self: Group, props: SliderProps) -> Slider,
     CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,
     CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,
     CreateReorderList: (self: Group, props: ReorderListProps) -> ReorderList,
     CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,
+    CreateListPicker: (self: Group, props: ListPickerProps) -> ListPicker,
+    CreateTabbox: (self: Group, props: TabboxProps) -> Tabbox,
+    CreatePanel: (self: Group, props: PanelProps) -> Panel,
+    CreateInput: (self: Group, props: InputProps) -> Input,
+    CreateKeybind: (self: Group, props: KeybindProps) -> Keybind,
+    CreateColorPicker: (self: Group, props: ColorPickerProps) -> ColorPicker,
+    CreateGradientPicker: (self: Group, props: GradientPickerProps?) -> GradientPicker,
+    CreateStat: (self: Group, props: StatProps) -> Stat,
+    CreateStatusCard: (self: Group, props: StatusCardProps) -> StatusCard,
+    CreateSection: (self: Group, props: SectionProps) -> Section,
+    CreateLabel: (self: Group, props: LabelProps?) -> Label,
+    CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,
+    CreateDivider: (self: Group, props: DividerProps?) -> Divider,
+    CreateProgressBar: (self: Group, props: ProgressBarProps) -> ProgressBar,
+    CreateConsole: (self: Group, props: ConsoleProps) -> Console,
     CreateChart: (self: Group, props: ChartProps) -> Chart,
     CreateStackedChart: (self: Group, props: StackedChartProps) -> StackedChart,
     CreateTarget: (self: Group, props: TargetProps) -> Target,
@@ -49910,14 +50182,14 @@ export type Group = Moveable & {
     CreateFAQ: (self: Group, props: FAQProps) -> FAQ,
     CreateTable: (self: Group, props: TableProps) -> Table,
     CreateStepper: (self: Group, props: StepperProps) -> Stepper,
-    CreateListPicker: (self: Group, props: ListPickerProps) -> ListPicker,
-    CreateTabbox: (self: Group, props: TabboxProps) -> Tabbox,
-    CreatePanel: (self: Group, props: PanelProps) -> Panel,
-    CreateSection: (self: Group, props: SectionProps) -> Section,
-    CreateLabel: (self: Group, props: LabelProps?) -> Label,
-    CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,
-    CreateDivider: (self: Group, props: DividerProps?) -> Divider,
+    CreateScrollHint: (self: Group, props: ScrollHintProps?) -> ScrollHint,
+    CreateSegmentedPicker: (self: Group, props: SegmentedPickerProps?) -> SegmentedPicker,
+    CreateShimmerLabel: (self: Group, props: ShimmerLabelProps?) -> ShimmerLabel,
     CreateGroup: (self: Group, props: GroupProps?) -> Group,
+    CreateHoldButton: (self: Group, props: HoldButtonProps?) -> HoldButton,
+    CreateCollapsible: (self: Group, props: CollapsibleProps?) -> Collapsible,
+    CreateChangelog: (self: Group, props: ChangelogProps?) -> Changelog,
+    CreateSpacer: (self: Group, props: SpacerProps?) -> Spacer,
 }
 
 export type Tab = {
@@ -51747,7 +52019,7 @@ reference.entries = {
         name = "CreateItemGrid",
         code = 'local control = tab:CreateItemGrid({name = "ItemGrid"})',
         properties = 'export type ItemGridProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?, -- persists the selected ids\n    items: { string | GridItem }?,\n    value: (string | { string })?,\n    columns: number?, -- ceiling, default 4; a narrow window drops below it on its own\n    maxHeight: number?, -- the CEILING on the card area: fewer cards take only their rows, more scroll; default 210\n    fixedColumns: boolean?, -- default false: columns is a ceiling a narrow window drops below; true holds it exactly\n    loading: boolean?, -- placeholder cards until items arrive; defaults on for a grid built empty, and times out\n    emptyIcon: (string | number)?, -- the glyph over the empty text; default "lucide:search-x"\n    height: number?, -- original spelling of maxHeight, still accepted\n    cellHeight: number?, -- default 46\n    multiSelect: boolean?, -- default true\n    emptyText: string?,\n    -- built into the element: `true` for the default placeholder, or pass the placeholder itself\n    search: (boolean | string)?,\n    filters: { GridFilterChip }?, -- the chip row; the dev owns the tag set\n    imageLayout: ("left" | "top")?, -- thumbnail beside the name, or above it. Default "left"\n    -- "list": one row per item - picture, the name in its `color`, the subtitle under it, the value\n    -- on the right. Default "grid"\n    layout: ("grid" | "list")?,\n    selectable: boolean?, -- default true; false for a list only to read (clicks do nothing)\n    onFilterChanged: ((filter: { text: string, tags: { string } }) -> ())?,\n    callback: ((selected: { string }) -> ())?,\n}',
-        methods = "export type ItemGrid = Moveable & {\n    value: { string }, -- the selected ids, in item order\n    locked: boolean,\n    Get: (self: ItemGrid) -> { string },\n    Set: (self: ItemGrid, ids: string | { string }, skipCallback: boolean?) -> (),\n    Toggle: (self: ItemGrid, id: string, skipCallback: boolean?) -> boolean,\n    Select: (self: ItemGrid, id: string, skipCallback: boolean?) -> (),\n    Deselect: (self: ItemGrid, id: string, skipCallback: boolean?) -> (),\n    SelectAll: (self: ItemGrid, skipCallback: boolean?) -> (), -- only what the filter shows\n    Clear: (self: ItemGrid, skipCallback: boolean?) -> (),\n    Filter: (self: ItemGrid, query: GridFilter?) -> (), -- nil clears it, chips included\n    ToggleTag: (self: ItemGrid, tag: string) -> (), -- the programmatic half of clicking a chip\n    GetFilter: (self: ItemGrid) -> { text: string, tags: { string } },\n    Refresh: (self: ItemGrid, items: { string | GridItem }, skipCallback: boolean?) -> (),\n    -- list layout: one row's value on the right, without rebuilding the list; nil removes it\n    SetValue: (self: ItemGrid, id: string, value: (string | number)?) -> boolean,\n    SetHeight: (self: ItemGrid, height: number?) -> (),\n    SetMaxHeight: (self: ItemGrid, height: number?) -> (),\n    SetColumns: (self: ItemGrid, columns: number, fixed: boolean?) -> (),\n    ScrollChips: (self: ItemGrid, delta: number) -> number,\n    SetLoading: (self: ItemGrid, loading: boolean) -> (),\n    Lock: (self: ItemGrid, reason: string?) -> (),\n    Unlock: (self: ItemGrid) -> (),\n    IsLocked: (self: ItemGrid) -> boolean,\n}",
+        methods = "export type ItemGrid = Moveable & {\n    value: { string }, -- the selected ids, in item order\n    locked: boolean,\n    Get: (self: ItemGrid) -> { string },\n    Set: (self: ItemGrid, ids: string | { string }, skipCallback: boolean?) -> (),\n    Toggle: (self: ItemGrid, id: string, skipCallback: boolean?) -> boolean,\n    Select: (self: ItemGrid, id: string, skipCallback: boolean?) -> (),\n    Deselect: (self: ItemGrid, id: string, skipCallback: boolean?) -> (),\n    SelectAll: (self: ItemGrid, skipCallback: boolean?) -> (), -- only what the filter shows\n    Clear: (self: ItemGrid, skipCallback: boolean?) -> (),\n    ClearFilters: (self: ItemGrid) -> (),\n    Filter: (self: ItemGrid, query: GridFilter?) -> (), -- nil clears it, chips included\n    ToggleTag: (self: ItemGrid, tag: string) -> (), -- the programmatic half of clicking a chip\n    GetFilter: (self: ItemGrid) -> { text: string, tags: { string } },\n    Refresh: (self: ItemGrid, items: { string | GridItem }, skipCallback: boolean?) -> (),\n    -- list layout: one row's value on the right, without rebuilding the list; nil removes it\n    SetValue: (self: ItemGrid, id: string, value: (string | number)?) -> boolean,\n    SetHeight: (self: ItemGrid, height: number?) -> (),\n    SetMaxHeight: (self: ItemGrid, height: number?) -> (),\n    SetColumns: (self: ItemGrid, columns: number, fixed: boolean?) -> (),\n    ScrollChips: (self: ItemGrid, delta: number) -> number,\n    SetLoading: (self: ItemGrid, loading: boolean) -> (),\n    Lock: (self: ItemGrid, reason: string?) -> (),\n    Unlock: (self: ItemGrid) -> (),\n    IsLocked: (self: ItemGrid) -> boolean,\n}",
         props = { name = "ItemGrid" },
     },
     {
@@ -51908,7 +52180,7 @@ reference.entries = {
         name = "CreateGroup",
         code = 'local control = tab:CreateGroup({name = "Group"})',
         properties = 'export type GroupProps = {\n    direction: string?, -- "row" | "column" (default row); "horizontal"/"vertical" also work\n    -- Only meaningful for a column nested in a row, where the default is an equal split:\n    -- `width` pins this column and lets the rest of the row absorb what is left, `weight`\n    -- splits proportionally instead.\n    width: number?,\n    weight: number?,\n    -- Dependency group: hides/shows every child together based on another control\'s value -\n    -- Fluent\'s own DependencyGroupbox. dependsOn is whatever CreateToggle/CreateDropdown/etc\n    -- itself returned; condition defaults to a plain truthy check (built for a toggle) - pass\n    -- one explicitly for a dropdown/slider-driven group, e.g. function(v) return v == "Advanced"\n    -- end.\n    dependsOn: any?,\n    condition: ((value: any) -> boolean)?,\n}',
-        methods = "export type Group = Moveable & {\n    CreateButton: (self: Group, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Group, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Group, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Group, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Group, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Group, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Group, props: CheckboxProps) -> Checkbox,\n    CreateStat: (self: Group, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Group, props: StatusCardProps) -> StatusCard,\n    CreateSlider: (self: Group, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Group, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,\n    CreateChart: (self: Group, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Group, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Group, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Group, props: ItemPickerProps) -> ItemPicker,\n    CreateDashboard: (self: Group, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Group, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Group, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Group, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Group, props: FAQProps) -> FAQ,\n    CreateTable: (self: Group, props: TableProps) -> Table,\n    CreateStepper: (self: Group, props: StepperProps) -> Stepper,\n    CreateListPicker: (self: Group, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Group, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Group, props: PanelProps) -> Panel,\n    CreateSection: (self: Group, props: SectionProps) -> Section,\n    CreateLabel: (self: Group, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,\n    CreateDivider: (self: Group, props: DividerProps?) -> Divider,\n    CreateGroup: (self: Group, props: GroupProps?) -> Group,\n}",
+        methods = "export type Group = Moveable & {\n    CreateButton: (self: Group, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Group, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Group, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Group, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Group, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Group, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Group, props: CheckboxProps) -> Checkbox,\n    CreateSlider: (self: Group, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Group, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,\n    CreateListPicker: (self: Group, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Group, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Group, props: PanelProps) -> Panel,\n    CreateInput: (self: Group, props: InputProps) -> Input,\n    CreateKeybind: (self: Group, props: KeybindProps) -> Keybind,\n    CreateColorPicker: (self: Group, props: ColorPickerProps) -> ColorPicker,\n    CreateGradientPicker: (self: Group, props: GradientPickerProps?) -> GradientPicker,\n    CreateStat: (self: Group, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Group, props: StatusCardProps) -> StatusCard,\n    CreateSection: (self: Group, props: SectionProps) -> Section,\n    CreateLabel: (self: Group, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,\n    CreateDivider: (self: Group, props: DividerProps?) -> Divider,\n    CreateProgressBar: (self: Group, props: ProgressBarProps) -> ProgressBar,\n    CreateConsole: (self: Group, props: ConsoleProps) -> Console,\n    CreateChart: (self: Group, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Group, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Group, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Group, props: ItemPickerProps) -> ItemPicker,\n    CreateDashboard: (self: Group, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Group, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Group, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Group, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Group, props: FAQProps) -> FAQ,\n    CreateTable: (self: Group, props: TableProps) -> Table,\n    CreateStepper: (self: Group, props: StepperProps) -> Stepper,\n    CreateScrollHint: (self: Group, props: ScrollHintProps?) -> ScrollHint,\n    CreateSegmentedPicker: (self: Group, props: SegmentedPickerProps?) -> SegmentedPicker,\n    CreateShimmerLabel: (self: Group, props: ShimmerLabelProps?) -> ShimmerLabel,\n    CreateGroup: (self: Group, props: GroupProps?) -> Group,\n    CreateHoldButton: (self: Group, props: HoldButtonProps?) -> HoldButton,\n    CreateCollapsible: (self: Group, props: CollapsibleProps?) -> Collapsible,\n    CreateChangelog: (self: Group, props: ChangelogProps?) -> Changelog,\n    CreateSpacer: (self: Group, props: SpacerProps?) -> Spacer,\n}",
         props = { name = "Group" },
     },
     {
@@ -51936,7 +52208,7 @@ reference.entries = {
         name = "CreateCollapsible",
         code = 'local control = tab:CreateCollapsible({name = "Collapsible"})',
         properties = "export type CollapsibleProps = {\n    name: string?,\n    icon: (string | number)?,\n    expanded: boolean?, -- start open (default false)\n    flag: string?, -- config key for open/closed; derived from the name when omitted\n    forgetState: boolean?, -- don't persist open/closed\n}",
-        methods = "export type Collapsible = Moveable & {\n    expanded: boolean,\n    Toggle: (self: Collapsible) -> (),\n    SetExpanded: (self: Collapsible, expanded: boolean) -> (),\n    Set: (self: Collapsible, expanded: boolean, skipAnimation: boolean?) -> (),\n    Get: (self: Collapsible) -> boolean,\n    CreateButton: (self: Collapsible, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Collapsible, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Collapsible, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Collapsible, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Collapsible, props: CheckboxProps) -> Checkbox,\n    CreateStat: (self: Collapsible, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Collapsible, props: StatusCardProps) -> StatusCard,\n    CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Collapsible, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,\n    CreateChart: (self: Collapsible, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Collapsible, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Collapsible, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Collapsible, props: ItemPickerProps) -> ItemPicker,\n    CreateDashboard: (self: Collapsible, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Collapsible, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Collapsible, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Collapsible, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Collapsible, props: FAQProps) -> FAQ,\n    CreateTable: (self: Collapsible, props: TableProps) -> Table,\n    CreateStepper: (self: Collapsible, props: StepperProps) -> Stepper,\n    CreateListPicker: (self: Collapsible, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Collapsible, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Collapsible, props: PanelProps) -> Panel,\n    CreateSection: (self: Collapsible, props: SectionProps) -> Section,\n    CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,\n    CreateDivider: (self: Collapsible, props: DividerProps?) -> Divider,\n    CreateGroup: (self: Collapsible, props: GroupProps?) -> Group,\n}",
+        methods = "export type Collapsible = Moveable & {\n    expanded: boolean,\n    Toggle: (self: Collapsible) -> (),\n    SetExpanded: (self: Collapsible, expanded: boolean) -> (),\n    Set: (self: Collapsible, expanded: boolean, skipAnimation: boolean?) -> (),\n    Get: (self: Collapsible) -> boolean,\n    CreateButton: (self: Collapsible, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Collapsible, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Collapsible, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Collapsible, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Collapsible, props: CheckboxProps) -> Checkbox,\n    CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Collapsible, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,\n    CreateListPicker: (self: Collapsible, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Collapsible, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Collapsible, props: PanelProps) -> Panel,\n    CreateInput: (self: Collapsible, props: InputProps) -> Input,\n    CreateKeybind: (self: Collapsible, props: KeybindProps) -> Keybind,\n    CreateColorPicker: (self: Collapsible, props: ColorPickerProps) -> ColorPicker,\n    CreateGradientPicker: (self: Collapsible, props: GradientPickerProps?) -> GradientPicker,\n    CreateStat: (self: Collapsible, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Collapsible, props: StatusCardProps) -> StatusCard,\n    CreateSection: (self: Collapsible, props: SectionProps) -> Section,\n    CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,\n    CreateDivider: (self: Collapsible, props: DividerProps?) -> Divider,\n    CreateProgressBar: (self: Collapsible, props: ProgressBarProps) -> ProgressBar,\n    CreateConsole: (self: Collapsible, props: ConsoleProps) -> Console,\n    CreateChart: (self: Collapsible, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Collapsible, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Collapsible, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Collapsible, props: ItemPickerProps) -> ItemPicker,\n    CreateDashboard: (self: Collapsible, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Collapsible, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Collapsible, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Collapsible, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Collapsible, props: FAQProps) -> FAQ,\n    CreateTable: (self: Collapsible, props: TableProps) -> Table,\n    CreateStepper: (self: Collapsible, props: StepperProps) -> Stepper,\n    CreateScrollHint: (self: Collapsible, props: ScrollHintProps?) -> ScrollHint,\n    CreateSegmentedPicker: (self: Collapsible, props: SegmentedPickerProps?) -> SegmentedPicker,\n    CreateShimmerLabel: (self: Collapsible, props: ShimmerLabelProps?) -> ShimmerLabel,\n    CreateGroup: (self: Collapsible, props: GroupProps?) -> Group,\n    CreateHoldButton: (self: Collapsible, props: HoldButtonProps?) -> HoldButton,\n    CreateCollapsible: (self: Collapsible, props: CollapsibleProps?) -> Collapsible,\n    CreateChangelog: (self: Collapsible, props: ChangelogProps?) -> Changelog,\n    CreateSpacer: (self: Collapsible, props: SpacerProps?) -> Spacer,\n}",
         props = { name = "Collapsible" },
     },
     {
@@ -52322,6 +52594,22 @@ sources["utility/controlContract"] = [=====[
 -- Copyright (c) 2026 Corridon Capital
 -- MPL-2.0: https://mozilla.org/MPL/2.0/
 local contract = {}
+local function timeoutOption(options)
+    assert(options == nil or type(options) == "table", "Options must be a table")
+    local timeout = options and options.timeout
+    assert(
+        timeout == nil or (type(timeout) == "number" and timeout > 0 and timeout < math.huge),
+        "timeout must be a positive finite number of seconds"
+    )
+    return timeout
+end
+local function cancelTimer(control, key)
+    local timer = control[key]
+    control[key] = nil
+    if type(timer) == "thread" and timer ~= coroutine.running() then
+        pcall(task.cancel, timer)
+    end
+end
 local lifecycle = require(script.Parent.elementLifecycle)
 local callbackSetters = {
     Toggle = true,
@@ -52470,6 +52758,7 @@ function contract.install(window, control)
         return contract.copy(self._dataState or { status = "idle", requestId = 0 })
     end
     function control:CancelLoad()
+        cancelTimer(self, "_dataTimer")
         self._dataGeneration = (self._dataGeneration or 0) + 1
         window:_setDataLoadState(self, "idle")
     end
@@ -52485,18 +52774,34 @@ function contract.install(window, control)
         if self._removed or window.unloaded then
             return false
         end
+        local timeout = timeoutOption(options)
+        cancelTimer(self, "_dataTimer")
         self._dataSource, self._dataOptions = loader, contract.copy(options or {})
         self._dataGeneration = (self._dataGeneration or 0) + 1
         local id = self._dataGeneration
         local config = self._dataOptions
+        local settled = false
         local function current()
-            return not self._removed
+            return not settled
+                and not self._removed
                 and self.main
                 and self.main.Parent ~= nil
                 and not window.unloaded
                 and self._dataGeneration == id
         end
         window:_setDataLoadState(self, "loading")
+        if not current() then
+            return id
+        end
+        if timeout then
+            self._dataTimer = task.delay(timeout, function()
+                if current() then
+                    settled = true
+                    self._dataTimer = nil
+                    window:_setDataLoadState(self, "error", "timeout")
+                end
+            end)
+        end
         task.spawn(function()
             if not current() then
                 return
@@ -52518,7 +52823,9 @@ function contract.install(window, control)
             if not current() then
                 return
             end
-            window:_setDataLoadState(self, if ok then "ready" else "error")
+            settled = true
+            cancelTimer(self, "_dataTimer")
+            window:_setDataLoadState(self, if ok then "ready" else "error", if ok then nil else "provider")
         end)
         return id
     end
@@ -52637,34 +52944,34 @@ function contract.install(window, control)
         return true
     end
     function control:Run(callback, options)
+        local timeout = timeoutOption(options)
         options = options or {}
         if self._removed or self._busy or self.locked or window.unloaded then
             return false
         end
         assert(type(callback) == "function", "Run expects a function")
-        local restoring = window:IsRestoringConfig()
-        self:SetBusy(true, options.busyText)
-        task.spawn(function()
-            local previous = window:_setThreadRestoring(restoring)
-            local ok, result, detail = pcall(callback, self)
-            if ok and result == false then
-                ok = false
-                result = detail or "The action reported a failure."
-            end
-            window:_setThreadRestoring(previous)
-            if self._removed or window.unloaded then
+        self._actionGeneration = (self._actionGeneration or 0) + 1
+        local id, settled = self._actionGeneration, false
+        local function current()
+            return not settled and not self._removed and not window.unloaded and self._actionGeneration == id
+        end
+        local function finish(ok, result, timedOut)
+            if not current() then
                 return
             end
+            settled = true
+            cancelTimer(self, "_actionTimer")
             self:SetBusy(false)
             if self.SetStatus then
                 self:SetStatus(
                     if ok
                         then options.successText or "Completed."
+                        elseif timedOut then options.timeoutText or "The action took too long. Try again."
                         else options.errorText or "Could not complete the action. Try again."
                 )
             end
             if not ok then
-                window:_recordUsabilityError("action", self.__type)
+                window:_recordUsabilityError(if timedOut then "action-timeout" else "action", self.__type)
                 window:_markCallbackError(self, result)
             else
                 window:_clearCallbackError(self)
@@ -52675,6 +52982,30 @@ function contract.install(window, control)
                     window:_recordUsabilityError("completion", self.__type)
                 end
             end
+        end
+        local restoring = window:IsRestoringConfig()
+        self:SetBusy(true, options.busyText)
+        if timeout then
+            self._actionTimer = task.delay(timeout, function()
+                finish(false, "timeout", true)
+            end)
+        end
+        task.spawn(function()
+            if not current() then
+                return
+            end
+            local previous = window:_setThreadRestoring(restoring)
+            local ok, result, detail = pcall(callback, self, {
+                requestId = id,
+                isCancelled = function()
+                    return not current()
+                end,
+            })
+            window:_setThreadRestoring(previous)
+            if ok and result == false then
+                ok, result = false, detail or "The action reported a failure."
+            end
+            finish(ok, result, false)
         end)
         return true
     end
@@ -52718,6 +53049,13 @@ function elementLifecycle.teardown(window, elements)
         end
         seen[element] = true
         element._removed = true
+        for _, key in { "_dataTimer", "_actionTimer" } do
+            local timer = element[key]
+            element[key] = nil
+            if type(timer) == "thread" and timer ~= coroutine.running() then
+                pcall(task.cancel, timer)
+            end
+        end
         element._dataGeneration = (element._dataGeneration or 0) + 1
         element._continuousPending = nil
         if element._fieldFocusTween then
@@ -53785,6 +54123,110 @@ functions.contrastColor = colors.contrastColor
 functions.toColorSequence = colors.toColorSequence
 functions.contrastText = colors.contrastText
 functions.flattenColor = colors.flatten
+
+-- Constructor checks run in every public host before a component allocates UI.
+function functions.validateProperties(component: string, properties: any)
+    assert(properties == nil or type(properties) == "table", component .. ": properties must be a table")
+    local p: any = properties or {}
+    for _, key in { "callback", "onChanged", "onFilterChanged" } do
+        local value = p[key]
+        if value == nil then
+            value = p[string.upper(string.sub(key, 1, 1)) .. string.sub(key, 2)]
+        end
+        assert(value == nil or type(value) == "function", component .. ": " .. key .. " must be a function")
+    end
+    for _, key in { "items", "options" } do
+        local value = p[key]
+        if value == nil then
+            value = p[string.upper(string.sub(key, 1, 1)) .. string.sub(key, 2)]
+        end
+        assert(value == nil or type(value) == "table", component .. ": " .. key .. " must be a table")
+    end
+    if string.lower(component) == "slider" then
+        local range = p.range or p.Range or { 0, 100 }
+        local function finite(value)
+            return type(value) == "number" and value == value and math.abs(value) < math.huge
+        end
+        assert(
+            type(range) == "table" and finite(range[1]) and finite(range[2]) and range[1] ~= range[2],
+            "Slider: range must contain two different finite numbers"
+        )
+        local increment = p.increment or p.Increment
+        assert(increment == nil or finite(increment), "Slider: increment must be finite")
+        local value = functions.readValue(p, { "value", "Value" })
+        assert(value == nil or finite(value), "Slider: value must be finite")
+    end
+end
+
+-- A recycled row may display another item between pointer-down and click.
+-- Programmatic click signals remain supported, without taking global input ownership.
+function functions.guardPress(button, identity, connect)
+    local pressed: any = nil
+    local cancelled: boolean? = nil
+    connect(button.InputBegan, function(input)
+        if
+            input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch
+        then
+            pressed, cancelled = identity(), false
+        end
+    end)
+    connect(button.MouseLeave, function()
+        if pressed ~= nil then
+            cancelled = true
+        end
+    end)
+    return function()
+        local accepted = not cancelled and (pressed == nil or pressed == identity())
+        pressed, cancelled = nil, nil
+        return accepted
+    end
+end
+
+-- Keep the logical first visible row, including its partial-row offset. If it disappears,
+-- prefer the next surviving item in the old order, then the previous one.
+function functions.captureScrollAnchor(entries: { any }, scroll: ScrollingFrame, stride: number, columns: number?)
+    local count = math.max(columns or 1, 1)
+    local y = scroll.CanvasPosition.Y
+    return { entries = entries, index = math.floor(y / stride) * count + 1, offset = y % stride, y = y }
+end
+
+function functions.restoreScrollAnchor(
+    anchor: any,
+    entries: { any },
+    scroll: ScrollingFrame,
+    stride: number,
+    columns: number?
+)
+    local positions = {}
+    for index, entry in entries do
+        positions[entry.id or entry] = index
+    end
+    local found
+    for index = anchor.index, #anchor.entries do
+        local entry = anchor.entries[index]
+        if positions[entry.id or entry] then
+            found = positions[entry.id or entry]
+            break
+        end
+    end
+    if not found then
+        for index = math.min(anchor.index - 1, #anchor.entries), 1, -1 do
+            local entry = anchor.entries[index]
+            if positions[entry.id or entry] then
+                found = positions[entry.id or entry]
+                break
+            end
+        end
+    end
+    local y = if found then math.floor((found - 1) / math.max(columns or 1, 1)) * stride + anchor.offset else anchor.y
+    local viewport = scroll.AbsoluteWindowSize.Y
+    if viewport <= 0 then
+        viewport = scroll.Size.Y.Offset
+    end
+    local height = math.ceil(#entries / math.max(columns or 1, 1)) * stride
+    scroll.CanvasPosition = Vector2.new(scroll.CanvasPosition.X, math.clamp(y, 0, math.max(0, height - viewport)))
+end
 
 return functions
 ]=====]
@@ -55220,8 +55662,8 @@ local function moveable<T>(class: T): T
             if visible then
                 self._userHidden = false
                 if self._loadHint and self._dataState then
-                    self._loadHint.main.Visible = self._dataState.status == "loading"
-                        or self._dataState.status == "error"
+                    self._loadHint.main.Visible = not self._embeddedLoadError
+                        and (self._dataState.status == "loading" or self._dataState.status == "error")
                 end
                 if self.main then
                     self.main.Visible = true
