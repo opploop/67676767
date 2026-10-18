@@ -318,7 +318,7 @@ function Button:_buildFull()
         TextTransparency = 1, -- In = 0
 
         Parent = self.container,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
 
     self.interact = self.window:Create("TextButton", {
         BackgroundTransparency = 1,
@@ -348,25 +348,11 @@ function Button:_buildFull()
                 { Transparency = 1 }
             )
             :Play()
-        variables.tweenService
-            :Create(
-                self.main,
-                TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-                { Size = UDim2.new(1, -26, 0, elementHeight) }
-            )
-            :Play()
 
         self:_runCallback()
 
         task.wait(0.11)
 
-        variables.tweenService
-            :Create(
-                self.main,
-                TweenInfo.new(0.25, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-                { Size = UDim2.new(1, -20, 0, elementHeight) }
-            )
-            :Play()
         variables.tweenService
             :Create(
                 self.stroke,
@@ -429,7 +415,7 @@ function Button:_buildCompact()
         TextTransparency = 1, -- In = 0
 
         Parent = self.interact,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
 
     -- grows to its text, shrinks + ellipsizes when the row's tight
     window:Create("UIFlexItem", {
@@ -512,7 +498,7 @@ function Button:_minWidth()
     if self.icon then
         w += constants.elementIconSize + 6 -- the icon, and the 6px gap to the title
     end
-    w += functions.textWidth(self.window.theme.Font, 16, self.name)
+    w += functions.textWidth(self.title.FontFace, 16, self.name)
     return w
 end
 
@@ -526,7 +512,11 @@ function Button:SetStatus(text)
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = text })
         self.descriptor.main.LayoutOrder = self.main.LayoutOrder + 1
         if not self.window.hidden then
-            self.window:_reveal(self.descriptor.titleLabel, { TextTransparency = 0.7 }, false)
+            self.window:_reveal(
+                self.descriptor.titleLabel,
+                { TextTransparency = self.window.theme.SecondaryTextTransparency },
+                false
+            )
         end
     else
         self.descriptor.description = text
@@ -2670,7 +2660,7 @@ function Checkbox:_buildFull()
         TextTransparency = 1, -- In = 0
 
         Parent = self.container,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
 
     self.interact = window:Create("TextButton", {
         BackgroundTransparency = 1,
@@ -2701,25 +2691,11 @@ function Checkbox:_buildFull()
                 { Transparency = 1 }
             )
             :Play()
-        variables.tweenService
-            :Create(
-                self.main,
-                TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-                { Size = UDim2.new(1, -26, 0, elementHeight) }
-            )
-            :Play()
 
         self:_performCheck()
 
         task.wait(0.11)
 
-        variables.tweenService
-            :Create(
-                self.main,
-                TweenInfo.new(0.25, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-                { Size = UDim2.new(1, -20, 0, elementHeight) }
-            )
-            :Play()
         variables.tweenService
             :Create(
                 self.stroke,
@@ -2807,7 +2783,7 @@ function Checkbox:_buildCompact()
         TextTransparency = 1, -- In = 0
 
         Parent = self.container,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
 
     window:Create("UIFlexItem", {
         FlexMode = Enum.UIFlexMode.Shrink,
@@ -2904,7 +2880,7 @@ function Checkbox:_minWidth()
     if self.icon then
         w += 21 -- 16 icon + 5 gap
     end
-    w += functions.textWidth(self.window.theme.Font, 16, self.name)
+    w += functions.textWidth(self.title.FontFace, 16, self.name)
     return w
 end
 
@@ -3487,7 +3463,7 @@ function Collapsible:_buildHeader()
         TextTransparency = 1, -- In = 0
 
         Parent = self.container,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
 
     -- open or closed: a minus while open, a plus while closed, in the accent with a glow (the
     -- Airflow hub's section headers). Still called chevron: it is the same control.
@@ -5438,7 +5414,11 @@ function Console:_setShown(shown, animate)
         w:_reveal(self.title, { TextTransparency = if shown then 0 else 1 }, animate)
     end
     if self.descriptor then
-        w:_reveal(self.descriptor.titleLabel, { TextTransparency = if shown then 0.7 else 1 }, animate)
+        w:_reveal(
+            self.descriptor.titleLabel,
+            { TextTransparency = if shown then w.theme.SecondaryTextTransparency else 1 },
+            animate
+        )
     end
 end
 
@@ -5756,25 +5736,11 @@ function CopyButton:_buildFull()
                 { Transparency = 1 }
             )
             :Play()
-        variables.tweenService
-            :Create(
-                self.main,
-                TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-                { Size = UDim2.new(1, -26, 0, elementHeight) }
-            )
-            :Play()
 
         self:_performCopy()
 
         task.wait(0.11)
 
-        variables.tweenService
-            :Create(
-                self.main,
-                TweenInfo.new(0.25, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-                { Size = UDim2.new(1, -20, 0, elementHeight) }
-            )
-            :Play()
         variables.tweenService
             :Create(
                 self.stroke,
@@ -8214,9 +8180,9 @@ function Descriptor.new(tab, properties)
         AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
         RichText = true,
-        Size = UDim2.new(1, -60, 0, 0),
+        Size = UDim2.new(1, 0, 0, 0),
         Text = locale.t(self.description),
-        TextSize = 13,
+        TextSize = constants.descriptionTextSize,
         TextWrapped = true,
         TextXAlignment = Enum.TextXAlignment.Left,
 
@@ -8224,14 +8190,23 @@ function Descriptor.new(tab, properties)
         TextTransparency = 1, -- In = 0.7
 
         Parent = self.main,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, {
+        TextColor3 = "ContentColor",
+        FontFace = "Font",
+        TextTransparency = {
+            "SecondaryTextTransparency",
+            function(value)
+                return if self._shown == false then 1 else value
+            end,
+        },
+    })
 
     -- Bottom spacing
     self.window:Create("Frame", {
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         LayoutOrder = 1,
-        Size = UDim2.fromOffset(0, 15),
+        Size = UDim2.fromOffset(0, 8),
         Parent = self.main,
     })
 
@@ -8965,7 +8940,7 @@ function Dropdown.new(tab, properties)
 
         ZIndex = 5,
         Parent = self.container,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
 
     self.selectedLabel = self.window:Create("TextLabel", {
         AnchorPoint = Vector2.new(1, 0.5),
@@ -8982,7 +8957,16 @@ function Dropdown.new(tab, properties)
 
         ZIndex = 5,
         Parent = self.top,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, {
+        TextColor3 = "ContentColor",
+        FontFace = "Font",
+        TextTransparency = {
+            "FieldTextTransparency",
+            function(value)
+                return if self._shown == false or self.locked then 1 else value
+            end,
+        },
+    })
 
     self.chevron = self.window:Create("ImageLabel", {
         AnchorPoint = Vector2.new(1, 0.5),
@@ -9404,7 +9388,7 @@ function Dropdown.new(tab, properties)
     -- elements, the header's stroke transparency also has to track open/close, so leaving hover
     -- out of it keeps those two animations from fighting over the same property).
     self.window:ConnectFor(self, self.main.MouseEnter, function()
-        if self._isOpen or not self.window:_interactive() then
+        if self.locked or self._isOpen or not self.window:_interactive() then
             return
         end
         variables.tweenService
@@ -9418,7 +9402,7 @@ function Dropdown.new(tab, properties)
             :Create(
                 self.hoverOverlay,
                 TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-                { BackgroundTransparency = 0.97 }
+                { BackgroundTransparency = self.window.theme.HoverOverlayTransparency }
             )
             :Play()
     end)
@@ -10190,7 +10174,7 @@ function Dropdown:_applyLocked(animate)
         end
     end
     set(self.chevron, { ImageTransparency = if self.locked then 1 else 0.5 })
-    set(self.selectedLabel, { TextTransparency = if self.locked then 1 else 0.5 })
+    set(self.selectedLabel, { TextTransparency = if self.locked then 1 else self.window.theme.FieldTextTransparency })
     if self.locked and self._isOpen then
         self:_close()
     end
@@ -10220,6 +10204,7 @@ function Dropdown:IsLocked(): boolean
 end
 
 function Dropdown:_setShown(shown, animate)
+    self._shown = shown
     -- Custom reveal: main is a transparent wrapper, so reveal the header card (self.top)
     -- rather than main. The options card fades in on open, not here.
     -- Locked-aware title/chevron/selected-value targets, computed as this call's own target
@@ -10236,7 +10221,11 @@ function Dropdown:_setShown(shown, animate)
         w:_reveal(self.iconLabel, { ImageTransparency = if shown then titleTransparency else 1 }, animate)
     end
     if self.descriptor then
-        w:_reveal(self.descriptor.titleLabel, { TextTransparency = if shown then 0.7 else 1 }, animate)
+        w:_reveal(
+            self.descriptor.titleLabel,
+            { TextTransparency = if shown then w.theme.SecondaryTextTransparency else 1 },
+            animate
+        )
     end
     w:_reveal(self.selectedLabel, { TextTransparency = if shown then sideTransparency else 1 }, animate)
     w:_reveal(self.chevron, { ImageTransparency = if shown then sideTransparency else 1 }, animate)
@@ -11792,25 +11781,11 @@ function FlipButton:_buildFull()
                 { Transparency = 1 }
             )
             :Play()
-        variables.tweenService
-            :Create(
-                self.main,
-                TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-                { Size = UDim2.new(1, -26, 0, elementHeight) }
-            )
-            :Play()
 
         self:_runCallback()
 
         task.wait(0.11)
 
-        variables.tweenService
-            :Create(
-                self.main,
-                TweenInfo.new(0.25, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-                { Size = UDim2.new(1, -20, 0, elementHeight) }
-            )
-            :Play()
         variables.tweenService
             :Create(
                 self.stroke,
@@ -15331,7 +15306,7 @@ function Input.new(tab, properties)
         TextTransparency = 1, -- In = 0
 
         Parent = self.container,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
 
     -- Right: the field. A faint white pill pinned to the right that hugs its text.
     self.box = self.window:Create("Frame", {
@@ -15376,7 +15351,17 @@ function Input.new(tab, properties)
         TextTransparency = 1, -- In = 0.6
 
         Parent = self.box,
-    }, { TextColor3 = "ContentColor", FontFace = "Font", PlaceholderColor3 = "PlaceholderColor" })
+    }, {
+        TextColor3 = "ContentColor",
+        FontFace = "Font",
+        PlaceholderColor3 = "PlaceholderColor",
+        TextTransparency = {
+            "FieldTextTransparency",
+            function(value)
+                return if self._shown == false then 1 else value
+            end,
+        },
+    })
 
     -- resize to hug the text; numeric mode also strips non-number chars as they're typed
     self.window:ConnectFor(self, self.input:GetPropertyChangedSignal("Text"), function()
@@ -15391,13 +15376,17 @@ function Input.new(tab, properties)
     end)
 
     -- opaque while the field is focused, back to muted when you click away
+    self.window:_wireFieldFocus(self.input, self.boxStroke)
+
     self.window:ConnectFor(self, self.input.Focused, function()
         variables.tweenService:Create(self.input, focusInfo, { TextTransparency = 0 }):Play()
     end)
 
     -- commit on focus loss (enter or click away)
     self.window:ConnectFor(self, self.input.FocusLost, function()
-        variables.tweenService:Create(self.input, focusInfo, { TextTransparency = 0.6 }):Play()
+        variables.tweenService
+            :Create(self.input, focusInfo, { TextTransparency = self.window.theme.FieldTextTransparency })
+            :Play()
         -- clearOnFocus blanks the box on focus, so a click in and straight back out would
         -- commit "" over a good value. nothing typed means nothing to commit.
         if self.clearOnFocus and self.input.Text == "" and self.value ~= "" then
@@ -15481,8 +15470,8 @@ function Input:_setShown(shown, animate)
     if shown then
         w:_revealCommon(self, animate)
         w:_reveal(self.box, { BackgroundTransparency = w.theme.FieldTransparency }, animate)
-        w:_reveal(self.boxStroke, { Transparency = 0.85 }, animate)
-        w:_reveal(self.input, { TextTransparency = 0.6 }, animate)
+        w:_reveal(self.boxStroke, { Transparency = w.theme.FieldStrokeTransparency }, animate)
+        w:_reveal(self.input, { TextTransparency = self.window.theme.FieldTextTransparency }, animate)
     else
         w:_hideCommon(self, animate)
         w:_reveal(self.box, { BackgroundTransparency = 1 }, animate)
@@ -19182,7 +19171,7 @@ function Keybind.new(tab, properties)
         TextTransparency = 1, -- In = 0
 
         Parent = self.container,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
 
     -- Right: the key box. A faint white pill pinned right that hugs the key name.
     self.box = self.window:Create("TextButton", {
@@ -19225,7 +19214,16 @@ function Keybind.new(tab, properties)
         TextTransparency = 1, -- In = 0.6
 
         Parent = self.box,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, {
+        TextColor3 = "ContentColor",
+        FontFace = "Font",
+        TextTransparency = {
+            "FieldTextTransparency",
+            function(value)
+                return if self._shown == false then 1 else value
+            end,
+        },
+    })
 
     self.window:ConnectFor(self, self.box.MouseButton1Click, function()
         hapticEngine.click()
@@ -19358,7 +19356,9 @@ function Keybind:_stopRecording()
     self.keyLabel.Text = keyName(self.value)
     self:_sizeBox(true)
     variables.tweenService:Create(self.glow, recordInfo, { Transparency = 0.9 }):Play()
-    variables.tweenService:Create(self.keyLabel, recordInfo, { TextTransparency = 0.6 }):Play()
+    variables.tweenService
+        :Create(self.keyLabel, recordInfo, { TextTransparency = self.window.theme.FieldTextTransparency })
+        :Play()
 end
 
 -- capture the next input while recording. Esc cancels, Backspace clears, MB1 is the click
@@ -19563,7 +19563,7 @@ function Keybind:_setShown(shown, animate)
         w:_revealCommon(self, animate)
         w:_reveal(self.box, { BackgroundTransparency = w.theme.FieldTransparency }, animate)
         w:_reveal(self.boxStroke, { Transparency = 0.85 }, animate)
-        w:_reveal(self.keyLabel, { TextTransparency = 0.6 }, animate)
+        w:_reveal(self.keyLabel, { TextTransparency = w.theme.FieldTextTransparency }, animate)
         w:_reveal(self.glow, { Transparency = 0.9 }, animate)
     else
         w:_hideCommon(self, animate)
@@ -20539,7 +20539,7 @@ function ListPicker:_setShown(shown, animate)
             w:_reveal(self.iconLabel, { ImageTransparency = 0 }, animate)
         end
         if self.descriptor then
-            w:_reveal(self.descriptor.titleLabel, { TextTransparency = 0.7 }, animate)
+            w:_reveal(self.descriptor.titleLabel, { TextTransparency = w.theme.SecondaryTextTransparency }, animate)
         end
         w:_reveal(self.emptyLabel, { TextTransparency = 0.55 }, animate)
         w:_reveal(self.empty.icon, { ImageTransparency = 0.65 }, animate)
@@ -21828,7 +21828,7 @@ function Paragraph.new(tab, properties)
         AutomaticSize = Enum.AutomaticSize.Y,
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
-        TextSize = 13,
+        TextSize = 14,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextYAlignment = Enum.TextYAlignment.Top,
         TextWrapped = true,
@@ -21839,7 +21839,16 @@ function Paragraph.new(tab, properties)
         TextTransparency = 1, -- In = 0.3
 
         Parent = self.main,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, {
+        TextColor3 = "ContentColor",
+        FontFace = "Font",
+        TextTransparency = {
+            "SecondaryTextTransparency",
+            function(value)
+                return if self._shown == false then 1 else value
+            end,
+        },
+    })
 
     return self
 end
@@ -21874,7 +21883,7 @@ function Paragraph:_setShown(shown, animate)
     local w = self.window
     if shown then
         w:_revealCommon(self, animate)
-        w:_reveal(self.body, { TextTransparency = 0.3 }, animate)
+        w:_reveal(self.body, { TextTransparency = w.theme.SecondaryTextTransparency }, animate)
     else
         w:_hideCommon(self, animate)
         w:_reveal(self.body, { TextTransparency = 1 }, animate)
@@ -26004,14 +26013,24 @@ function Section.new(tab, properties)
         TextTransparency = 1, -- In = 0.6
 
         Parent = self.main,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, {
+        TextColor3 = "ContentColor",
+        FontFace = "TitleFont",
+        TextTransparency = {
+            "SectionTextTransparency",
+            function(value)
+                return if self._shown == false then 1 else value
+            end,
+        },
+    })
 
     return self
 end
 
 function Section:_setShown(shown, animate)
+    self._shown = shown
     local w = self.window
-    w:_reveal(self.title, { TextTransparency = if shown then 0.6 else 1 }, animate)
+    w:_reveal(self.title, { TextTransparency = if shown then w.theme.SectionTextTransparency else 1 }, animate)
     if self.iconLabel then
         w:_reveal(self.iconLabel, { ImageTransparency = if shown then 0.65 else 1 }, animate)
     end
@@ -26609,7 +26628,7 @@ function SegmentedPicker:_setShown(shown, animate)
         w:_reveal(self.bar, { BackgroundTransparency = w.theme.ElementTransparency or 0 }, animate)
         w:_reveal(self.indicator, { BackgroundTransparency = 0 }, animate)
         if self.descriptor then
-            w:_reveal(self.descriptor.titleLabel, { TextTransparency = 0.7 }, animate)
+            w:_reveal(self.descriptor.titleLabel, { TextTransparency = w.theme.SecondaryTextTransparency }, animate)
         end
     else
         w:_reveal(self.main, { BackgroundTransparency = 1 }, animate)
@@ -26835,15 +26854,15 @@ local tweenInfo = TweenInfo.new(0.45, Enum.EasingStyle.Exponential, Enum.EasingD
 local heldInfo = TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
 local followInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
--- The Gen 3 Concept's slider: a chunky 16px track, an accent-gradient fill and a white 48 x 26 pill
+-- The Gen 3 Concept's slider: a 10px track, an accent-gradient fill and a white 36 x 22 pill
 -- riding on its end. The pill is the thing a player grabs, so it is big on purpose.
-local trackHeight = 16
-local handleWidth, handleHeight = 48, 26
+local trackHeight = 10
+local handleWidth, handleHeight = 36, 22
 -- half the handle's width - see _renderProgress for how this keeps the handle inside the track,
 -- so at either end it sits flush with the track's edge and can always be grabbed again
 local handleRadius = handleWidth / 2
-local wideHeight = 60
-local narrowHeight = 78
+local wideHeight = 64
+local narrowHeight = 72
 
 -- Below this element width we reflow to the stacked layout (title/value on top, full-width
 -- track under it) so the slider stays usable in a narrow column or small window instead of
@@ -27002,12 +27021,15 @@ function Slider.new(tab, properties)
 
     self.interact = self.window:Create("TextButton", {
         BackgroundTransparency = 1,
-        Size = UDim2.fromScale(1, 1),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.new(1, -constants.elementInset * 2, 1, 0),
         Text = "",
         TextTransparency = 1,
         ZIndex = 10,
 
-        Parent = self.track,
+        -- Keep the visible rail thin without shrinking the mouse/touch target to its height.
+        Parent = self.main,
     })
 
     -- Subtle hover on the slider track itself, not the whole element row
@@ -27189,7 +27211,7 @@ function Slider:_buildLabel()
         TextTransparency = 1, -- In = 0
 
         Parent = self.titleContainer,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
 
     -- shrink to share the title row with the icon when space is tight
     self.window:Create("UIFlexItem", {
@@ -27246,35 +27268,18 @@ function Slider:_applyLayout()
     end
     self._layoutMode = mode
 
-    if mode == "narrow" then
-        self:_setMainHeight(narrowHeight)
-
-        self.container.AnchorPoint = Vector2.new(0, 0)
-        self.container.Position = UDim2.new(0, 20, 0, 14)
-        self.container.Size = UDim2.new(1, -40, 0, 16)
-        self.containerLayout.FillDirection = Enum.FillDirection.Horizontal
-        self.titleFlex.FlexMode = Enum.UIFlexMode.Fill -- title grows, value hugs the right
-        self.valueHost.AutomaticSize = Enum.AutomaticSize.X
-        self.valueHost.Size = UDim2.new(0, 0, 0, 16)
-
-        self.track.AnchorPoint = Vector2.new(0.5, 1)
-        self.track.Position = UDim2.new(0.5, 0, 1, -16)
-        self.track.Size = UDim2.new(1, -30, 0, trackHeight)
-    else
-        self:_setMainHeight(wideHeight)
-
-        self.container.AnchorPoint = Vector2.new(0, 0.5)
-        self.container.Position = UDim2.new(0, 17, 0.5, 0)
-        self.container.Size = UDim2.new(0.48, -17, 0, 35)
-        self.containerLayout.FillDirection = Enum.FillDirection.Vertical
-        self.titleFlex.FlexMode = Enum.UIFlexMode.None
-        self.valueHost.AutomaticSize = Enum.AutomaticSize.None
-        self.valueHost.Size = UDim2.new(1, 0, 0, 16)
-
-        self.track.AnchorPoint = Vector2.new(1, 0.5)
-        self.track.Position = UDim2.new(1, -17, 0.5, 0)
-        self.track.Size = UDim2.new(0.46, 0, 0, trackHeight)
-    end
+    self:_setMainHeight(if mode == "narrow" then narrowHeight else wideHeight)
+    -- Title and value share a header directly above the track at every width.
+    self.container.AnchorPoint = Vector2.new(0, 0)
+    self.container.Position = UDim2.new(0, constants.elementInset, 0, 12)
+    self.container.Size = UDim2.new(1, -constants.elementInset * 2, 0, 18)
+    self.containerLayout.FillDirection = Enum.FillDirection.Horizontal
+    self.titleFlex.FlexMode = Enum.UIFlexMode.Fill
+    self.valueHost.AutomaticSize = Enum.AutomaticSize.X
+    self.valueHost.Size = UDim2.new(0, 0, 0, 16)
+    self.track.AnchorPoint = Vector2.new(0.5, 1)
+    self.track.Position = UDim2.new(0.5, 0, 1, -14)
+    self.track.Size = UDim2.new(1, -constants.elementInset * 2, 0, trackHeight)
 end
 
 function Slider:_format(value)
@@ -27375,7 +27380,7 @@ function Slider:_setShown(shown, animate)
         w:_reveal(self.progress, { BackgroundTransparency = 0 }, animate)
         w:_reveal(self.handle, { BackgroundTransparency = 0 }, animate)
         if self.valueOdo then
-            self.valueOdo:reveal(0.35, animate)
+            self.valueOdo:reveal(w.theme.FieldTextTransparency, animate)
         end
     else
         w:_hideCommon(self, animate)
@@ -27390,7 +27395,11 @@ end
 
 -- The fill, the handle and the track all ride themeProperties, so a theme change repaints them on
 -- its own; there is no glow left to retune.
-function Slider:_refreshTheme() end
+function Slider:_refreshTheme()
+    if self.valueOdo and self._shown then
+        self.valueOdo:reveal(self.window.theme.FieldTextTransparency, false)
+    end
+end
 
 -- Room the slider needs in a row: its narrow layout puts title + value on the top row,
 -- so that has to fit, and we floor it so the track underneath stays draggable.
@@ -27402,7 +27411,7 @@ function Slider:_minWidth()
     if self.icon then
         w += constants.elementIconSize + constants.elementIconGap
     end
-    w += functions.textWidth(self.window.theme.Font, 16, self.name)
+    w += functions.textWidth(self.title.FontFace, 16, self.name)
     w += 12 -- gap before the value
     w += functions.textWidth(self.window.theme.Font, 15, self:_format(self.value))
     return math.max(w, 160)
@@ -28381,7 +28390,7 @@ local accentTransparency = NumberSequence.new({
     NumberSequenceKeypoint.new(1, 0),
 })
 
-local compactHeight = constants.elementHeight
+local compactHeight = constants.compactElementHeight
 
 -- The card itself: the Gen 3 Concept's stat - an opaque diagonal gradient, light in the top-left
 -- corner through to deep in the bottom-right, near-white text on it. Three stops at the Concept's
@@ -34569,7 +34578,7 @@ function Toggle:_buildFull()
         TextTransparency = 1, -- In = 0
 
         Parent = self.container,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
 
     self.interact = window:Create("TextButton", {
         BackgroundTransparency = 1,
@@ -34603,25 +34612,11 @@ function Toggle:_buildFull()
                 { Transparency = 1 }
             )
             :Play()
-        variables.tweenService
-            :Create(
-                self.main,
-                TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-                { Size = UDim2.new(1, -26, 0, elementHeight) }
-            )
-            :Play()
 
         self:_performToggle()
 
         task.wait(0.11)
 
-        variables.tweenService
-            :Create(
-                self.main,
-                TweenInfo.new(0.25, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
-                { Size = UDim2.new(1, -20, 0, elementHeight) }
-            )
-            :Play()
         variables.tweenService
             :Create(
                 self.stroke,
@@ -34712,7 +34707,7 @@ function Toggle:_buildCompact()
         TextTransparency = 1, -- In = 0
 
         Parent = self.container,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
 
     -- grows to its text, shrinks + ellipsizes when tight
     window:Create("UIFlexItem", {
@@ -34898,7 +34893,7 @@ function Toggle:_minWidth()
     if self.icon then
         w += 21 -- 16 icon + 5 gap
     end
-    w += functions.textWidth(self.window.theme.Font, 16, self.name)
+    w += functions.textWidth(self.title.FontFace, 16, self.name)
     return w
 end
 
@@ -34917,7 +34912,11 @@ function Toggle:SetStatus(text)
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = text })
         self.descriptor.main.LayoutOrder = self.main.LayoutOrder + 1
         if not self.window.hidden then
-            self.window:_reveal(self.descriptor.titleLabel, { TextTransparency = 0.7 }, false)
+            self.window:_reveal(
+                self.descriptor.titleLabel,
+                { TextTransparency = self.window.theme.SecondaryTextTransparency },
+                false
+            )
         end
     else
         self.descriptor.description = text
@@ -38327,7 +38326,7 @@ core.collapsedTop = UDim2.new(0.5, 0, 0, 16)
 core.maxToastWidth = 320
 
 -- Standard element row height, shared by the compact button/toggle scaffold.
-core.compactRowHeight = core.constants.elementHeight
+core.compactRowHeight = core.constants.compactElementHeight
 
 -- How often the backstop re-checks the fit, for anything the viewport signal misses.
 core.viewportReconcileInterval = 2
@@ -39559,7 +39558,10 @@ function Window:_flashResult(element, ok)
         variables.tweenService:Create(box, outInfo, { BackgroundColor3 = self.theme.FieldBackground }):Play()
         if stroke then
             variables.tweenService
-                :Create(stroke, outInfo, { Color = self.theme.SurfaceStroke, Transparency = 0.85 })
+                :Create(stroke, outInfo, {
+                    Color = self.theme.SurfaceStroke,
+                    Transparency = self.theme.FieldStrokeTransparency,
+                })
                 :Play()
         end
         if glow then
@@ -39599,23 +39601,30 @@ end
 -- below it up by 7px for as long as the press lasted. The fill and the stroke are the two things
 -- that can say "held" without the page moving under the finger doing the holding.
 function Window:_wireElementHover(element)
-    local info = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    local info = TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     -- in fast, out on the hover's own timing: a press has to feel immediate
     local pressInfo = TweenInfo.new(0.07, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     local theme = self.theme
 
-    local hovered, pressed = false, false
+    local hovered, pressed, focused = false, false, false
 
     local function paint(fast)
-        local lit = hovered or pressed
+        if element.locked then
+            hovered, pressed, focused = false, false, false
+        end
+        local lit = (hovered or pressed or focused) and not element.locked
         local timing = if fast then pressInfo else info
         variables.tweenService
             :Create(element.stroke, timing, {
                 Transparency = if pressed
                     then math.max(theme.ElementStrokeHoverTransparency - 0.25, 0)
+                    elseif focused then theme.FocusStrokeTransparency
                     elseif hovered then theme.ElementStrokeHoverTransparency
                     else theme.ElementStrokeTransparency,
-                Color = if lit then theme.ElementStrokeHover else theme.ElementStroke,
+                Color = if focused and not element.locked
+                    then theme.AccentStroke
+                    elseif lit then theme.ElementStrokeHover
+                    else theme.ElementStroke,
             })
             :Play()
         variables.tweenService
@@ -39626,7 +39635,10 @@ function Window:_wireElementHover(element)
         if element.hoverOverlay then
             variables.tweenService
                 :Create(element.hoverOverlay, timing, {
-                    BackgroundTransparency = if pressed then 0.9 elseif hovered then 0.97 else 1,
+                    BackgroundTransparency = if not lit
+                        then 1
+                        elseif pressed then theme.PressedOverlayTransparency
+                        else theme.HoverOverlayTransparency,
                 })
                 :Play()
         end
@@ -39650,6 +39662,17 @@ function Window:_wireElementHover(element)
     local interact = element.interact
     if not interact then
         return
+    end
+
+    if interact.SelectionGained then
+        self:ConnectFor(element, interact.SelectionGained, function()
+            focused = true
+            paint(false)
+        end)
+        self:ConnectFor(element, interact.SelectionLost, function()
+            focused = false
+            paint(false)
+        end)
     end
 
     self:Connect(interact.InputBegan, function(input)
@@ -40363,7 +40386,7 @@ local ambientGlows = {
         y = 1.045,
         width = 1.135,
         height = 0.432,
-        strength = 0.19,
+        strength = 0.09,
         corners = { "BL", "BR" },
     },
     -- by the player: exactly where the Airflow hub has it - centred 10px left of the window's
@@ -40375,13 +40398,13 @@ local ambientGlows = {
         fromBottom = true,
         pixelWidth = 190,
         pixelHeight = 84,
-        strength = 0.29,
+        strength = 0.14,
         -- over the bottom fade by the player's chip, where there is nothing else to cover
         overFade = "rail",
         corners = { "BL" },
     },
-    { x = 0.973, y = 0.02, width = 1.02, height = 0.5, strength = 0.08, corners = { "TR" } },
-    { x = 0.006, y = -0.008, pixelWidth = 80, pixelHeight = 200, strength = 0.27, corners = { "TL" } },
+    { x = 0.973, y = 0.02, width = 1.02, height = 0.5, strength = 0.04, corners = { "TR" } },
+    { x = 0.006, y = -0.008, pixelWidth = 80, pixelHeight = 200, strength = 0.12, corners = { "TL" } },
 }
 local sliceHeight = 1
 
@@ -40575,7 +40598,7 @@ end
 -- its element, and as it changes colour (a field lighting up), so no reveal code has to know it
 -- exists. `strength` is how strong it is with the icon fully shown (0-1, default 0.14).
 function Window:_iconGlow(icon: ImageLabel, strength: number?)
-    local amount = strength or 0.14
+    local amount = strength or 0.09
     local glow = self:Create("ImageLabel", {
         Name = "Glow",
         Image = "rbxassetid://8992230677",
@@ -40605,7 +40628,10 @@ function Window:_wireFieldFocus(input: TextBox, stroke: UIStroke?, icon: ImageLa
         local theme = self.theme
         if stroke then
             variables.tweenService
-                :Create(stroke, info, { Color = if focused then theme.AccentStroke else theme.ElementStroke })
+                :Create(stroke, info, {
+                    Color = if focused then theme.AccentStroke else theme.SurfaceStroke,
+                    Transparency = if focused then theme.FocusStrokeTransparency else theme.FieldStrokeTransparency,
+                })
                 :Play()
         end
         if icon then
@@ -41084,6 +41110,10 @@ end
 
 -- Reveal the parts every non-Section element shares (fill/stroke/title/icon/descriptor).
 function Window:_revealCommon(element, animate)
+    element._shown = true
+    if element.descriptor then
+        element.descriptor._shown = true
+    end
     -- locked-aware: an element flagged .locked dims to the same 0.6 _applyLockedVisual uses,
     -- computed as this call's own target instead of a second tween chasing it in afterward -
     -- two simultaneous tweens on the same property fight each other frame to frame instead of
@@ -41097,7 +41127,11 @@ function Window:_revealCommon(element, animate)
         self:_reveal(element.iconLabel, { ImageTransparency = titleTransparency }, animate)
     end
     if element.descriptor then
-        self:_reveal(element.descriptor.titleLabel, { TextTransparency = 0.7 }, animate)
+        self:_reveal(
+            element.descriptor.titleLabel,
+            { TextTransparency = self.theme.SecondaryTextTransparency },
+            animate
+        )
     end
     if element._errorBadge then
         self:_reveal(element._errorBadge, { BackgroundTransparency = 0, TextTransparency = 0 }, animate)
@@ -41106,6 +41140,10 @@ end
 
 -- The reverse of _revealCommon: fade the same shared parts back out to fully transparent.
 function Window:_hideCommon(element, animate)
+    element._shown = false
+    if element.descriptor then
+        element.descriptor._shown = false
+    end
     self:_reveal(element.stroke, { Transparency = 1 }, animate)
     self:_reveal(element.title, { TextTransparency = 1 }, animate)
     self:_reveal(element.main, { BackgroundTransparency = 1 }, animate)
@@ -44608,7 +44646,7 @@ sources["themes/default"] = [=====[
 local variables = require(script.Parent.Parent.utility.variables)
 
 return {
-    CornerRoundness = UDim.new(0, 20),
+    CornerRoundness = UDim.new(0, 18),
     WindowColor = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(10, 10, 10)),
         ColorSequenceKeypoint.new(0.9999, Color3.fromRGB(25, 25, 25)),
@@ -44639,17 +44677,17 @@ return {
     SliderStroke = Color3.fromRGB(255, 255, 255),
     ActionColor = Color3.fromRGB(255, 255, 255),
     TitleFont = variables.brandFont(Enum.FontWeight.SemiBold),
-    Font = variables.brandFont(Enum.FontWeight.Medium),
+    Font = variables.brandFont(Enum.FontWeight.Regular),
     ContentColor = Color3.fromRGB(255, 255, 255),
 
     LiveAnimation = false, -- Subtly changes window gradient and shadow offset to make Rayfield feel more natural.
 
     DarkToggleOverlay = true,
     ElementTransparency = 0,
-    ElementStrokeTransparency = 0,
-    ElementStrokeHoverTransparency = 0,
+    ElementStrokeTransparency = 0.45,
+    ElementStrokeHoverTransparency = 0.08,
     ElementStrokeHover = Color3.fromRGB(50, 50, 50),
-    ElementCornerRadius = UDim.new(0, 14), -- the Concept's card radius
+    ElementCornerRadius = UDim.new(0, 12), -- the Concept's card radius
     ElementTextHoverColor = Color3.fromRGB(255, 255, 255),
     TitlingColor = Color3.fromRGB(255, 255, 255),
 
@@ -44658,7 +44696,7 @@ return {
     -- Accent for the active toggle, slider glow and popup primary button.
     AccentColor = Color3.fromRGB(23, 153, 110),
     AccentStroke = Color3.fromRGB(32, 201, 144),
-    AccentGlow = 0.4, -- shown transparency of the toggle's accent glow
+    AccentGlow = 0.72, -- shown transparency of the toggle's accent glow
 
     StatBackground = Color3.fromRGB(25, 25, 25),
     SliderHandle = Color3.fromRGB(255, 255, 255),
@@ -44666,14 +44704,23 @@ return {
 
     -- Toggle switch: track colour + transparency, and the off-knob's colour + transparency.
     ToggleTrack = Color3.fromRGB(0, 0, 0),
-    ToggleTrackTransparency = 0.9,
+    ToggleTrackTransparency = 0.72,
     ToggleKnobOff = Color3.fromRGB(255, 255, 255),
-    ToggleKnobOffTransparency = 0.8,
+    ToggleKnobOffTransparency = 0.5,
 
     -- Inset fields (input, keybind box): fill, its transparency, and the soft glow behind them.
     FieldBackground = Color3.fromRGB(255, 255, 255),
-    FieldTransparency = 0.9,
+    FieldTransparency = 0.93,
     FieldGlow = Color3.fromRGB(255, 255, 255),
+
+    -- Semantic text/state opacity keeps light and accessible themes in control of legibility.
+    SecondaryTextTransparency = 0.28,
+    SectionTextTransparency = 0.18,
+    FieldTextTransparency = 0.12,
+    FieldStrokeTransparency = 0.76,
+    FocusStrokeTransparency = 0.2,
+    HoverOverlayTransparency = 0.95,
+    PressedOverlayTransparency = 0.9,
 
     PlaceholderColor = Color3.fromRGB(178, 178, 178), -- input/search hint text
     SurfaceStroke = Color3.fromRGB(255, 255, 255), -- faint rim on window/field/toast/popup surfaces
@@ -44866,7 +44913,7 @@ return {
     ActionColor = Color3.fromRGB(68, 74, 80), -- top-bar icons
     TitlingColor = Color3.fromRGB(26, 30, 34),
     TitleFont = variables.brandFont(Enum.FontWeight.SemiBold),
-    Font = variables.brandFont(Enum.FontWeight.Medium),
+    Font = variables.brandFont(Enum.FontWeight.Regular),
     ContentColor = Color3.fromRGB(42, 46, 52),
     ElementTextHoverColor = Color3.fromRGB(18, 22, 26),
 
@@ -44961,6 +45008,14 @@ return {
     FieldBackground = Color3.fromRGB(255, 255, 255),
     FieldTransparency = 0.85,
     FieldGlow = Color3.fromRGB(255, 214, 10),
+
+    SecondaryTextTransparency = 0,
+    SectionTextTransparency = 0,
+    FieldTextTransparency = 0,
+    FieldStrokeTransparency = 0,
+    FocusStrokeTransparency = 0,
+    HoverOverlayTransparency = 0.9,
+    PressedOverlayTransparency = 0.82,
 
     PlaceholderColor = Color3.fromRGB(210, 210, 210), -- default's 178 reads as too low-contrast
     -- against a pure black field here
@@ -48318,11 +48373,14 @@ constants.fontAsset = "rbxasset://fonts/families/BuilderSans.json"
 -- the input/keybind fields hug their text, tweening width instead of AutomaticSize so it animates
 constants.pillResizeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
 
--- The height of a one-line card - a toggle, a button, a dropdown's header, an input. 50px, the
--- card of SyncOfficialSpec's Rayfield Gen 3 Concept: the old 41/43 read cramped beside it, and 50 is
--- also the more comfortable target for a thumb. Every one-line element derives its height, and
--- the vertical centre of whatever sits on its right, from this one number.
-constants.elementHeight = 50
+-- Visual rhythm shared by all control layouts. A full row remains comfortably touchable.
+constants.compactElementHeight = 44
+constants.descriptionTextSize = 14
+constants.controlTextSize = 16
+
+-- Full rows use a 48px touch target; compact action rows use 44px.
+-- Component-specific layouts (such as sliders) can reserve more height for their content.
+constants.elementHeight = 48
 -- The icon in front of an element's name. 18px, the Concept's: the 16px one read a size small on a
 -- 50px card. Only an element's own title icon - a section header's, or an icon inside a grid or a
 -- list row, keeps its own size.
@@ -49479,10 +49537,10 @@ end
 -- The fill a CONTAINER card carries - a surface other element cards sit on (Collapsible's open
 -- content, a Panel). The elements inside are cards in the full element fill, so a container in
 -- that same fill turns each of them into a grey rectangle on a grey rectangle, visible only by
--- its outline. Half the fill sits between the window behind and the elements on top, so they
+-- its outline. A light wash sits between the window behind and the elements on top, so they
 -- still read as raised.
 function functions.containerTransparency(elementTransparency: number?): number
-    return 1 - (1 - (elementTransparency or 0)) * 0.5
+    return 1 - (1 - (elementTransparency or 0)) * 0.28
 end
 
 functions.textWidth = textMetrics.textWidth
