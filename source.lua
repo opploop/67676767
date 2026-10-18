@@ -15594,7 +15594,14 @@ function Input.new(tab, properties)
         Transparency = 1, -- In = 0.85
 
         Parent = self.box,
-    }, { Color = "SurfaceStroke" })
+    }, {
+        Color = {
+            "SurfaceStroke",
+            function(color)
+                return if self._validationMessage then self.window.theme.ErrorStrokeColor else color
+            end,
+        },
+    })
 
     -- glow behind the box, invisible until a set flashes it green/red
     self.glow = self.window:CreateGlow(self.box, "FieldGlow", 20, 1)
@@ -15638,6 +15645,10 @@ function Input.new(tab, properties)
             end
         end
         self:_sizeBox(true)
+        if self._validationMessage then
+            local valid, _, message = self:_validateText(self.input.Text)
+            self:_setValidationState(if valid then nil else message)
+        end
     end)
 
     -- opaque while the field is focused, back to muted when you click away
@@ -15662,7 +15673,7 @@ function Input.new(tab, properties)
             self:_setValidationState(nil)
             return -- unchanged: dont re-fire the devs callback for a stray click
         end
-        self:_commit(self.input.Text)
+        self:_commit(self.input.Text, false, true)
     end)
 
     self.window:_wireElementHover(self)
@@ -15754,12 +15765,16 @@ function Input:_setValidationState(message)
         self._validationHint.titleLabel.TextColor3 = self.window.theme.ErrorStrokeColor
         self._validationHint.titleLabel.TextTransparency = if message then 0 else 1
     end
-    self.boxStroke.Color = if message then self.window.theme.ErrorStrokeColor else self.window.theme.SurfaceStroke
+    if self._refreshFieldFocus then
+        self._refreshFieldFocus()
+    end
 end
-function Input:_commit(text, silent)
+function Input:_commit(text, silent, retainDraft)
     local valid, normalized, message = self:_validateText(text)
     if not valid then
-        self.input.Text = self.value
+        if not retainDraft then
+            self.input.Text = self.value
+        end
         self:_setValidationState(message)
         return false
     end
@@ -15786,6 +15801,16 @@ function Input:_commit(text, silent)
     return true
 end
 
+-- Draft text is separate from the last accepted value used by callbacks and persistence.
+function Input:GetDraft()
+    return self.input.Text
+end
+
+function Input:RevertDraft()
+    self.input.Text = self.value
+    self:_setValidationState(nil)
+end
+
 function Input:Set(value, skipCallback)
     return self:_commit(value, skipCallback)
 end
@@ -15799,7 +15824,11 @@ function Input:_setShown(shown, animate)
     if shown then
         w:_revealCommon(self, animate)
         w:_reveal(self.box, { BackgroundTransparency = w.theme.FieldTransparency }, animate)
-        w:_reveal(self.boxStroke, { Transparency = w.theme.FieldStrokeTransparency }, animate)
+        w:_reveal(
+            self.boxStroke,
+            { Transparency = if self._validationMessage then 0.15 else w.theme.FieldStrokeTransparency },
+            animate
+        )
         w:_reveal(self.input, { TextTransparency = self.window.theme.FieldTextTransparency }, animate)
     else
         w:_hideCommon(self, animate)
@@ -15812,6 +15841,7 @@ end
 -- Re-apply the field's theme-driven fill transparency on a runtime ChangeTheme (its colour
 -- rides a themeProperty). Called on the visible tab only, so the field is shown.
 function Input:_refreshTheme()
+    self:_setValidationState(self._validationMessage)
     variables.tweenService
         :Create(
             self.box,
@@ -15858,6 +15888,7 @@ local utility = script.Parent.Parent.utility
 -- Variables
 local variables = require(utility.variables)
 local functions = require(utility.functions)
+local colors = require(utility.colors)
 local moveable = require(utility.moveable)
 local lockable = require(utility.lockable)
 local locale = require(utility.locale)
@@ -15893,6 +15924,7 @@ local quickTouchHeight = 30
 local chipTouchHeight = 30
 local chipThumbTouch = 18
 local chipPadding = 12
+local poolThreshold = 100
 local cellGap = 10
 -- A UIStroke is drawn OUTSIDE its frame's bounds, so a cell flush against the scrolling frame's
 -- edge has its outline clipped away on that side - most visible on the accent stroke a selected
@@ -16266,6 +16298,7 @@ function ItemGrid:_build()
         Parent = self.scroll,
     })
 
+    self.layoutStore = window:Create("Folder", { Name = "GridLayoutStore", Parent = self.main })
     self.gridLayout = window:Create("UIGridLayout", {
         CellPadding = UDim2.fromOffset(cellGap, cellGap),
         CellSize = UDim2.fromOffset(100, self.cellHeight), -- real size set by _applyColumns
@@ -16286,6 +16319,14 @@ function ItemGrid:_build()
     -- Reflow when the real width changes: the author's column count is a ceiling, and a
     -- collapsed window drops below it rather than truncating every label.
     self.window:ConnectFor(self, self.scroll:GetPropertyChangedSignal("AbsoluteSize"), function()
+        self:_applyColumns()
+    end)
+    self.window:ConnectFor(self, self.scroll:GetPropertyChangedSignal("CanvasPosition"), function()
+        if self._virtual then
+            self:_renderCells()
+        end
+    end)
+    self.window:ConnectFor(self, self.scroll:GetPropertyChangedSignal("AbsoluteWindowSize"), function()
         self:_applyColumns()
     end)
     self:_applyColumns()
@@ -16806,6 +16847,7 @@ function ItemGrid:_applyColumns()
     self.columns = columns
     self.gridLayout.FillDirectionMaxCells = columns
     self.gridLayout.CellSize = UDim2.fromOffset(cellWidth, self.cellHeight)
+    self._cellWidth = cellWidth
 
     -- Fewer columns means more rows means a taller grid. Guarded on an actual change: _syncHeight
     -- writes scroll.Size, which re-fires the AbsoluteSize listener that called us, and an
@@ -16813,6 +16855,9 @@ function ItemGrid:_applyColumns()
     if columnsChanged and self._built then
         self:_syncSkeleton() -- two rows of whatever the column count now is
         self:_syncHeight()
+    end
+    if self._virtual then
+        self:_renderCells()
     end
 end
 
@@ -16942,10 +16987,11 @@ function ItemGrid:_buildCell(entry, order)
     })
     window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = cell.dot })
 
-    if entry.image then
+    if entry.image or self._virtual then
         cell.image = window:Create("ImageLabel", {
             Name = "Preview",
-            Image = entry.image,
+            Image = entry.image or "",
+            Visible = entry.image ~= nil,
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
             ScaleType = Enum.ScaleType.Fit, -- never distort a cosmetic's proportions
@@ -17038,9 +17084,10 @@ function ItemGrid:_buildCell(entry, order)
         cell.dot.Visible = false
     end
 
-    if entry.icon and not entry.image then
+    if (entry.icon and not entry.image) or self._virtual then
         cell.iconLabel = window:Create("ImageLabel", {
-            Image = entry.icon,
+            Image = entry.icon or "",
+            Visible = entry.icon ~= nil and entry.image == nil,
             Size = UDim2.fromOffset(16, 16),
             AnchorPoint = Vector2.new(0, 0.5),
             BackgroundTransparency = 1,
@@ -17105,7 +17152,9 @@ function ItemGrid:_buildCell(entry, order)
         if self.locked or not self.selectable then
             return
         end
-        self:Toggle(entry.id)
+        if cell.entry then
+            self:Toggle(cell.entry.id)
+        end
     end)
 
     return cell
@@ -17116,12 +17165,12 @@ end
 function ItemGrid:_layoutCell(cell)
     if cell.list then
         local left = 6
-        if cell.image then
+        if cell.image and cell.image.Visible then
             cell.image.Size = UDim2.fromOffset(listThumb, listThumb)
             cell.image.Position = UDim2.new(0, left, 0.5, 0)
             cell.image.AnchorPoint = Vector2.new(0, 0.5)
             left += listThumb + 10
-        elseif cell.iconLabel then
+        elseif cell.iconLabel and cell.iconLabel.Visible then
             cell.iconLabel.Position = UDim2.new(0, left + 2, 0.5, 0)
             left += 26
         else
@@ -17180,13 +17229,13 @@ function ItemGrid:_layoutCell(cell)
 
     local left = 11 + boxSize + 9
 
-    if cell.image then
+    if cell.image and cell.image.Visible then
         local thumb = math.max(self.cellHeight - 18, 16)
         cell.image.Size = UDim2.fromOffset(thumb, thumb)
         cell.image.Position = UDim2.new(0, left, 0.5, 0)
         cell.image.AnchorPoint = Vector2.new(0, 0.5)
         left += thumb + 10
-    elseif cell.iconLabel then
+    elseif cell.iconLabel and cell.iconLabel.Visible then
         cell.iconLabel.Position = UDim2.new(0, left, 0.5, 0)
         left += 22
     end
@@ -17203,7 +17252,27 @@ function ItemGrid:_layoutCell(cell)
 end
 
 -- One place that decides what a cell looks like, so hover/selection/theme can't disagree.
+function ItemGrid:_revealCellPart(cell, part, properties, animate)
+    cell._stateTweens = cell._stateTweens or {}
+    if cell._stateTweens[part] then
+        cell._stateTweens[part]:Cancel()
+        cell._stateTweens[part] = nil
+    end
+    if animate then
+        local tween = variables.tweenService:Create(cell[part], stateInfo, properties)
+        cell._stateTweens[part] = tween
+        tween:Play()
+    else
+        for property, value in properties do
+            cell[part][property] = value
+        end
+    end
+end
+
 function ItemGrid:_applyCell(cell, animate)
+    if not cell.entry then
+        return
+    end
     if cell.list then
         self:_paintListCell(cell, self._revealed == true, animate)
         return
@@ -17233,19 +17302,15 @@ function ItemGrid:_applyCell(cell, animate)
         },
         check = { ImageTransparency = if isSelected then 0 else 1 },
         title = {
-            TextColor3 = if isSelected then theme.AccentStroke else theme.ContentColor,
+            TextColor3 = if isSelected
+                then colors.readableText(theme.AccentStroke, colors.flatten(theme.WindowColor))
+                else theme.ContentColor,
             TextTransparency = if isSelected then 0 else 0.1,
         },
     }
 
     for part, properties in goals do
-        if animate then
-            variables.tweenService:Create(cell[part], stateInfo, properties):Play()
-        else
-            for property, value in properties do
-                cell[part][property] = value
-            end
-        end
+        self:_revealCellPart(cell, part, properties, animate)
     end
 end
 
@@ -17269,11 +17334,14 @@ function ItemGrid:_paintListCell(cell, shown: boolean, animate: boolean?)
             Transparency = if shown and isSelected then 0.35 else 1,
         },
         title = {
-            TextColor3 = cell.entry.color or theme.ContentColor,
+            TextColor3 = colors.readableText(cell.entry.color or theme.ContentColor, colors.flatten(theme.WindowColor)),
             TextTransparency = if shown then 0 else 1,
         },
-        subtitle = { TextTransparency = if shown then 0.5 else 1 },
-        valueLabel = { TextTransparency = if shown then 0 else 1 },
+        subtitle = { TextTransparency = if shown then theme.SecondaryTextTransparency else 1 },
+        valueLabel = {
+            TextTransparency = if shown then 0 else 1,
+            TextColor3 = colors.readableText(theme.AccentStroke, colors.flatten(theme.WindowColor)),
+        },
     }
     if cell.image then
         goals.image = { ImageTransparency = if shown then 0 else 1 }
@@ -17282,13 +17350,7 @@ function ItemGrid:_paintListCell(cell, shown: boolean, animate: boolean?)
         goals.iconLabel = { ImageTransparency = if shown then 0.2 else 1 }
     end
     for part, properties in goals do
-        if animate then
-            variables.tweenService:Create(cell[part], stateInfo, properties):Play()
-        else
-            for property, value in properties do
-                cell[part][property] = value
-            end
-        end
+        self:_revealCellPart(cell, part, properties, animate)
     end
 end
 
@@ -17377,48 +17439,178 @@ function ItemGrid:_matches(entry): boolean
     return true
 end
 
+-- All filtering/selection use the full data; cells are only a view of that data.
 function ItemGrid:_applyFilter()
-    local anyVisible = false
+    local filtered = {}
     for _, entry in self.entries do
-        local cell = self.cells[entry.id]
-        if cell then
-            -- an invisible child is skipped by UIGridLayout, so hiding is the whole filter
-            local visible = self:_matches(entry)
-            cell.frame.Visible = visible
-            anyVisible = anyVisible or visible
+        local visible = self:_matches(entry)
+        if visible then
+            table.insert(filtered, entry)
+        end
+        if not self._virtual and self.cells[entry.id] then
+            self.cells[entry.id].frame.Visible = visible
         end
     end
-
+    self._filtered = filtered
+    if self._virtual then
+        self:_renderCells()
+    end
     local placeholders = self:_showingSkeleton()
-    self.empty.frame.Visible = not anyVisible and not placeholders
-    self.scroll.Visible = anyVisible or placeholders
+    self.empty.frame.Visible = #filtered == 0 and not placeholders
+    self.scroll.Visible = #filtered > 0 or placeholders
     self:_syncValue()
-
     if self.onFilterChanged then
         self.window:_runGuarded(self, self.onFilterChanged, self:GetFilter())
     end
 end
 
-function ItemGrid:_rebuildCells()
-    for _, cell in self.cells do
-        for _, connection in cell.connections do
-            self.window:Disconnect(connection)
+function ItemGrid:_discardCell(cell)
+    for _, tween in cell._stateTweens or {} do
+        tween:Cancel()
+    end
+    for _, connection in cell.connections do
+        self.window:Disconnect(connection)
+        local index = self.connections and table.find(self.connections, connection)
+        if index then
+            table.remove(self.connections, index)
         end
-        self.window:DestroySubtree(cell.frame)
+    end
+    self.window:DestroySubtree(cell.frame)
+end
+
+function ItemGrid:_bindCell(cell, entry, order)
+    for _, tween in cell._stateTweens or {} do
+        tween:Cancel()
+    end
+    cell.entry = entry
+    cell.hovered, cell.pressed = false, false
+    cell.frame.Name, cell.frame.LayoutOrder = entry.name, order
+    self.window:_bindLocale(cell.title, "Text", entry.name)
+    cell.dot.Visible = not self.listLayout and entry.color ~= nil
+    cell.dot.BackgroundColor3 = entry.color or Color3.new(1, 1, 1)
+    if cell.image then
+        image.assign(cell.image, "Image", entry.image or "")
+        cell.image.Visible = entry.image ~= nil
+        cell.image.ImageTransparency = if self._revealed then 0 else 1
+    end
+    if cell.iconLabel then
+        image.assign(cell.iconLabel, "Image", entry.icon or "")
+        cell.iconLabel.Visible = entry.icon ~= nil and entry.image == nil
+        cell.iconLabel.ImageTransparency = if self._revealed then 0.2 else 1
+    end
+    if cell.subtitle then
+        cell.subtitle.Text = if entry.subtitle ~= nil then tostring(entry.subtitle) else ""
+        cell.subtitle.Visible = entry.subtitle ~= nil
+        cell.valueLabel.Text = entry.value or ""
+        cell.valueLabel.Visible = entry.value ~= nil
+    end
+    cell.stacked = not self.listLayout and self.imageLayout == "top" and entry.image ~= nil
+    -- Reset layer ordering left over from a previously stacked thumbnail.
+    cell.box.ZIndex, cell.check.ZIndex, cell.interact.ZIndex = 1, 1, 1
+    self:_layoutCell(cell)
+    self:_applyCell(cell, false)
+    if not self.listLayout and not self._revealed then
+        cell.frame.BackgroundTransparency, cell.stroke.Transparency = 1, 1
+        cell.dot.BackgroundTransparency, cell.box.BackgroundTransparency = 1, 1
+        cell.boxStroke.Transparency, cell.check.ImageTransparency, cell.title.TextTransparency = 1, 1, 1
+    end
+end
+
+function ItemGrid:_renderCells()
+    if not self._virtual or self._rendering or self._removed then
+        return
+    end
+    self._rendering = true
+    local entries = self._filtered or self.entries
+    local columns = math.max(1, self.columns)
+    local stride = self.cellHeight + cellGap
+    local viewport = self.scroll.AbsoluteWindowSize.Y
+    if viewport <= 0 then
+        viewport = self.scroll.Size.Y.Offset
+    end
+    local totalRows = math.ceil(#entries / columns)
+    local canvas = math.max(0, totalRows * stride - cellGap) + strokeInset * 2
+    self.scroll.CanvasSize = UDim2.fromOffset(0, canvas)
+    local maxY = math.max(0, canvas - viewport)
+    local y = math.clamp(self.scroll.CanvasPosition.Y, 0, maxY)
+    if y ~= self.scroll.CanvasPosition.Y then
+        self.scroll.CanvasPosition = Vector2.new(0, y)
+    end
+    local firstRow = math.max(0, math.floor(y / stride) - 1)
+    local budget = math.min(#entries, (math.ceil(math.max(viewport, 1) / stride) + 3) * columns)
+    local pool = self._cellPool
+    for i = #pool + 1, budget do
+        table.insert(pool, self:_buildCell(entries[1], i))
     end
     table.clear(self.cells)
-
-    for order, entry in self.entries do
-        local cell = self:_buildCell(entry, order)
-        self.cells[entry.id] = cell
-        self:_applyCell(cell, false)
+    local width = self._cellWidth or math.max(1, math.floor((self.scroll.Size.X.Offset + 600) / columns))
+    for i, cell in pool do
+        local index = firstRow * columns + i
+        local entry = if i <= budget then entries[index] else nil
+        cell.frame.Visible = entry ~= nil
+        if entry then
+            -- Only a changed identity/data needs rebinding; scrolling within a row does no work.
+            if cell.entry ~= entry then
+                self:_bindCell(cell, entry, index)
+            end
+            cell.frame.Size = UDim2.fromOffset(width, self.cellHeight)
+            cell.frame.Position = UDim2.fromOffset(
+                ((index - 1) % columns) * (width + cellGap),
+                math.floor((index - 1) / columns) * stride
+            )
+            self.cells[entry.id] = cell
+        else
+            cell.entry = nil
+            cell.pressed, cell.hovered = false, false
+        end
     end
+    self._rendering = false
+end
 
+function ItemGrid:_rebuildCells()
+    self._entryById = {}
+    for _, entry in self.entries do
+        self._entryById[entry.id] = entry
+    end
+    local virtual = #self.entries >= poolThreshold
+    if self._virtual ~= virtual then
+        local old = self._cellPool or self.cells
+        for _, cell in old do
+            self:_discardCell(cell)
+        end
+        self.cells, self._cellPool = {}, if virtual then {} else nil
+    end
+    self._virtual = virtual
+    self.gridLayout.Parent = if virtual then self.layoutStore else self.scroll
+    self.scroll.AutomaticCanvasSize = if virtual then Enum.AutomaticSize.None else Enum.AutomaticSize.Y
+    if not virtual then
+        self.scroll.CanvasSize = UDim2.new()
+        local surviving = {}
+        for order, entry in self.entries do
+            local cell = self.cells[entry.id]
+            local shapeMatches = cell
+                and (cell.image ~= nil) == (entry.image ~= nil)
+                and (cell.iconLabel ~= nil) == (entry.icon ~= nil and entry.image == nil)
+            if cell and not shapeMatches then
+                self:_discardCell(cell)
+                cell = nil
+            end
+            cell = cell or self:_buildCell(entry, order)
+            self:_bindCell(cell, entry, order)
+            surviving[entry.id] = cell
+        end
+        for id, cell in self.cells do
+            if not surviving[id] then
+                self:_discardCell(cell)
+            end
+        end
+        self.cells = surviving
+    end
     self:_syncSkeleton()
     self:_syncHeight()
     self:_applyColumns()
+    self._filtered = nil
     self:_applyFilter()
-
     if self._built and not self.window.hidden then
         self:_setShown(true, true)
     end
@@ -17449,6 +17641,9 @@ function ItemGrid:_syncHeight()
     self.scroll.Position = UDim2.new(0, sidePadding, 0, top)
     self.empty.frame.Position = UDim2.new(0, sidePadding, 0, top)
     self.main.Size = UDim2.new(1, -20, 0, top + viewport + sidePadding)
+    if self._virtual then
+        self:_renderCells()
+    end
 end
 
 moveable(ItemGrid)
@@ -17587,7 +17782,7 @@ end
 function ItemGrid:Toggle(id, skipCallback)
     id = tostring(id)
     local cell = self.cells[id]
-    if not cell then
+    if not self._entryById[id] then
         return false
     end
 
@@ -17613,7 +17808,9 @@ function ItemGrid:Toggle(id, skipCallback)
     end
 
     self.selected[id] = turningOn or nil
-    self:_applyCell(cell, true)
+    if cell then
+        self:_applyCell(cell, true)
+    end
     self:_syncValue()
 
     hapticEngine.click()
@@ -17981,20 +18178,20 @@ function ItemGrid:_setShown(shown, animate)
                 continue
             end
             local isSelected = self.selected[cell.entry.id] == true
-            w:_reveal(cell.frame, { BackgroundTransparency = cellRest }, animate)
-            w:_reveal(cell.stroke, { Transparency = if isSelected then 0.15 else 0.85 }, animate)
-            w:_reveal(cell.dot, { BackgroundTransparency = if isSelected then 0 else 0.15 }, animate)
-            w:_reveal(cell.box, {
+            self:_revealCellPart(cell, "frame", { BackgroundTransparency = cellRest }, animate)
+            self:_revealCellPart(cell, "stroke", { Transparency = if isSelected then 0.15 else 0.85 }, animate)
+            self:_revealCellPart(cell, "dot", { BackgroundTransparency = if isSelected then 0 else 0.15 }, animate)
+            self:_revealCellPart(cell, "box", {
                 BackgroundTransparency = if isSelected then 0 else w.theme.ToggleKnobOffTransparency,
             }, animate)
-            w:_reveal(cell.boxStroke, { Transparency = if isSelected then 0 else 0.7 }, animate)
-            w:_reveal(cell.check, { ImageTransparency = if isSelected then 0 else 1 }, animate)
-            w:_reveal(cell.title, { TextTransparency = if isSelected then 0 else 0.1 }, animate)
+            self:_revealCellPart(cell, "boxStroke", { Transparency = if isSelected then 0 else 0.7 }, animate)
+            self:_revealCellPart(cell, "check", { ImageTransparency = if isSelected then 0 else 1 }, animate)
+            self:_revealCellPart(cell, "title", { TextTransparency = if isSelected then 0 else 0.1 }, animate)
             if cell.image then
-                w:_reveal(cell.image, { ImageTransparency = 0 }, animate)
+                self:_revealCellPart(cell, "image", { ImageTransparency = 0 }, animate)
             end
             if cell.iconLabel then
-                w:_reveal(cell.iconLabel, { ImageTransparency = 0.2 }, animate)
+                self:_revealCellPart(cell, "iconLabel", { ImageTransparency = 0.2 }, animate)
             end
         end
     else
@@ -18035,18 +18232,18 @@ function ItemGrid:_setShown(shown, animate)
                 self:_paintListCell(cell, false, animate)
                 continue
             end
-            w:_reveal(cell.frame, { BackgroundTransparency = 1 }, animate)
-            w:_reveal(cell.stroke, { Transparency = 1 }, animate)
-            w:_reveal(cell.dot, { BackgroundTransparency = 1 }, animate)
-            w:_reveal(cell.box, { BackgroundTransparency = 1 }, animate)
-            w:_reveal(cell.boxStroke, { Transparency = 1 }, animate)
-            w:_reveal(cell.check, { ImageTransparency = 1 }, animate)
-            w:_reveal(cell.title, { TextTransparency = 1 }, animate)
+            self:_revealCellPart(cell, "frame", { BackgroundTransparency = 1 }, animate)
+            self:_revealCellPart(cell, "stroke", { Transparency = 1 }, animate)
+            self:_revealCellPart(cell, "dot", { BackgroundTransparency = 1 }, animate)
+            self:_revealCellPart(cell, "box", { BackgroundTransparency = 1 }, animate)
+            self:_revealCellPart(cell, "boxStroke", { Transparency = 1 }, animate)
+            self:_revealCellPart(cell, "check", { ImageTransparency = 1 }, animate)
+            self:_revealCellPart(cell, "title", { TextTransparency = 1 }, animate)
             if cell.image then
-                w:_reveal(cell.image, { ImageTransparency = 1 }, animate)
+                self:_revealCellPart(cell, "image", { ImageTransparency = 1 }, animate)
             end
             if cell.iconLabel then
-                w:_reveal(cell.iconLabel, { ImageTransparency = 1 }, animate)
+                self:_revealCellPart(cell, "iconLabel", { ImageTransparency = 1 }, animate)
             end
         end
     end
@@ -18067,13 +18264,7 @@ function ItemGrid:_minWidth()
 end
 
 function ItemGrid:Remove()
-    -- never leave the page frozen because the grid went away under the pointer
-    self:_setPageScrollPaused(false)
-    self:_clearSkeleton() -- the pulses repeat forever; stop them rather than leave them running
-    if self.descriptor then
-        self.descriptor:Remove()
-    end
-    self.main:Destroy()
+    self:Destroy()
 end
 
 return ItemGrid
@@ -21183,13 +21374,51 @@ local progressHeight = 4
 function Notification.new(window, properties)
     properties = if typeof(properties) == "table" then properties else {}
 
+    local title = tostring(properties.title or properties.Title or "Notification")
+    local content =
+        tostring(properties.content or properties.Content or properties.description or properties.Description or "")
+    local icon = properties.icon or properties.Icon
+    local persist = properties.persist or properties.Persist or false
+    local groupKey = properties.groupKey
+    local priority = if properties.priority == "important" or persist then "important" else "normal"
+    local now = os.clock()
+    if properties.group ~= false then
+        for _, existing in window._liveNotifications or {} do
+            local keyed = groupKey ~= nil and existing.groupKey == groupKey
+            local repeated = groupKey == nil
+                and existing.groupKey == nil
+                and not persist
+                and not existing.persist
+                and now - existing._lastArrival <= 2
+                and existing.title == title
+                and existing.content == content
+                and existing.icon == icon
+                and existing.accentColor == (properties.accentColor or properties.AccentColor)
+            if not existing._dismissed and existing.main.Parent and (keyed or repeated) then
+                local same = existing.title == title and existing.content == content
+                existing.count = if same and properties.progress == nil then existing.count + 1 else 1
+                existing._lastArrival, existing._elapsed = now, 0
+                if priority == "important" then
+                    existing.priority = priority
+                end
+                existing:Update(properties)
+                return existing
+            end
+        end
+    end
+
     local self = setmetatable({
         window = assert(window, "Missing argument #1 (Window expected)"),
-        title = properties.title or properties.Title or "Notification",
+        title = title,
+        count = 1,
+        groupKey = groupKey,
+        priority = priority,
+        _lastArrival = now,
+        _elapsed = 0,
         -- Description is Fluent's own name for this same field - accepted here too so the
         -- typed NotifySuccess/Warning/Info/Error wrappers (see window.luau) can just forward
         -- whatever shape a script already calls them with, Fluent-style or not.
-        content = properties.content or properties.Content or properties.description or properties.Description or "",
+        content = content,
         icon = properties.icon or properties.Icon,
         -- optional per-instance override for the icon's own colour - the typed wrappers pass
         -- their preset accent through here; plain Window:Notify calls leave it nil and get the
@@ -21392,12 +21621,6 @@ function Notification.new(window, properties)
         self.window._liveNotifications = live
     end
     table.insert(live, self)
-    while #live > maxLive do
-        local oldest = table.remove(live, 1)
-        if oldest and oldest ~= self then
-            task.spawn(oldest._dismiss, oldest)
-        end
-    end
 
     -- tracked so _dismiss can drop them; notifications come and go so we cant let their
     -- connections/instances sit in the window lists until Unload
@@ -21418,6 +21641,27 @@ function Notification.new(window, properties)
         end),
     }
 
+    if properties.progress ~= nil then
+        self:SetProgress(properties.progress)
+    end
+    while #live > maxLive do
+        local victim
+        for _, item in live do
+            if item.priority ~= "important" then
+                victim = item
+                break
+            end
+        end
+        victim = victim or live[1]
+        local index = table.find(live, victim)
+        if index then
+            table.remove(live, index)
+        end
+        task.spawn(victim._dismiss, victim)
+        if victim == self then
+            return self
+        end
+    end
     task.spawn(function()
         self:_show()
     end)
@@ -21430,7 +21674,7 @@ end
 function Notification:_measure()
     local colWidth = self.iconLabel and 222 or 260
 
-    local contentH = functions.textHeight(self.window.theme.TitleFont, 16, self.title, colWidth)
+    local contentH = functions.textHeight(self.window.theme.TitleFont, 16, self.titleLabel.Text, colWidth)
     if self.descriptionLabel then
         contentH = contentH + 4 + functions.textHeight(self.window.theme.Font, 15, self.content, colWidth)
     end
@@ -21460,7 +21704,7 @@ function Notification:ChangeTitle(text)
         return
     end
     self.title = text
-    self.titleLabel.Text = text
+    self.titleLabel.Text = tostring(text) .. (if self.count > 1 then " ×" .. self.count else "")
     self:_resize()
 end
 
@@ -21472,6 +21716,34 @@ function Notification:ChangeDescription(text)
     self:_ensureDescriptionLabel()
     self.descriptionLabel.Text = text
     self:_resize()
+end
+
+-- Update an existing job without adding another card. groupKey can target this through Notify.
+function Notification:Update(properties)
+    if self._dismissed then
+        return false
+    end
+    properties = if type(properties) == "table" then properties else {}
+    local title = properties.title or properties.Title
+    local content = properties.content or properties.Content or properties.description or properties.Description
+    self:ChangeTitle(if title ~= nil then tostring(title) else self.title)
+    if content ~= nil then
+        self:ChangeDescription(tostring(content))
+    end
+    if properties.duration ~= nil then
+        self.duration = math.max(0, tonumber(properties.duration) or self.duration)
+    end
+    if properties.persist ~= nil then
+        self.persist = properties.persist == true
+        self.duration = if self.persist then math.huge else properties.duration or autoDuration(self.content)
+    elseif not self.persist and properties.duration == nil then
+        self.duration = autoDuration(self.content)
+    end
+    if properties.progress ~= nil then
+        self:SetProgress(properties.progress)
+    end
+    self._elapsed = 0
+    return true
 end
 
 -- Lazily builds the description label for a card that started with no content (title-only) -
@@ -21593,11 +21865,10 @@ function Notification:_show()
     end
 
     -- Dwell, pausing while hovered
-    local elapsed = 0
-    while elapsed < self.duration and not self._dismissed and self.main.Parent do
+    while self._elapsed < self.duration and not self._dismissed and self.main.Parent do
         local dt = task.wait()
         if not self._hovered then
-            elapsed += dt
+            self._elapsed += dt
         end
     end
 
@@ -42267,13 +42538,28 @@ function Window:_wireFieldFocus(input: TextBox, stroke: UIStroke?, icon: ImageLa
     local info = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     local function paint(focused: boolean)
         local theme = self.theme
+        local invalid = owner and owner.__type == "Input" and owner._validationMessage ~= nil
+        if owner and owner.__type == "Input" then
+            owner._fieldFocused = focused
+            if owner._fieldFocusTween then
+                owner._fieldFocusTween:Cancel()
+            end
+        end
         if stroke then
-            variables.tweenService
-                :Create(stroke, info, {
-                    Color = if focused then theme.AccentStroke else theme.SurfaceStroke,
-                    Transparency = if focused then theme.FocusStrokeTransparency else theme.FieldStrokeTransparency,
-                })
-                :Play()
+            local tween = variables.tweenService:Create(stroke, info, {
+                Color = if invalid
+                    then theme.ErrorStrokeColor
+                    elseif focused then theme.AccentStroke
+                    else theme.SurfaceStroke,
+                Transparency = if invalid
+                    then 0.15
+                    elseif focused then theme.FocusStrokeTransparency
+                    else theme.FieldStrokeTransparency,
+            })
+            if owner and owner.__type == "Input" then
+                owner._fieldFocusTween = tween
+            end
+            tween:Play()
         end
         if icon then
             variables.tweenService
@@ -42282,6 +42568,11 @@ function Window:_wireFieldFocus(input: TextBox, stroke: UIStroke?, icon: ImageLa
                     ImageTransparency = if focused then 0 else (restIcon or 0.5),
                 })
                 :Play()
+        end
+    end
+    if owner and owner.__type == "Input" then
+        owner._refreshFieldFocus = function()
+            paint(owner._fieldFocused == true)
         end
     end
     connect(input.Focused, function()
@@ -44824,10 +45115,11 @@ end
 -- shipping (a past pack rename bit a few other icons this same session; see the icon-name
 -- verification note in window.luau's Settings section for the method), so this doesn't repeat
 -- the earlier resize.luau saga of guessing a bad-fitting rbxassetid.
-local function typedNotify(self, properties, icon, color)
+local function typedNotify(self, properties, icon, color, priority)
     properties = if typeof(properties) == "table" then table.clone(properties) else {}
     properties.icon = properties.icon or properties.Icon or icon
     properties.accentColor = properties.accentColor or properties.AccentColor or color
+    properties.priority = properties.priority or priority
     return self:Notify(properties)
 end
 
@@ -44836,7 +45128,7 @@ function Window:NotifySuccess(properties)
 end
 
 function Window:NotifyWarning(properties)
-    return typedNotify(self, properties, "lucide:triangle-alert", Color3.fromRGB(235, 175, 55))
+    return typedNotify(self, properties, "lucide:triangle-alert", Color3.fromRGB(235, 175, 55), "important")
 end
 
 function Window:NotifyInfo(properties)
@@ -44844,7 +45136,7 @@ function Window:NotifyInfo(properties)
 end
 
 function Window:NotifyError(properties)
-    return typedNotify(self, properties, "lucide:circle-x", self.theme.ErrorColor)
+    return typedNotify(self, properties, "lucide:circle-x", self.theme.ErrorColor, "important")
 end
 
 -- Slides the top-centre toast stack clear of the collapsed pill (or back to its normal spot) -
@@ -48805,6 +49097,10 @@ export type UpdateCheckProps = {
 }
 
 export type NotifyProps = {
+    group: boolean?, -- merge identical transient notices within two seconds
+    groupKey: string?, -- reuse a live job card; independent of the inbox key
+    priority: ("normal" | "important")?,
+    progress: number?,
     title: string?,
     content: string?,
     icon: (string | number)?,
@@ -49434,6 +49730,8 @@ export type PlayerDropdown = Dropdown & {
 }
 
 export type Input = Moveable & {
+    GetDraft: (self: Input) -> string,
+    RevertDraft: (self: Input) -> (),
     Validate: (self: Input, value: string?) -> (boolean, string?),
     GetValidation: (self: Input) -> { valid: boolean, message: string? },
     value: string,
@@ -49702,6 +50000,8 @@ export type Hud = {
 }
 
 export type Notification = {
+    Update: (self: Notification, props: NotifyProps) -> boolean,
+    count: number,
     ChangeTitle: (self: Notification, title: string) -> (),
     ChangeDescription: (self: Notification, description: string) -> (),
     SetProgress: (self: Notification, progress: number?) -> (),
@@ -51263,10 +51563,22 @@ sources["utility/colors"] = [=====[
 
 local colors = {}
 
--- black or white, whichever reads better on the bg
+-- Linear sRGB luminance; a raw average of RGB channels overestimates dark colors.
+function colors.luminance(color: Color3): number
+    local function channel(c: number): number
+        return if c <= 0.04045 then c / 12.92 else ((c + 0.055) / 1.055) ^ 2.4
+    end
+    return 0.2126 * channel(color.R) + 0.7152 * channel(color.G) + 0.0722 * channel(color.B)
+end
+
+function colors.contrastRatio(a: Color3, b: Color3): number
+    local x, y = colors.luminance(a), colors.luminance(b)
+    return (math.max(x, y) + 0.05) / (math.min(x, y) + 0.05)
+end
+
 function colors.contrastColor(color: Color3): Color3
-    local luminance = 0.299 * color.R + 0.587 * color.G + 0.114 * color.B
-    return if luminance > 0.5 then Color3.fromRGB(0, 0, 0) else Color3.fromRGB(255, 255, 255)
+    local dark, light = Color3.new(0, 0, 0), Color3.new(1, 1, 1)
+    return if colors.contrastRatio(dark, color) >= colors.contrastRatio(light, color) then dark else light
 end
 
 -- Coerce a Color3 to a ColorSequence (pass a ColorSequence through). UIGradient.Color
@@ -51275,11 +51587,22 @@ function colors.toColorSequence(color: Color3 | ColorSequence): ColorSequence
     return if typeof(color) == "ColorSequence" then color else ColorSequence.new(color)
 end
 
--- Pick near-black or white text for whatever colour it sits on, by perceived luminance.
--- Used for text on a solid fill whose colour comes from the theme (e.g. popup buttons).
+-- Choose the candidate with the stronger measured contrast, keeping the existing near-black style.
 function colors.contrastText(color: Color3): Color3
-    local luminance = 0.299 * color.R + 0.587 * color.G + 0.114 * color.B
-    return if luminance > 0.6 then Color3.fromRGB(20, 20, 20) else Color3.fromRGB(255, 255, 255)
+    local dark, light = Color3.fromRGB(20, 20, 20), Color3.new(1, 1, 1)
+    return if colors.contrastRatio(dark, color) >= colors.contrastRatio(light, color) then dark else light
+end
+
+-- Preserve a semantic/accent color when readable, otherwise use readable neutral text.
+function colors.readableText(foreground: Color3, background: Color3, minimum: number?): Color3
+    if colors.contrastRatio(foreground, background) >= (minimum or 4.5) then
+        return foreground
+    end
+    local choice = colors.contrastText(background)
+    if colors.contrastRatio(choice, background) >= (minimum or 4.5) then
+        return choice
+    end
+    return colors.contrastColor(background)
 end
 
 -- The reverse of toColorSequence: a single representative Color3 for something that might be a
@@ -51557,7 +51880,7 @@ reference.entries = {
         name = "CreateInput",
         code = 'local control = tab:CreateInput({name = "Profile name", value = "Main"})',
         properties = "export type InputProps = {\n    required: boolean?,\n    min: number?,\n    max: number?,\n    maxLength: number?,\n    validate: ((value: string) -> (boolean, string?))?,\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    value: string?,\n    placeholder: string?,\n    numeric: boolean?,\n    clearOnFocus: boolean?,\n    forgetState: boolean?,\n    callback: ((value: string) -> ())?,\n}",
-        methods = "export type Input = Moveable & {\n    Validate: (self: Input, value: string?) -> (boolean, string?),\n    GetValidation: (self: Input) -> { valid: boolean, message: string? },\n    value: string,\n    locked: boolean,\n    Set: (self: Input, value: string, skipCallback: boolean?) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): dims the element and covers it\n    -- with an input-blocking scrim. `reason` replaces its description while locked.\n    Lock: (self: Input, reason: string?) -> (),\n    Unlock: (self: Input) -> (),\n    IsLocked: (self: Input) -> boolean,\n}",
+        methods = "export type Input = Moveable & {\n    GetDraft: (self: Input) -> string,\n    RevertDraft: (self: Input) -> (),\n    Validate: (self: Input, value: string?) -> (boolean, string?),\n    GetValidation: (self: Input) -> { valid: boolean, message: string? },\n    value: string,\n    locked: boolean,\n    Set: (self: Input, value: string, skipCallback: boolean?) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): dims the element and covers it\n    -- with an input-blocking scrim. `reason` replaces its description while locked.\n    Lock: (self: Input, reason: string?) -> (),\n    Unlock: (self: Input) -> (),\n    IsLocked: (self: Input) -> boolean,\n}",
         props = { name = "Profile name", value = "Main" },
     },
     {
@@ -52397,6 +52720,11 @@ function elementLifecycle.teardown(window, elements)
         element._removed = true
         element._dataGeneration = (element._dataGeneration or 0) + 1
         element._continuousPending = nil
+        if element._fieldFocusTween then
+            element._fieldFocusTween:Cancel()
+            element._fieldFocusTween = nil
+        end
+        element._refreshFieldFocus = nil
         element._busy = false
         if element._changeListeners then
             table.clear(element._changeListeners)
@@ -52432,6 +52760,15 @@ function elementLifecycle.teardown(window, elements)
         if element._disconnectThemeHook then
             element._disconnectThemeHook()
             element._disconnectThemeHook = nil
+        end
+        if element.__type == "ItemGrid" then
+            element:_setPageScrollPaused(false)
+            element:_clearSkeleton()
+            for _, cell in element._cellPool or element.cells or {} do
+                for _, tween in cell._stateTweens or {} do
+                    tween:Cancel()
+                end
+            end
         end
         if element.__type == "ItemPicker" then
             element:Close()
@@ -54007,6 +54344,7 @@ image.onBlock = nil :: ((unknown) -> ())?
 type PendingProperties = { [string]: boolean }
 
 image.pending = {} :: { [number]: { [Instance]: PendingProperties } }
+local pendingAssignments: { [Instance]: { [string]: number } } = setmetatable({}, { __mode = "k" }) :: any
 
 -- once preload settles nothing else will ever land, so theres nothing left worth tracking
 local settled = false
@@ -54053,6 +54391,7 @@ function image.preload(onSettled: PreloadCallback?): (boolean, number)
         -- will, so drop whats left and stop tracking rather than growing all session
         settled = true
         table.clear(image.pending)
+        table.clear(pendingAssignments)
         if onSettled then
             onSettled(failed)
         end
@@ -54073,6 +54412,23 @@ function image.assign(instance: Instance, property: string, value: unknown)
         target[property] = value
         return
     end
+    -- A pooled/reused image must stop waiting for its previous asset before changing identity.
+    local assigned = pendingAssignments[instance]
+    local previous = assigned and assigned[property]
+    if assigned and previous then
+        local waiting = image.pending[previous]
+        local properties = waiting and waiting[instance]
+        if waiting and properties then
+            properties[property] = nil
+            if next(properties) == nil then
+                waiting[instance] = nil
+            end
+            if next(waiting) == nil then
+                image.pending[previous] = nil
+            end
+        end
+        assigned[property] = nil
+    end
     target[property] = image.resolve(value)
     -- in secure mode an un-cached icon resolves blank; remember it so it appears once cached
     if variables.secureMode and not settled then
@@ -54089,6 +54445,11 @@ function image.assign(instance: Instance, property: string, value: unknown)
                 waiting[instance] = properties
             end
             properties[property] = true
+            if not assigned then
+                assigned = {}
+                pendingAssignments[instance] = assigned
+            end
+            assigned[property] = id
         end
     end
 end
@@ -54106,7 +54467,13 @@ imageCache.onCached = function(id: number)
             if instance.Parent then
                 local target = instance :: any
                 for property in properties do
-                    target[property] = uri
+                    local assigned = pendingAssignments[instance]
+                    if not assigned or assigned[property] == id then
+                        target[property] = uri
+                        if assigned then
+                            assigned[property] = nil
+                        end
+                    end
                 end
             end
         end
@@ -54240,26 +54607,63 @@ imageCache.onCached = nil :: OnCachedCallback? -- image sets this to rebind blan
 
 local pngMagic = "\137PNG\r\n\26\n"
 
+-- Bound native requests; providers may yield but cannot create an unbounded fan-out.
+local jobs: { () -> () } = {}
+local running = 0
+local requestLimit = 4
+local avatarWaiters: { [number]: { AvatarCallback } } = {}
+local preloadWaiters: { CacheSettledCallback }? = nil
+local preloadMissing = 0
+
+local function enqueue(job: () -> ())
+    table.insert(jobs, job)
+    local function pump()
+        while running < requestLimit and #jobs > 0 do
+            local nextJob = table.remove(jobs, 1)
+            assert(nextJob)
+            running += 1
+            task.spawn(function()
+                pcall(nextJob)
+                running -= 1
+                pump()
+            end)
+        end
+    end
+    pump()
+end
+
+local function cachedUri(filePath: string): string?
+    local existsOk, exists = pcall(filesystem.isfile, filePath)
+    if not existsOk or not exists then
+        return nil
+    end
+    local readOk, body = pcall(filesystem.readfile, filePath)
+    if not readOk or type(body) ~= "string" or string.sub(body, 1, 8) ~= pngMagic then
+        return nil
+    end
+    local ok, uri = pcall(getfenv().getcustomasset, filePath)
+    return if ok and type(uri) == "string" and #uri > 0 then uri else nil
+end
+
 local function cacheFile(filePath: string, url: string): string?
     -- no custom assets or no file API means nothing can be cached at all
     if type(getfenv().getcustomasset) ~= "function" or not filesystem.usable() then
         return nil
     end
-    if not filesystem.isfile(filePath) then
-        pcall(filesystem.ensureFolder, cacheRoot)
-        pcall(filesystem.ensureFolder, cacheFolder)
-        local body = assetResolver:getAssetContentFromUrl(url, filePath, false)
-        -- never write a non-png body (error page, redirect html) to disk; a poisoned
-        -- cache file would shadow the real asset on every later session
-        if not body or string.sub(body, 1, 8) ~= pngMagic then
-            return nil
-        end
-        if not pcall(filesystem.writefile, filePath, body) then
-            return nil
-        end
+    local existing = cachedUri(filePath)
+    if existing then
+        return existing
     end
-    local ok, uri = pcall(getfenv().getcustomasset, filePath)
-    return if ok and type(uri) == "string" then uri else nil
+    pcall(filesystem.ensureFolder, cacheRoot)
+    pcall(filesystem.ensureFolder, cacheFolder)
+    local body = assetResolver:getAssetContentFromUrl(url, filePath, true)
+    if not body or #body > 8 * 1024 * 1024 or string.sub(body, 1, 8) ~= pngMagic then
+        return nil
+    end
+    if not pcall(filesystem.writefile, filePath, body) then
+        return nil
+    end
+    return cachedUri(filePath)
 end
 
 local function avatarPath(userId: number): string
@@ -54323,67 +54727,69 @@ function imageCache.preload(onSettled: PreloadCallback?): (boolean, number)
     local env = getfenv()
     if type(env.getcustomasset) ~= "function" or not filesystem.usable() then
         if onSettled then
-            -- defer so a caller that assigns state right after calling preload still sees this
             task.defer(onSettled, manifestSize)
         end
         return false, manifestSize
     end
-
-    local rewrites = imageCache.rewrites
-    table.clear(rewrites) -- drop stale entries before remapping (no-op on the fixed built-in manifest)
-
-    local function settle()
-        if not onSettled then
-            return
+    if preloadWaiters then
+        if onSettled then
+            table.insert(preloadWaiters, onSettled)
         end
+        return false, preloadMissing
+    end
+    local listeners: { CacheSettledCallback } = {}
+    if onSettled then
+        table.insert(listeners, onSettled)
+    end
+    preloadWaiters = listeners
+    preloadMissing = 0
+    local rewrites = imageCache.rewrites
+    table.clear(rewrites)
+    local missing: { { id: number, url: string, filePath: string } } = {}
+    for id, url in manifest do
+        local filePath = path.join(cacheFolder, tostring(id) .. ".png")
+        local uri = cachedUri(filePath)
+        if uri then
+            rewrites[id] = uri
+        else
+            table.insert(missing, { id = id, url = url, filePath = filePath })
+        end
+    end
+    local remaining = #missing
+    preloadMissing = remaining
+    local function settle()
         local failed = 0
         for id in manifest do
             if not rewrites[id] then
                 failed += 1
             end
         end
-        onSettled(failed)
-    end
-
-    local pending, missing = 0, 0
-    local spawning = true -- keep a synchronously-finishing download from settling mid-loop
-    for id, url in manifest do
-        local filePath = path.join(cacheFolder, tostring(id) .. ".png")
-        local uri: string? = nil
-        if filesystem.isfile(filePath) then
-            local ok, res = pcall(env.getcustomasset, filePath)
-            uri = if ok and type(res) == "string" then res else nil
-        end
-        if uri then
-            -- already on disk from a past session: use it right away
-            rewrites[id] = uri
-        else
-            -- not cached yet: fetch it in the background and swap it in once it lands
-            missing += 1
-            pending += 1
-            task.spawn(function()
-                local cached = cacheFile(filePath, url)
-                if cached then
-                    rewrites[id] = cached
-                    if imageCache.onCached then
-                        -- a throw in here would strand the counter and settle would never fire
-                        pcall(imageCache.onCached, id)
-                    end
-                end
-                pending -= 1
-                if pending == 0 and not spawning then
-                    settle()
-                end
-            end)
+        preloadWaiters = nil
+        preloadMissing = 0
+        for _, listener in listeners do
+            pcall(listener, failed)
         end
     end
-
-    spawning = false
-    if pending == 0 then
+    if remaining == 0 then
         settle()
     end
-
-    return missing == 0, missing
+    for _, entry in missing do
+        enqueue(function()
+            -- Protect completion accounting from filesystem and provider exceptions too.
+            local ok, uri = pcall(cacheFile, entry.filePath, entry.url)
+            if ok and uri then
+                rewrites[entry.id] = uri
+                if imageCache.onCached then
+                    pcall(imageCache.onCached, entry.id)
+                end
+            end
+            remaining -= 1
+            if remaining == 0 then
+                settle()
+            end
+        end)
+    end
+    return #missing == 0, #missing
 end
 
 function imageCache.avatar(userId: unknown, onReady: AvatarCallback?): string
@@ -54397,20 +54803,27 @@ function imageCache.avatar(userId: unknown, onReady: AvatarCallback?): string
     end
 
     local filePath = avatarPath(userId)
-    if filesystem.isfile(filePath) then
-        local ok, uri = pcall(getfenv().getcustomasset, filePath)
-        if ok and type(uri) == "string" then
-            return uri
-        end
+    local uri = cachedUri(filePath)
+    if uri then
+        return uri
     end
-
     if onReady then
-        task.spawn(function()
-            local uri = fetchAvatar(userId)
-            if uri then
-                onReady(uri)
-            end
-        end)
+        local waiting = avatarWaiters[userId]
+        if waiting then
+            table.insert(waiting, onReady)
+        else
+            local listeners = { onReady }
+            avatarWaiters[userId] = listeners
+            enqueue(function()
+                local ok, ready = pcall(fetchAvatar, userId)
+                avatarWaiters[userId] = nil
+                if ok and ready then
+                    for _, listener in listeners do
+                        pcall(listener, ready)
+                    end
+                end
+            end)
+        end
     end
 
     return ""
@@ -56251,6 +56664,10 @@ function persistenceWrite.write(dir: string, fullPath: string, contents: string)
     end
 
     filesystem.writefile(fullPath, contents)
+    -- Keep recovery data until the final copy has also been read back intact.
+    if filesystem.readfile(fullPath) ~= contents then
+        error("final copy did not write cleanly; recovery copy retained")
+    end
     pcall(filesystem.delfile, tempPath)
 end
 
