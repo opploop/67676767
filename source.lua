@@ -2468,7 +2468,7 @@ local soundEngine = require(utility.sound)
 
 local checkIcon = constants.icons.tick
 local boxSize = 26 -- the Concept's box
-local boxLeft = 16
+local boxLeft = constants.elementInset
 
 function Checkbox.new(tab, properties)
     properties = if typeof(properties) == "table" then properties else {}
@@ -3225,14 +3225,14 @@ local headerHeight = elementHeight
 
 -- breathing room around the nested group: without it, the first child sits glued to the header
 -- and the last one gets squeezed against the clip's bottom edge the instant the section opens
-local contentPadTop = 8
-local contentPadBottom = 8
+local contentPadTop = 6
+local contentPadBottom = 6
 
 -- The card behind the content when it is open (background = true, the default): a gap below the
 -- header so the two read as separate surfaces, and one pixel of room on each side and the bottom,
 -- because a UIStroke draws OUTSIDE its frame and contentWrapper clips - a card flush with the
 -- wrapper's edges would lose its outline on exactly those sides.
-local cardGap = 2 -- close under the header: a wider gap read as two loose cards
+local cardGap = 0 -- content meets the visible header directly
 local strokeRoom = 1
 
 -- Half the element fill, so the element cards inside still read as raised - see
@@ -3288,6 +3288,12 @@ function Collapsible.new(tab, properties)
         Parent = self.tab.tabPage,
     })
 
+    if self.background then
+        self.main.BackgroundColor3 = Color3.new(1, 1, 1)
+        self.window.themeProperties[self.main] = {
+            BackgroundTransparency = { "ElementTransparency", cardTransparency },
+        }
+    end
     self.window:_registerControl(self)
     self:_buildHeader()
 
@@ -3319,7 +3325,8 @@ function Collapsible.new(tab, properties)
 
             Parent = self.contentWrapper,
         }, { BackgroundTransparency = { "ElementTransparency", cardTransparency } })
-        self.contentStroke = self.window:StyleElementBody(self.contentCard)
+        -- The outer frame owns the only container surface; this frame is layout only.
+        self.window.themeProperties[self.contentCard] = nil
         contentParent = self.contentCard
     end
 
@@ -3402,7 +3409,7 @@ end
 
 function Collapsible:_buildHeader()
     self.header = self.window:Create("Frame", {
-        Size = UDim2.new(1, 0, 0, 43),
+        Size = UDim2.new(1, 0, 0, headerHeight),
         BorderSizePixel = 0,
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 
@@ -3411,7 +3418,13 @@ function Collapsible:_buildHeader()
         Parent = self.main,
     }, { BackgroundTransparency = "ElementTransparency" })
 
-    self.stroke = self.window:StyleElementBody(self.header)
+    if self.background then
+        self.window.themeProperties[self.header] = nil
+        self.header.BackgroundTransparency = 1
+        self.stroke = self.window:StyleElementBody(self.main)
+    else
+        self.stroke = self.window:StyleElementBody(self.header)
+    end
     self.hoverOverlay = self.window:CreateHoverOverlay(self.header)
 
     self.container = self.window:Create("Frame", {
@@ -3617,8 +3630,14 @@ do
 end
 
 function Collapsible:_setShown(shown, animate)
+    self._shown = shown
     local w = self.window
-    local proxy = { stroke = self.stroke, title = self.title, main = self.header, iconLabel = self.iconLabel }
+    local proxy = {
+        stroke = self.stroke,
+        title = self.title,
+        main = if self.background then self.main else self.header,
+        iconLabel = self.iconLabel,
+    }
     if shown then
         w:_revealCommon(proxy, animate)
         w:_reveal(self.chevron, { ImageTransparency = 0 }, animate)
@@ -3627,17 +3646,17 @@ function Collapsible:_setShown(shown, animate)
         w:_reveal(self.chevron, { ImageTransparency = 1 }, animate)
     end
     if self.contentCard then
-        w:_reveal(self.contentCard, {
+        w:_reveal(self.main, {
             BackgroundTransparency = if shown then cardTransparency(w.theme.ElementTransparency) else 1,
-        }, animate)
-        w:_reveal(self.contentStroke, {
-            Transparency = if shown then w.theme.ElementStrokeTransparency else 1,
         }, animate)
     end
     self._group:_setShown(shown, animate)
 end
 
 function Collapsible:_refreshTheme()
+    if self.background and self._shown ~= false then
+        self.main.BackgroundTransparency = cardTransparency(self.window.theme.ElementTransparency)
+    end
     self._group:_refreshTheme()
 end
 
@@ -3679,12 +3698,12 @@ local elementHeight = constants.elementHeight
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
 local hsvEditor = require(utility.hsvEditor)
+local chrome = require(utility.pickerChrome)
 
 local headerHeight = elementHeight
-local squareSize = 150
-local rowGap = 8
-local narrowWidth = 380
-local glowOnTransparency = 0.55
+local squareSize = chrome.square
+local narrowWidth = 410
+local glowOnTransparency = 0.9
 
 local fadeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 -- closing fades faster than it opens, and faster than the card shrinks, so the content is
@@ -3694,7 +3713,7 @@ local closeFadeInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDir
 local heightInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 -- opening height: Back out - grows slightly past the final height then eases back, matching
 -- GradientPicker's own open bounce
-local heightOpenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local heightOpenInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local chevronInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 -- header swatch "pop" on click
 local popOutInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -3819,7 +3838,7 @@ function ColorPicker.new(tab, properties)
         showGlow = if properties.glow ~= nil
             then properties.glow
             elseif properties.Glow ~= nil then properties.Glow
-            else true,
+            else false,
     }, ColorPicker)
 
     self.value = coerceColor(
@@ -3865,7 +3884,7 @@ function ColorPicker.new(tab, properties)
     end)
 
     self.window:ConnectFor(self, self.main.MouseEnter, function()
-        if self._isOpen or not self.window:_interactive() then
+        if self.locked or self._isOpen or not self.window:_interactive() then
             return
         end
         local theme = self.window.theme
@@ -3952,8 +3971,9 @@ function ColorPicker:_buildHeader()
 
     self.title = self.window:Create("TextLabel", {
         Text = locale.t(self.name),
-        Size = UDim2.fromOffset(0, 16),
-        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.new(1, 0, 0, 16),
+        AutomaticSize = Enum.AutomaticSize.None,
+        TextTruncate = Enum.TextTruncate.AtEnd,
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
         TextSize = 16,
@@ -3964,7 +3984,10 @@ function ColorPicker:_buildHeader()
         TextTransparency = 1, -- In = 0
 
         Parent = container,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    if self.icon then
+        self.title.Size = UDim2.new(1, -constants.elementIconSize - constants.elementIconGap, 0, 16)
+    end
 
     -- small always-on colour pill in the header, live even while collapsed - mirrors
     -- GradientPicker's header swatch so both pickers read the same way at a glance
@@ -4012,161 +4035,60 @@ end
 
 -- A small rounded field: an optional single-letter label (R/G/B) left, a TextBox filling the
 -- rest. Used for the hex box (no label) and the three RGB channel boxes.
-function ColorPicker:_buildField(label, placeholder)
-    local box = self.window:Create("Frame", {
-        Size = UDim2.fromOffset(0, 34),
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-        BorderSizePixel = 0,
-        ZIndex = 2,
-
-        BackgroundTransparency = 1, -- Open = 0.85
-
-        Parent = self.main,
-    })
-    self.window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = box })
-    local stroke = self.window:Create("UIStroke", {
-        Color = Color3.fromRGB(255, 255, 255),
-
-        Transparency = 1, -- Open = 0.75
-
-        Parent = box,
-    })
-
-    local padLeft = if label then 30 else 12
-    local input = self.window:Create("TextBox", {
-        PlaceholderText = placeholder or "",
-        Size = UDim2.new(1, -(padLeft + 10), 1, 0),
-        Position = UDim2.new(0, padLeft, 0.5, 0),
-        AnchorPoint = Vector2.new(0, 0.5),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        TextSize = 15,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ClearTextOnFocus = false,
-        ZIndex = 3,
-
-        TextTransparency = 1, -- Open = 0
-
-        Parent = box,
-    }, { TextColor3 = "ContentColor", FontFace = "Font", PlaceholderColor3 = "PlaceholderColor" })
-
-    local text = nil
-    if label then
-        text = self.window:Create("TextLabel", {
-            Text = label,
-            Size = UDim2.fromOffset(16, 34),
-            Position = UDim2.new(0, 10, 0.5, 0),
-            AnchorPoint = Vector2.new(0, 0.5),
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
-            TextSize = 13,
-            ZIndex = 3,
-
-            TextTransparency = 1, -- Open = 0.4
-
-            Parent = box,
-        }, { TextColor3 = "PlaceholderColor", FontFace = "Font" })
-    end
-
-    return box, input, stroke, text
-end
-
 function ColorPicker:_buildBody()
-    -- hex field
-    self.hexBox, self.hexInput, self.hexBoxStroke = self:_buildField(nil, "Hex")
-    self.hexInput.Text = "#" .. self.value:ToHex():upper()
-    self.hexInput.TextXAlignment = Enum.TextXAlignment.Center
-
-    -- RGB row: three equal fields sharing one flex-filled row
-    self.rgbRow = self.window:Create("Frame", {
-        Size = UDim2.fromOffset(0, 34),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = 2,
-
-        Parent = self.main,
-    })
-    self.window:Create("UIListLayout", {
-        SortOrder = Enum.SortOrder.LayoutOrder,
-        FillDirection = Enum.FillDirection.Horizontal,
-        HorizontalFlex = Enum.UIFlexAlignment.Fill,
-        Padding = UDim.new(0, 8),
-
-        Parent = self.rgbRow,
-    })
-
-    self.rBox, self.rInput, self.rBoxStroke, self.rBoxText = self:_buildRgbField("R")
-    self.gBox, self.gInput, self.gBoxStroke, self.gBoxText = self:_buildRgbField("G")
-    self.bBox, self.bInput, self.bBoxStroke, self.bBoxText = self:_buildRgbField("B")
-
-    -- big live swatch bar
-    self.swatchBar = self.window:Create("Frame", {
-        Size = UDim2.fromOffset(0, 34),
-        BackgroundColor3 = self.value,
-        BorderSizePixel = 0,
-        ZIndex = 2,
-
-        BackgroundTransparency = 1, -- Open = 0
-
-        Parent = self.main,
-    })
-    self.window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = self.swatchBar })
-
-    -- preset swatches row
-    self.presetsRow = self.window:Create("Frame", {
-        Size = UDim2.fromOffset(0, 26),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = 2,
-
-        Parent = self.main,
-    })
-    self.window:Create("UIListLayout", {
-        SortOrder = Enum.SortOrder.LayoutOrder,
-        FillDirection = Enum.FillDirection.Horizontal,
-        VerticalAlignment = Enum.VerticalAlignment.Center,
-        Padding = UDim.new(0, 8),
-
-        Parent = self.presetsRow,
-    })
-
+    self.form = self.window:Create("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, Parent = self.main })
+    self.hexField = chrome.field(self.window, self, self.form, "HEX")
+    self.hexBox, self.hexInput, self.hexBoxStroke = self.hexField.well, self.hexField.input, self.hexField.stroke
+    self.rgbRow = self.window:Create("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, Parent = self.form })
+    self.rgbFields = {}
+    for i, caption in { "R", "G", "B" } do
+        local field = chrome.field(self.window, self, self.rgbRow, caption)
+        field.root.Position = UDim2.new((i - 1) / 3, (i - 1) * 2, 0, 0)
+        field.root.Size = UDim2.new(1 / 3, -4, 0, chrome.fieldHeight)
+        table.insert(self.rgbFields, field)
+    end
+    self.rBox, self.rInput = self.rgbFields[1].well, self.rgbFields[1].input
+    self.gBox, self.gInput = self.rgbFields[2].well, self.rgbFields[2].input
+    self.bBox, self.bInput = self.rgbFields[3].well, self.rgbFields[3].input
+    self.swatchBar = self.window:Create(
+        "Frame",
+        { BackgroundColor3 = self.value, BackgroundTransparency = 1, BorderSizePixel = 0, Parent = self.form }
+    )
+    self.window:Create("UICorner", { CornerRadius = UDim.new(0, 5), Parent = self.swatchBar })
+    self.presetsRow =
+        self.window:Create("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, Parent = self.form })
     self.presetButtons = {}
-    for _, color in self.presets do
+    for i, color in self.presets do
         local dot = self.window:Create("TextButton", {
-            Size = UDim2.fromOffset(26, 26),
+            Size = UDim2.fromOffset(22, 22),
+            Position = UDim2.fromOffset((i - 1) * 28, 0),
             BackgroundColor3 = color,
+            BackgroundTransparency = 1,
             BorderSizePixel = 0,
             Text = "",
             AutoButtonColor = false,
-            ZIndex = 2,
-
-            BackgroundTransparency = 1, -- Open = 0
-
+            ZIndex = 3,
             Parent = self.presetsRow,
         })
-        self.window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = dot })
-        local ring = self.window:Create("UIStroke", {
-            Color = Color3.fromRGB(255, 255, 255),
-            Thickness = 2,
-            Transparency = 1, -- managed by _render (selection ring), forced shut while closed
-
-            Parent = dot,
-        })
+        self.window:Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = dot })
+        local ring = self.window:Create(
+            "UIStroke",
+            { Thickness = 2, Transparency = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = dot },
+            { Color = "AccentStroke" }
+        )
         table.insert(self.presetButtons, { color = color, dot = dot, ring = ring })
-
         self.window:ConnectFor(self, dot.MouseButton1Click, function()
-            hapticEngine.click()
-            soundEngine.click()
+            if self.locked then
+                return
+            end
             self:Set(color)
             self.window:_persist(self)
         end)
     end
-
-    -- shared HSV editor, right column
     self.hsv = hsvEditor.build(self.window, self, self.main, {
         squareSize = squareSize,
-        hueHeight = 14,
-        gap = 14,
+        hueHeight = 10,
+        gap = 12,
         hue = self.hue,
         sat = self.sat,
         val = self.val,
@@ -4180,80 +4102,36 @@ function ColorPicker:_buildBody()
             self.window:_persist(self)
         end,
     })
-
     self.window:ConnectFor(self, self.hexInput.FocusLost, function()
+        if self.locked then
+            self:_render("instant")
+            return
+        end
         local color = parseColor(self.hexInput.Text)
+        self.hexField:SetInvalid(color == nil)
         if color then
             self:Set(color)
             self.window:_persist(self)
-        else
-            self.hexInput.Text = "#" .. self.value:ToHex():upper()
         end
     end)
-
-    local function commitRgb()
-        local r = tonumber(self.rInput.Text) or self.value.R * 255
-        local g = tonumber(self.gInput.Text) or self.value.G * 255
-        local b = tonumber(self.bInput.Text) or self.value.B * 255
-        self:Set(Color3.fromRGB(clampByte(r), clampByte(g), clampByte(b)))
-        self.window:_persist(self)
+    for _, field in self.rgbFields do
+        self.window:ConnectFor(self, field.input.FocusLost, function()
+            if self.locked then
+                self:_render("instant")
+                return
+            end
+            local n = tonumber(field.input.Text)
+            field:SetInvalid(n == nil or n < 0 or n > 255)
+            if field.invalid then
+                return
+            end
+            local r, g, b = tonumber(self.rInput.Text), tonumber(self.gInput.Text), tonumber(self.bInput.Text)
+            if r and g and b and r >= 0 and r <= 255 and g >= 0 and g <= 255 and b >= 0 and b <= 255 then
+                self:Set(Color3.fromRGB(clampByte(r), clampByte(g), clampByte(b)))
+                self.window:_persist(self)
+            end
+        end)
     end
-    self.window:ConnectFor(self, self.rInput.FocusLost, commitRgb)
-    self.window:ConnectFor(self, self.gInput.FocusLost, commitRgb)
-    self.window:ConnectFor(self, self.bInput.FocusLost, commitRgb)
-end
-
-function ColorPicker:_buildRgbField(label)
-    local box = self.window:Create("Frame", {
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-        BorderSizePixel = 0,
-        ZIndex = 2,
-
-        BackgroundTransparency = 1, -- Open = 0.85
-
-        Parent = self.rgbRow,
-    })
-    self.window:Create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = box })
-    local stroke = self.window:Create("UIStroke", {
-        Color = Color3.fromRGB(255, 255, 255),
-
-        Transparency = 1, -- Open = 0.75
-
-        Parent = box,
-    })
-
-    local text = self.window:Create("TextLabel", {
-        Text = label,
-        Size = UDim2.fromOffset(14, 34),
-        Position = UDim2.new(0, 8, 0.5, 0),
-        AnchorPoint = Vector2.new(0, 0.5),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        TextSize = 13,
-        ZIndex = 3,
-
-        TextTransparency = 1, -- Open = 0.4
-
-        Parent = box,
-    }, { TextColor3 = "PlaceholderColor", FontFace = "Font" })
-
-    local input = self.window:Create("TextBox", {
-        Size = UDim2.new(1, -28, 1, 0),
-        Position = UDim2.new(0, 24, 0.5, 0),
-        AnchorPoint = Vector2.new(0, 0.5),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        TextSize = 15,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ClearTextOnFocus = false,
-        ZIndex = 3,
-
-        TextTransparency = 1, -- Open = 0
-
-        Parent = box,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
-
-    return box, input, stroke, text
 end
 
 function ColorPicker:_render(mode)
@@ -4299,7 +4177,7 @@ function ColorPicker:_popSwatch()
 end
 
 function ColorPicker:_open()
-    if self._isOpen then
+    if self._isOpen or self.locked then
         return
     end
     self._isOpen = true
@@ -4337,7 +4215,7 @@ function ColorPicker:_open()
     -- glow pulse: flashes past its steady-state glow, then relaxes back down to it
     if self.showGlow then
         variables.tweenService
-            :Create(self.previewGlow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.3) })
+            :Create(self.previewGlow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.06) })
             :Play()
         task.delay(glowPulseInfo.Time, function()
             if self._isOpen and self._openSeq == seq then
@@ -4380,8 +4258,10 @@ function ColorPicker:_close()
         self.window:Disconnect(self._outsideClickConn)
         self._outsideClickConn = nil
     end
-    if self.hexInput:IsFocused() then
-        self.hexInput:ReleaseFocus()
+    for _, field in { self.hexField, table.unpack(self.rgbFields) } do
+        if field.input:IsFocused() then
+            field.input:ReleaseFocus()
+        end
     end
 
     -- everything fades out together (no stagger) on the quicker closeFadeInfo, so the content
@@ -4403,45 +4283,40 @@ end
 -- Narrow: same stack, full width, with the editor centred underneath.
 function ColorPicker:_applyLayout()
     local width = self.main.AbsoluteSize.X
-    local mode = if width > 0 and width < narrowWidth then "narrow" else "wide"
-    if mode == self._layoutMode then
-        return
-    end
-    self._layoutMode = mode
-
-    local leftWidth = if mode == "wide" then UDim.new(1, -(20 + squareSize + 16 + 20)) else UDim.new(1, -40)
-    local y = headerHeight
-    self.hexBox.Position = UDim2.new(0, 20, 0, y)
-    self.hexBox.Size = UDim2.new(leftWidth.Scale, leftWidth.Offset, 0, 34)
-    y += 34 + rowGap
-
-    self.rgbRow.Position = UDim2.new(0, 20, 0, y)
-    self.rgbRow.Size = UDim2.new(leftWidth.Scale, leftWidth.Offset, 0, 34)
-    y += 34 + rowGap
-
-    self.swatchBar.Position = UDim2.new(0, 20, 0, y)
-    self.swatchBar.Size = UDim2.new(leftWidth.Scale, leftWidth.Offset, 0, 34)
-    y += 34 + rowGap + 2
-
-    self.presetsRow.Position = UDim2.new(0, 20, 0, y)
-    self.presetsRow.Size = UDim2.new(leftWidth.Scale, leftWidth.Offset, 0, 26)
-    local leftBottom = y + 26
-
-    if mode == "wide" then
-        self.hsv.root.Position = UDim2.new(1, -20 - squareSize, 0, headerHeight)
-        self._openHeight = math.max(leftBottom, headerHeight + squareSize + 14 + 14) + 20
+    self._layoutMode = if width > 0 and width < narrowWidth then "narrow" else "wide"
+    local top, pad = headerHeight + 10, chrome.inset
+    local editorHeight = squareSize + 22
+    if self._layoutMode == "wide" then
+        self.hsv.root.Position = UDim2.fromOffset(pad, top)
+        self.form.Position = UDim2.fromOffset(pad + squareSize + 20, top)
+        self.form.Size = UDim2.new(1, -(pad * 2 + squareSize + 20), 0, 158)
+        self._openHeight = top + editorHeight + 14
     else
-        local hsvY = leftBottom + 16
-        self.hsv.root.Position = UDim2.new(0.5, -squareSize / 2, 0, hsvY)
-        self._openHeight = hsvY + squareSize + 14 + 14 + 20
+        self.hsv.root.Position = UDim2.new(0.5, -squareSize / 2, 0, top)
+        self.form.Position = UDim2.fromOffset(pad, top + editorHeight + 12)
+        self.form.Size = UDim2.new(1, -pad * 2, 0, 158)
+        self._openHeight = top + editorHeight + 12 + 158 + 14
     end
-
+    self.hexField.root.Position = UDim2.fromOffset(0, 0)
+    self.rgbRow.Position, self.rgbRow.Size = UDim2.fromOffset(0, 54), UDim2.new(1, 0, 0, 46)
+    self.swatchBar.Position, self.swatchBar.Size = UDim2.fromOffset(0, 108), UDim2.new(1, 0, 0, 16)
+    self.presetsRow.Position, self.presetsRow.Size = UDim2.fromOffset(0, 136), UDim2.new(1, 0, 0, 22)
+    local presetCount = #self.presetButtons
+    local formWidth = if self._layoutMode == "wide" then width - (pad * 2 + squareSize + 20) else width - pad * 2
+    local step = math.min(28, math.max(1, (formWidth - 22) / math.max(1, presetCount - 1)))
+    for i, entry in self.presetButtons do
+        entry.dot.Position = UDim2.fromOffset((i - 1) * step, 0)
+    end
     if self._isOpen then
-        variables.tweenService:Create(self.main, heightInfo, { Size = UDim2.new(1, -20, 0, self._openHeight) }):Play()
+        self.main.Size = UDim2.new(1, -20, 0, self._openHeight)
     end
 end
 
 function ColorPicker:Set(color, skipCallback)
+    self.hexField:SetInvalid(false)
+    for _, field in self.rgbFields do
+        field:SetInvalid(false)
+    end
     self.value = coerceColor(color, self.value)
     self.hue, self.sat, self.val = self.value:ToHSV()
     self:_render(if skipCallback then "instant" else "animate")
@@ -4496,30 +4371,14 @@ local function applySet(set, animate)
     end
 end
 
-function ColorPicker:_revealHex(open, animate)
-    applySet({
-        [self.hexBox] = { BackgroundTransparency = if open then 0.85 else 1 },
-        [self.hexBoxStroke] = { Transparency = if open then 0.75 else 1 },
-        [self.hexInput] = { TextTransparency = if open then 0 else 1 },
-    }, animate)
+function ColorPicker:_revealHex(open, _animate)
+    self.hexField:SetVisible(open)
 end
 
-function ColorPicker:_revealRgb(open, animate)
-    local set = {}
-    for _, field in
-        {
-            { self.rBox, self.rBoxStroke, self.rBoxText, self.rInput },
-            { self.gBox, self.gBoxStroke, self.gBoxText, self.gInput },
-            { self.bBox, self.bBoxStroke, self.bBoxText, self.bInput },
-        }
-    do
-        local box, stroke, text, input = field[1], field[2], field[3], field[4]
-        set[box] = { BackgroundTransparency = if open then 0.85 else 1 }
-        set[stroke] = { Transparency = if open then 0.75 else 1 }
-        set[text] = { TextTransparency = if open then 0.4 else 1 }
-        set[input] = { TextTransparency = if open then 0 else 1 }
+function ColorPicker:_revealRgb(open, _animate)
+    for _, field in self.rgbFields do
+        field:SetVisible(open)
     end
-    applySet(set, animate)
 end
 
 function ColorPicker:_revealSwatchAndPresets(open, animate)
@@ -4548,7 +4407,7 @@ end
 -- a transparent TextBox/button down there would still catch the cursor. Toggling them off drops
 -- the whole cluster out of input while closed - the header swatch pill is separate, stays put.
 function ColorPicker:_setControlsVisible(visible)
-    for _, frame in { self.hexBox, self.rgbRow, self.swatchBar, self.presetsRow, self.hsv.root } do
+    for _, frame in { self.form, self.hsv.root } do
         frame.Visible = visible
     end
 end
@@ -4568,6 +4427,13 @@ function ColorPicker:_setShown(shown, animate)
         if self._isOpen then
             self:_close()
         end
+    end
+end
+
+function ColorPicker:_refreshTheme()
+    self.hexField:Refresh()
+    for _, field in self.rgbFields do
+        field:Refresh()
     end
 end
 
@@ -12027,11 +11893,12 @@ local elementHeight = constants.elementHeight
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
 local hsvEditor = require(utility.hsvEditor)
+local chrome = require(utility.pickerChrome)
 
 local headerHeight = elementHeight
-local squareSize = 140
-local narrowWidth = 380
-local glowOnTransparency = 0.55
+local squareSize = chrome.square
+local narrowWidth = 410
+local glowOnTransparency = 0.93
 local minStops = 2
 local maxStops = 8
 local swatchSize = UDim2.fromOffset(44, 22)
@@ -12046,7 +11913,7 @@ local openInfo = TweenInfo.new(0.5, Enum.EasingStyle.Exponential, Enum.EasingDir
 local heightInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 -- opening height: Back out - grows slightly past the final height then eases back, a little
 -- bounce of "life" instead of a mechanical stop
-local heightOpenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local heightOpenInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local chevronInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 local dragInfo = TweenInfo.new(0.12, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local heldInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
@@ -12075,25 +11942,18 @@ local function buildSequence(stops)
         return a.time < b.time
     end)
 
-    local keypoints = {}
+    local built = {}
+    local previous = -0.001
     for i, stop in sorted do
-        local t = stop.time
+        local t = math.clamp(stop.time, previous + 0.001, 1 - (#sorted - i) * 0.001)
         if i == 1 then
             t = 0
         elseif i == #sorted then
             t = 1
         end
-        table.insert(keypoints, { time = t, color = stop.color })
-    end
-    for i = 2, #keypoints do
-        if keypoints[i].time <= keypoints[i - 1].time then
-            keypoints[i].time = math.min(1, keypoints[i - 1].time + 0.001)
-        end
-    end
-
-    local built = {}
-    for _, kp in keypoints do
-        table.insert(built, ColorSequenceKeypoint.new(kp.time, kp.color))
+        stop.time = t
+        previous = t
+        table.insert(built, ColorSequenceKeypoint.new(t, stop.color))
     end
     return ColorSequence.new(built)
 end
@@ -12180,7 +12040,7 @@ function GradientPicker.new(tab, properties)
         showGlow = if properties.glow ~= nil
             then properties.glow
             elseif properties.Glow ~= nil then properties.Glow
-            else true,
+            else false,
     }, GradientPicker)
 
     self.stops = normalizeStops(functions.readValue(properties, { "gradient", "Gradient", "value", "Value", "colors" }))
@@ -12228,7 +12088,7 @@ function GradientPicker.new(tab, properties)
     end)
 
     self.window:ConnectFor(self, self.main.MouseEnter, function()
-        if self._isOpen or not self.window:_interactive() then
+        if self.locked or self._isOpen or not self.window:_interactive() then
             return
         end
         local theme = self.window.theme
@@ -12315,8 +12175,9 @@ function GradientPicker:_buildHeader()
 
     self.title = self.window:Create("TextLabel", {
         Text = locale.t(self.name),
-        Size = UDim2.fromOffset(0, 16),
-        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.new(1, 0, 0, 16),
+        AutomaticSize = Enum.AutomaticSize.None,
+        TextTruncate = Enum.TextTruncate.AtEnd,
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
         TextSize = 16,
@@ -12327,7 +12188,10 @@ function GradientPicker:_buildHeader()
         TextTransparency = 1, -- In = 0
 
         Parent = container,
-    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    if self.icon then
+        self.title.Size = UDim2.new(1, -constants.elementIconSize - constants.elementIconGap, 0, 16)
+    end
 
     -- header swatch: a small pill painted with the live gradient itself (a real UIGradient), so
     -- the collapsed row already reads as "this is a gradient", not just a flat colour
@@ -12375,104 +12239,75 @@ function GradientPicker:_buildHeader()
 end
 
 function GradientPicker:_buildBody()
-    -- live preview bar: the same gradient, big, full width, above the rail
+    self.form = self.window:Create("Frame", { BackgroundTransparency = 1, BorderSizePixel = 0, Parent = self.main })
     self.preview = self.window:Create("Frame", {
-        Size = UDim2.new(1, -40, 0, 44),
-        Position = UDim2.new(0, 20, 0, headerHeight),
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        Size = UDim2.new(1, 0, 0, 28),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        ZIndex = 2,
-
-        BackgroundTransparency = 1, -- Open = 0
-
-        Parent = self.main,
+        Parent = self.form,
     })
-    self.window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = self.preview })
-    self.previewStroke = self.window:Create("UIStroke", {
-        Color = Color3.fromRGB(255, 255, 255),
-
-        Transparency = 1, -- Open = 0.9
-
-        Parent = self.preview,
-    })
+    self.window:Create("UICorner", { CornerRadius = UDim.new(0, 7), Parent = self.preview })
+    self.previewStroke = self.window:Create(
+        "UIStroke",
+        { Transparency = 1, Parent = self.preview },
+        { Color = "SurfaceStroke" }
+    )
     self.previewGradient = self.window:Create("UIGradient", { Color = self.value, Parent = self.preview })
-
-    -- wipe-reveal cover: a plain surface sitting over the preview, right-anchored so shrinking
-    -- its width uncovers the gradient left-to-right instead of just fading in place. Reset to
-    -- fully-covering (no animation) whenever the card closes, ready for the next open.
-    self.previewCover = self.window:Create("Frame", {
-        AnchorPoint = Vector2.new(1, 0),
-        Position = UDim2.fromScale(1, 0),
-        Size = UDim2.fromScale(1, 1),
-        BorderSizePixel = 0,
-        ZIndex = 3,
-
-        Parent = self.preview,
-    }, { BackgroundColor3 = "StatBackground" })
-    self.window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = self.previewCover })
-
-    -- stops rail: a thin track with a draggable circular handle per stop
+    self.previewCover =
+        self.window:Create("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(0, 1), Parent = self.preview })
     self.rail = self.window:Create("Frame", {
-        Size = UDim2.fromOffset(0, 4),
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        Position = UDim2.new(0, 10, 0, 41),
+        Size = UDim2.new(1, -20, 0, 4),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        ZIndex = 2,
-
-        BackgroundTransparency = 1, -- Open = 0.85
-
-        Parent = self.main,
+        Parent = self.form,
     })
     self.window:Create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = self.rail })
-
     self.railInteract = self.window:Create("TextButton", {
         BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 1, 20),
-        Position = UDim2.fromScale(0.5, 0.5),
-        AnchorPoint = Vector2.new(0.5, 0.5),
         Text = "",
         AutoButtonColor = false,
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Size = UDim2.new(1, 0, 0, 28),
         ZIndex = 2,
-
         Parent = self.rail,
     })
-
-    self.stopHandles = {} -- stop -> { frame, ring }
-
-    -- add / remove stop buttons, stacked under the rail
-    -- plain text, no glyph: an emoji/icon-font symbol isn't guaranteed to rasterize on every
-    -- client's font (unverified this session), and "+"/"-" alone read fine without one
+    self.stopHandles = {}
+    self.hexField = chrome.field(self.window, self, self.form, "STOP COLOR")
+    self.positionField = chrome.field(self.window, self, self.form, "POSITION %")
     self.addButton = self:_buildStopButton("+  Add stop", 0)
-    self.removeButton = self:_buildStopButton("-  Remove stop", 1)
-
+    self.removeButton = self:_buildStopButton("−  Remove", 1)
+    self.addButton.Parent, self.removeButton.Parent = self.form, self.form
     self.window:ConnectFor(self, self.addButton.MouseButton1Click, function()
-        hapticEngine.click()
-        soundEngine.click()
-        self:_addStop()
+        if not self.locked then
+            self:_addStop()
+        end
     end)
     self.window:ConnectFor(self, self.removeButton.MouseButton1Click, function()
-        hapticEngine.click()
-        soundEngine.click()
-        self:_removeSelectedStop()
+        if not self.locked then
+            self:_removeSelectedStop()
+        end
     end)
-
     for _, stop in self.stops do
         self:_createStopHandle(stop)
     end
-
-    -- shared HSV editor, bound to whichever stop is selected
-    local initHue, initSat, initVal = self.selected.color:ToHSV()
+    local h, s, v = self.selected.color:ToHSV()
     self.hsv = hsvEditor.build(self.window, self, self.main, {
         squareSize = squareSize,
-        hueHeight = 14,
-        gap = 14,
-        hue = initHue,
-        sat = initSat,
-        val = initVal,
-        onChange = function(h, s, v)
+        hueHeight = 10,
+        gap = 12,
+        hue = h,
+        sat = s,
+        val = v,
+        onChange = function(hue, sat, val)
             if not self.selected then
                 return
             end
-            self.selected.color = Color3.fromHSV(h, s, v)
+            self.selected.color = Color3.fromHSV(hue, sat, val)
+            self.value = buildSequence(self.stops)
             self:_render("drag")
             self:_fireCallback()
         end,
@@ -12480,20 +12315,53 @@ function GradientPicker:_buildBody()
             self.window:_persist(self)
         end,
     })
-
+    self.window:ConnectFor(self, self.hexField.input.FocusLost, function()
+        if self.locked then
+            self:_render("instant")
+            return
+        end
+        local text = self.hexField.input.Text:match("^%s*#?(%x+)%s*$")
+        local valid = text ~= nil and (#text == 3 or #text == 6)
+        self.hexField:SetInvalid(not valid)
+        if not valid then
+            return
+        end
+        self.selected.color = Color3.fromHex(text)
+        local hue, sat, val = self.selected.color:ToHSV()
+        self.hsv:SetColor(hue, sat, val, false)
+        self.value = buildSequence(self.stops)
+        self:_render("instant")
+        self:_fireCallback()
+        self.window:_persist(self)
+    end)
+    self.window:ConnectFor(self, self.positionField.input.FocusLost, function()
+        if self.locked then
+            self:_render("instant")
+            return
+        end
+        local text = self.positionField.input.Text:gsub("%%", "")
+        local n = tonumber(text)
+        self.positionField:SetInvalid(n == nil or n < 0 or n > 100)
+        if self.positionField.invalid then
+            return
+        end
+        self:_moveStop(self.selected, n / 100)
+        self:_render("instant")
+        self:_fireCallback()
+        self.window:_persist(self)
+    end)
     self.window:ConnectFor(self, self.railInteract.InputBegan, function(input)
+        if self.locked then
+            return
+        end
         if
             input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch
         then
-            -- a bare click on the track (not a handle) adds a stop right there
             local width = self.rail.AbsoluteSize.X
-            if width <= 0 then
-                return
+            if width > 0 then
+                self:_addStop(clamp01((self:_mouseLocation().X - self.rail.AbsolutePosition.X) / width))
             end
-            local mouse = self:_mouseLocation()
-            local t = clamp01((mouse.X - self.rail.AbsolutePosition.X) / width)
-            self:_addStop(t)
         end
     end)
 end
@@ -12564,7 +12432,12 @@ function GradientPicker:_createStopHandle(stop)
         Parent = handle,
     })
 
-    self.stopHandles[stop] = { frame = handle, ring = ring }
+    self.stopHandles[stop] = { frame = handle, ring = ring, interact = grabber }
+    self.window:ConnectFor(self, grabber.MouseButton1Click, function()
+        if not self.locked then
+            self:_selectStop(stop)
+        end
+    end)
 
     self.window:ConnectFor(self, grabber.InputBegan, function(input)
         if
@@ -12580,6 +12453,9 @@ function GradientPicker:_createStopHandle(stop)
 end
 
 function GradientPicker:_beginDrag(stop, isMouse)
+    if self.locked then
+        return
+    end
     self._drag = stop
     self._dragIsMouse = isMouse
     local handle = self.stopHandles[stop]
@@ -12620,10 +12496,29 @@ function GradientPicker:_pumpDrag()
     if t == self._drag.time then
         return
     end
-    self._drag.time = t
-    self.value = buildSequence(self.stops)
+    self:_moveStop(self._drag, t)
     self:_render("drag")
     self:_fireCallback()
+end
+
+-- Endpoints remain anchored; interior stops cannot cross their neighbours.
+function GradientPicker:_moveStop(stop, time)
+    local sorted = table.clone(self.stops)
+    table.sort(sorted, function(a, b)
+        return a.time < b.time
+    end)
+    local index = table.find(sorted, stop)
+    if not index then
+        return
+    end
+    if index == 1 then
+        stop.time = 0
+    elseif index == #sorted then
+        stop.time = 1
+    else
+        stop.time = math.clamp(time, sorted[index - 1].time + 0.001, sorted[index + 1].time - 0.001)
+    end
+    self.value = buildSequence(self.stops)
 end
 
 function GradientPicker:_endDrag()
@@ -12644,6 +12539,8 @@ end
 
 function GradientPicker:_selectStop(stop)
     self.selected = stop
+    self.hexField:SetInvalid(false)
+    self.positionField:SetInvalid(false)
     local h, s, v = stop.color:ToHSV()
     self.hsv:SetColor(h, s, v, true)
     self:_render("animate")
@@ -12717,6 +12614,25 @@ end
 
 function GradientPicker:_render(mode)
     self.swatchGradient.Color = self.value
+    if self.selected then
+        local sorted = table.clone(self.stops)
+        table.sort(sorted, function(a, b)
+            return a.time < b.time
+        end)
+        local index = table.find(sorted, self.selected) or 1
+        self.hexField.caption = string.format("COLOR · %d / %d", index, #sorted)
+        local anchored = index == 1 or index == #sorted
+        self.positionField.caption = if anchored then "POSITION % · FIXED" else "POSITION %"
+        self.positionField.input.TextEditable = not anchored
+        self.hexField:Refresh()
+        self.positionField:Refresh()
+        if not self.hexField.input:IsFocused() and not self.hexField.invalid then
+            self.hexField.input.Text = "#" .. self.selected.color:ToHex():upper()
+        end
+        if not self.positionField.input:IsFocused() and not self.positionField.invalid then
+            self.positionField.input.Text = string.format("%.1f%%", self.selected.time * 100)
+        end
+    end
     self.previewGradient.Color = self.value
 
     -- sample the live gradient at 0/0.5/1 so the three stacked glows actually track whatever
@@ -12746,6 +12662,8 @@ function GradientPicker:_render(mode)
     variables.tweenService
         :Create(self.removeButton, fadeInfo, { TextTransparency = if #self.stops > minStops then 0.15 else 0.6 })
         :Play()
+    self.addButton.TextTransparency = if not self._isOpen then 1 elseif #self.stops < maxStops then 0.15 else 0.6
+    self.removeButton.TextTransparency = if not self._isOpen then 1 elseif #self.stops > minStops then 0.15 else 0.6
 end
 
 function GradientPicker:_fireCallback()
@@ -12810,7 +12728,7 @@ function GradientPicker:_revealStopHandles(open, animate)
 end
 
 function GradientPicker:_open()
-    if self._isOpen then
+    if self._isOpen or self.locked then
         return
     end
     self._isOpen = true
@@ -12851,7 +12769,7 @@ function GradientPicker:_open()
     if self.showGlow then
         for _, glow in self.previewGlows do
             variables.tweenService
-                :Create(glow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.3) })
+                :Create(glow, glowPulseInfo, { Transparency = math.max(0, glowOnTransparency - 0.04) })
                 :Play()
         end
         task.delay(glowPulseInfo.Time, function()
@@ -12881,6 +12799,7 @@ function GradientPicker:_open()
             :Create(self.removeButton, fadeInfo, { BackgroundTransparency = 0.9, TextTransparency = 0.15 })
             :Play()
         self:_revealStopHandles(true, fadeInfo)
+        self:_render("instant")
     end)
 
     task.delay(staggerStep * 2, function()
@@ -12890,6 +12809,8 @@ function GradientPicker:_open()
         self.hsv:SetVisible(true, true)
     end)
 
+    self.hexField:SetVisible(true)
+    self.positionField:SetVisible(true)
     self:_render("animate")
 end
 
@@ -12898,6 +12819,12 @@ function GradientPicker:_close()
         return
     end
     self._isOpen = false
+    for _, field in { self.hexField, self.positionField } do
+        if field.input:IsFocused() then
+            field.input:ReleaseFocus()
+        end
+        field:SetVisible(false)
+    end
     self._openSeq = (self._openSeq or 0) + 1 -- invalidates any staggered/delayed open steps still pending
 
     if self._outsideClickConn then
@@ -12938,6 +12865,8 @@ end
 -- Only the instant (open = init/close) snap path now - the animated open sequence lives inline
 -- in _open() so it can stagger; _close() plays its own (simultaneous, not staggered) tweens.
 function GradientPicker:_applyBodyVisibility(open, animate)
+    self.hexField:SetVisible(open)
+    self.positionField:SetVisible(open)
     local set = {
         [self.preview] = { BackgroundTransparency = if open then 0 else 1 },
         [self.previewStroke] = { Transparency = if open then 0.9 else 1 },
@@ -12968,7 +12897,7 @@ function GradientPicker:_applyBodyVisibility(open, animate)
 end
 
 function GradientPicker:_setControlsVisible(visible)
-    for _, frame in { self.preview, self.rail, self.addButton, self.removeButton } do
+    for _, frame in { self.form, self.hsv.root } do
         frame.Visible = visible
     end
 end
@@ -12977,41 +12906,29 @@ end
 -- Narrow: stacked, editor centred underneath.
 function GradientPicker:_applyLayout()
     local width = self.main.AbsoluteSize.X
-    local mode = if width > 0 and width < narrowWidth then "narrow" else "wide"
-    if mode == self._layoutMode then
-        return
-    end
-    self._layoutMode = mode
-
-    local leftWidth = if mode == "wide" then UDim.new(1, -(20 + squareSize + 16 + 20)) else UDim.new(1, -40)
-    local y = headerHeight + 44 + 16 -- under the preview bar
-
-    self.rail.Position = UDim2.new(0, 20 + 10, 0, y + 13)
-    self.rail.Size = UDim2.new(leftWidth.Scale, leftWidth.Offset - 20, 0, 4)
-
-    y += 34
-    self.addButton.Position = UDim2.new(0, 20, 0, y)
-    self.addButton.Size = UDim2.new(leftWidth.Scale, leftWidth.Offset, 0, 32)
-    y += 32 + 8
-    self.removeButton.Position = UDim2.new(0, 20, 0, y)
-    self.removeButton.Size = UDim2.new(leftWidth.Scale, leftWidth.Offset, 0, 32)
-    local leftBottom = y + 32
-
-    if mode == "wide" then
-        self.hsv.root.Position = UDim2.new(1, -20 - squareSize, 0, headerHeight + 44 + 16)
-        self._openHeight = math.max(leftBottom, headerHeight + 44 + 16 + squareSize + 14 + 14) + 20
+    self._layoutMode = if width > 0 and width < narrowWidth then "narrow" else "wide"
+    local top, pad = headerHeight + 10, chrome.inset
+    local editorHeight = squareSize + 22
+    if self._layoutMode == "wide" then
+        self.hsv.root.Position = UDim2.fromOffset(pad, top)
+        self.form.Position = UDim2.fromOffset(pad + squareSize + 20, top)
+        self.form.Size = UDim2.new(1, -(pad * 2 + squareSize + 20), 0, 158)
+        self._openHeight = top + editorHeight + 14
     else
-        local hsvY = leftBottom + 16
-        self.hsv.root.Position = UDim2.new(0.5, -squareSize / 2, 0, hsvY)
-        self._openHeight = hsvY + squareSize + 14 + 14 + 20
+        self.hsv.root.Position = UDim2.new(0.5, -squareSize / 2, 0, top)
+        self.form.Position = UDim2.fromOffset(pad, top + editorHeight + 12)
+        self.form.Size = UDim2.new(1, -pad * 2, 0, 158)
+        self._openHeight = top + editorHeight + 12 + 158 + 14
     end
-
+    self.hexField.root.Position, self.hexField.root.Size = UDim2.fromOffset(0, 58), UDim2.new(0.6, -4, 0, 46)
+    self.positionField.root.Position, self.positionField.root.Size = UDim2.new(0.6, 4, 0, 58), UDim2.new(0.4, -4, 0, 46)
+    self.addButton.Position, self.addButton.Size = UDim2.fromOffset(0, 120), UDim2.new(0.5, -4, 0, 32)
+    self.removeButton.Position, self.removeButton.Size = UDim2.new(0.5, 4, 0, 120), UDim2.new(0.5, -4, 0, 32)
     if self._isOpen then
-        variables.tweenService:Create(self.main, heightInfo, { Size = UDim2.new(1, -20, 0, self._openHeight) }):Play()
+        self.main.Size = UDim2.new(1, -20, 0, self._openHeight)
     end
 end
 
--- value: ColorSequence, or a plain list (Color3s evenly spread, or {time, color} tables)
 function GradientPicker:Set(value, skipCallback)
     self.stops = normalizeStops(value)
     for _, handle in self.stopHandles do
@@ -13090,6 +13007,12 @@ function GradientPicker:_setShown(shown, animate)
     end
 end
 
+function GradientPicker:_refreshTheme()
+    self.hexField:Refresh()
+    self.positionField:Refresh()
+    self:_render("instant")
+end
+
 moveable(GradientPicker)
 lockable(GradientPicker)
 
@@ -13122,7 +13045,7 @@ local moveable = require(script.Parent.Parent.utility.moveable)
 local log = require(script.Parent.Parent.utility.log)
 local assignOrder = require(script.Parent.Parent.utility.ordering)
 
-local elementPadding = 8
+local elementPadding = 6
 
 -- these render fine side by side in a row: the compact builds (button/toggle/stat), the
 -- newer compact builds (checkbox/copybutton/flipbutton/ripplebutton/holdbutton), and the slider
@@ -21185,6 +21108,7 @@ local functions = require(utility.functions)
 local moveable = require(utility.moveable)
 local locale = require(utility.locale)
 local image = require(utility.image)
+local constants = require(utility.constants)
 local assignOrder = require(utility.ordering)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
@@ -21194,14 +21118,14 @@ local soundEngine = require(utility.sound)
 -- slider track) 15px inside. So text starts 30px in and controls end 25px in, and the header uses
 -- the same two lines - its title sits over the row titles, its pills end over the switches.
 local cardInset = 10
-local textLeft = 30
+local textLeft = cardInset + constants.elementInset
 local controlRight = 25
 
-local headerTop = 14
+local headerTop = 10
 local headerHeight = 28
-local dividerGap = 10 -- above and below the rule between the header and the page
+local dividerGap = 6 -- above and below the rule between the header and the page
 local contentTop = headerTop + headerHeight + dividerGap + 1 + dividerGap
-local bottomPadding = 10
+local bottomPadding = 8
 local iconSize = 17
 local iconGap = 8
 
@@ -26856,13 +26780,13 @@ local followInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirecti
 
 -- The Gen 3 Concept's slider: a 10px track, an accent-gradient fill and a white 36 x 22 pill
 -- riding on its end. The pill is the thing a player grabs, so it is big on purpose.
-local trackHeight = 10
-local handleWidth, handleHeight = 36, 22
+local trackHeight = 8
+local handleWidth, handleHeight = 30, 18
 -- half the handle's width - see _renderProgress for how this keeps the handle inside the track,
 -- so at either end it sits flush with the track's edge and can always be grabbed again
 local handleRadius = handleWidth / 2
-local wideHeight = 64
-local narrowHeight = 72
+local wideHeight = 56
+local narrowHeight = 64
 
 -- Below this element width we reflow to the stacked layout (title/value on top, full-width
 -- track under it) so the slider stays usable in a narrow column or small window instead of
@@ -30811,7 +30735,7 @@ function Tab.new(window, properties)
     end)
 
     self.tabPageLayout = self.window:Create("UIListLayout", {
-        Padding = UDim.new(0, 7),
+        Padding = UDim.new(0, 6),
         FillDirection = Enum.FillDirection.Vertical,
         VerticalAlignment = Enum.VerticalAlignment.Top,
         HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -40331,8 +40255,8 @@ function Window:_layoutRail()
     self.tabList.Size = self:_tabListSize(showProfile)
     if self.profile then
         self.profile.Size = UDim2.fromOffset(width, constants.railFooter)
-        self.profileContainer.Position = UDim2.fromOffset(0, 14)
-        self.profileContainer.Size = UDim2.new(1, 0, 1, -14)
+        self.profileContainer.Position = UDim2.fromOffset(0, 20)
+        self.profileContainer.Size = UDim2.new(1, 0, 1, -20)
         self.profileLabels.Visible = true
     end
 end
@@ -44684,10 +44608,10 @@ return {
 
     DarkToggleOverlay = true,
     ElementTransparency = 0,
-    ElementStrokeTransparency = 0.45,
+    ElementStrokeTransparency = 0.58,
     ElementStrokeHoverTransparency = 0.08,
     ElementStrokeHover = Color3.fromRGB(50, 50, 50),
-    ElementCornerRadius = UDim.new(0, 12), -- the Concept's card radius
+    ElementCornerRadius = UDim.new(0, 10), -- the Concept's card radius
     ElementTextHoverColor = Color3.fromRGB(255, 255, 255),
     TitlingColor = Color3.fromRGB(255, 255, 255),
 
@@ -48378,23 +48302,23 @@ constants.compactElementHeight = 44
 constants.descriptionTextSize = 14
 constants.controlTextSize = 16
 
--- Full rows use a 48px touch target; compact action rows use 44px.
+-- Full rows use a 44px touch target; compact action rows use 44px.
 -- Component-specific layouts (such as sliders) can reserve more height for their content.
-constants.elementHeight = 48
+constants.elementHeight = 44
 -- The icon in front of an element's name. 18px, the Concept's: the 16px one read a size small on a
 -- 50px card. Only an element's own title icon - a section header's, or an icon inside a grid or a
 -- list row, keeps its own size.
-constants.elementIconSize = 18
+constants.elementIconSize = 16
 -- where a row's icon (or, without one, its title) starts, and the gap between the icon and the
 -- title after it: the Gen 3 Concept's 16 and 10, which sit the icon clear of the card's edge and
 -- give the title room to breathe instead of butting up against its glyph
-constants.elementInset = 16
+constants.elementInset = 14
 -- tabsMode = "Rail": the rail's width, the room its hub mark takes at the top and the player's
 -- footer at the bottom
 constants.railWidth = 112
 constants.railTop = 82
 constants.railFooter = 104
-constants.elementIconGap = 10
+constants.elementIconGap = 8
 
 -- Every built-in icon Rayfield ships, by name. Single source of truth: secure mode caches
 -- exactly these (see utility/image) so the UI never has to fall back to a raw asset id at
@@ -49540,7 +49464,7 @@ end
 -- its outline. A light wash sits between the window behind and the elements on top, so they
 -- still read as raised.
 function functions.containerTransparency(elementTransparency: number?): number
-    return 1 - (1 - (elementTransparency or 0)) * 0.28
+    return 1 - (1 - (elementTransparency or 0)) * 0.18
 end
 
 functions.textWidth = textMetrics.textWidth
@@ -49742,7 +49666,7 @@ function hsvEditor.build(window, owner, parent, opts)
 
     local hueInteract = window:Create("TextButton", {
         BackgroundTransparency = 1,
-        Size = UDim2.new(1, 0, 1, 16),
+        Size = UDim2.new(1, 0, 0, 28),
         Position = UDim2.fromScale(0.5, 0.5),
         AnchorPoint = Vector2.new(0.5, 0.5),
         Text = "",
@@ -49752,7 +49676,8 @@ function hsvEditor.build(window, owner, parent, opts)
         Parent = hueBar,
     })
 
-    local controller = { root = root, square = square, hueBar = hueBar }
+    local controller =
+        { root = root, square = square, hueBar = hueBar, squareInteract = squareInteract, hueInteract = hueInteract }
 
     local function paint(mode)
         local mapHue = Color3.fromHSV(hue, 1, 1)
@@ -49870,6 +49795,9 @@ function hsvEditor.build(window, owner, parent, opts)
     end
 
     local function beginDrag(region, isMouse)
+        if owner.locked or not root.Visible or window.unloaded then
+            return
+        end
         drag = region
         dragIsMouse = isMouse
         setHeld(region)
@@ -52273,6 +52201,101 @@ function persistenceWrite.write(dir: string, fullPath: string, contents: string)
 end
 
 return persistenceWrite
+]=====]
+
+sources["utility/pickerChrome"] = [=====[
+--!nonstrict
+-- Copyright (c) 2026 Corridon Capital
+-- This Source Code Form is subject to the terms of the Mozilla Public
+-- License, v. 2.0. If a copy of the MPL was not distributed with this
+-- file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-- Shared inspector fields for solid colors and gradient stops.
+local chrome = {}
+local locale = require(script.Parent.locale)
+
+chrome.inset = 14
+chrome.gap = 12
+chrome.square = 136
+chrome.fieldHeight = 46
+
+function chrome.field(window, owner, parent, caption)
+    local field = { shown = false, invalid = false, focused = false, caption = caption }
+    field.root = window:Create("Frame", {
+        Size = UDim2.new(1, 0, 0, chrome.fieldHeight),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Parent = parent,
+    })
+    field.label = window:Create("TextLabel", {
+        Text = locale.t(caption),
+        Size = UDim2.new(1, 0, 0, 12),
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        TextTransparency = 1,
+        ZIndex = 3,
+        Parent = field.root,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    field.well = window:Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 30),
+        Position = UDim2.fromOffset(0, 16),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Parent = field.root,
+    }, { BackgroundColor3 = "FieldBackground" })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 7), Parent = field.well })
+    field.stroke = window:Create("UIStroke", { Transparency = 1, Parent = field.well }, { Color = "SurfaceStroke" })
+    field.input = window:Create("TextBox", {
+        Text = "",
+        Size = UDim2.new(1, -16, 1, 0),
+        Position = UDim2.fromOffset(8, 0),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ClearTextOnFocus = false,
+        TextTransparency = 1,
+        ZIndex = 4,
+        Parent = field.well,
+    }, { TextColor3 = "ContentColor", FontFace = "Font", PlaceholderColor3 = "PlaceholderColor" })
+    function field:Refresh()
+        local theme = window.theme
+        self.well.BackgroundTransparency = if self.shown then theme.FieldTransparency else 1
+        self.input.TextTransparency = if self.shown then theme.FieldTextTransparency else 1
+        self.label.TextTransparency = if self.shown then theme.SecondaryTextTransparency else 1
+        self.stroke.Transparency = if not self.shown
+            then 1
+            elseif self.invalid then 0
+            elseif self.focused then theme.FocusStrokeTransparency
+            else theme.FieldStrokeTransparency
+        self.stroke.Color = if self.invalid
+            then theme.ErrorStrokeColor
+            elseif self.focused then theme.AccentStroke
+            else theme.SurfaceStroke
+        window:_bindLocale(self.label, "Text", self.caption .. (if self.invalid then " · Invalid" else ""))
+    end
+    function field:SetVisible(shown)
+        self.shown = shown
+        self.root.Visible = shown
+        self:Refresh()
+    end
+    function field:SetInvalid(invalid)
+        self.invalid = invalid
+        self:Refresh()
+    end
+    window:ConnectFor(owner, field.input.Focused, function()
+        field.focused, field.invalid = true, false
+        field:Refresh()
+    end)
+    window:ConnectFor(owner, field.input.FocusLost, function()
+        field.focused = false
+        field:Refresh()
+    end)
+    return field
+end
+
+return chrome
 ]=====]
 
 sources["utility/richtext"] = [=====[
