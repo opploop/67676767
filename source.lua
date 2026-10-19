@@ -2537,16 +2537,14 @@ function Checkbox.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
         compact = tab.compact or false,
 
-        flag = properties.flag
-            or properties.Flag
-            or (
-                not (properties.forgetState or properties.ForgetState or tab.forgetState)
-                    and functions.deriveFlagFromName(properties.name or properties.Name or "Checkbox")
-                or nil
-            ),
+        flag = properties.flag or properties.Flag or (not (functions.readBool(
+            properties,
+            "forgetState",
+            tab.forgetState == true
+        )) and functions.deriveFlagFromName(properties.name or properties.Name or "Checkbox") or nil),
 
         callback = properties.callback or properties.Callback or function() end,
 
@@ -3300,7 +3298,7 @@ function Collapsible.new(tab, properties)
         window = tab.window,
         name = properties.name or properties.Name or "Section",
         icon = properties.icon or properties.Icon,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
         compact = false,
         direction = nil,
         elements = {}, -- the inner group's own elements list (Group fills this in)
@@ -3314,13 +3312,11 @@ function Collapsible.new(tab, properties)
         -- Open or closed persists like any other control's value: a player who opened "Advanced"
         -- finds it open next session instead of closed again. `forgetState = true` (or a tab-wide
         -- one) opts out, same as everywhere else.
-        flag = properties.flag
-            or properties.Flag
-            or (
-                not (properties.forgetState or properties.ForgetState or tab.forgetState)
-                    and functions.deriveFlagFromName(properties.name or properties.Name or "Section")
-                or nil
-            ),
+        flag = properties.flag or properties.Flag or (not (functions.readBool(
+            properties,
+            "forgetState",
+            tab.forgetState == true
+        )) and functions.deriveFlagFromName(properties.name or properties.Name or "Section") or nil),
     }, Collapsible)
     self.value = self.expanded
 
@@ -3883,7 +3879,7 @@ function ColorPicker.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
         presets = properties.presets or properties.Presets or defaultPresets,
 
         _callbackPolicy = properties.callbackPolicy or "live",
@@ -4550,7 +4546,7 @@ function ColorSwatch.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
     }, ColorSwatch)
     local window = self.window
     local flag = properties.flag
@@ -8894,16 +8890,14 @@ function Dropdown.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState, -- dont save config for this element if true.
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true), -- dont save config for this element if true.
         locked = properties.locked or properties.Locked or false,
 
-        flag = properties.flag
-            or properties.Flag
-            or (
-                not (properties.forgetState or properties.ForgetState or tab.forgetState)
-                    and functions.deriveFlagFromName(properties.name or properties.Name or "Dropdown")
-                or nil
-            ),
+        flag = properties.flag or properties.Flag or (not (functions.readBool(
+            properties,
+            "forgetState",
+            tab.forgetState == true
+        )) and functions.deriveFlagFromName(properties.name or properties.Name or "Dropdown") or nil),
 
         callback = properties.callback or properties.Callback or function() end,
 
@@ -12491,7 +12485,7 @@ function GradientPicker.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
 
         _callbackPolicy = properties.callbackPolicy or "live",
         _callbackInterval = math.clamp(tonumber(properties.callbackInterval) or 0.1, 0.016, 10),
@@ -15626,7 +15620,7 @@ function Input.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
         placeholder = properties.placeholder or properties.Placeholder or "",
         numeric = properties.numeric or properties.Numeric or false, -- strip anything not a number
         required = properties.required == true,
@@ -16175,7 +16169,7 @@ function ItemGrid.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
 
         columns = if listLayout
             then 1
@@ -16219,14 +16213,11 @@ function ItemGrid.new(tab, properties)
         searchEnabled = search ~= nil and search ~= false,
         searchPlaceholder = if type(search) == "string" then search else "Search",
 
-        flag = properties.flag
-            or properties.Flag
-            or (
-                selectable
-                    and not (properties.forgetState or properties.ForgetState or tab.forgetState)
-                    and functions.deriveFlagFromName(properties.name or properties.Name or "Items")
-                or nil
-            ),
+        flag = properties.flag or properties.Flag or (selectable and not (functions.readBool(
+            properties,
+            "forgetState",
+            tab.forgetState == true
+        )) and functions.deriveFlagFromName(properties.name or properties.Name or "Items") or nil),
 
         callback = properties.callback or properties.Callback or function() end,
         onFilterChanged = properties.onFilterChanged or properties.OnFilterChanged,
@@ -18629,7 +18620,7 @@ function ItemPicker.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
         multiSelect = functions.readBool(properties, "multiSelect", true),
         searchPlaceholder = if type(search) == "string" then search else "Search",
         emptyText = properties.emptyText or properties.EmptyText or "Nothing matches that.",
@@ -19948,7 +19939,7 @@ function Keybind.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
 
         -- the settings' menu-toggle keybind. it drives settings.toggleKeybind, so its clash
         -- check runs the other way: reject keys an element keybind already owns.
@@ -20663,7 +20654,7 @@ function ListPicker.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
 
         rowHeight = math.max(tonumber(properties.rowHeight or properties.RowHeight) or defaultRowHeight, 24),
         -- A CEILING, not a reservation: a list shorter than this takes only the rows it has, a
@@ -20675,13 +20666,11 @@ function ListPicker.new(tab, properties)
         emptyText = properties.emptyText or properties.EmptyText or "Nothing to pick.",
         emptyIcon = properties.emptyIcon or properties.EmptyIcon or "lucide:list",
 
-        flag = properties.flag
-            or properties.Flag
-            or (
-                not (properties.forgetState or properties.ForgetState or tab.forgetState)
-                    and functions.deriveFlagFromName(properties.name or properties.Name or "Category")
-                or nil
-            ),
+        flag = properties.flag or properties.Flag or (not (functions.readBool(
+            properties,
+            "forgetState",
+            tab.forgetState == true
+        )) and functions.deriveFlagFromName(properties.name or properties.Name or "Category") or nil),
 
         callback = properties.callback or properties.Callback or function() end,
 
@@ -21027,7 +21016,10 @@ function ListPicker:_applyRow(row, animate)
             -- on a solid fill the label has to pick its own colour by luminance, or an accent a
             -- theme makes pale renders white-on-white
             TextColor3 = if selected then functions.contrastText(fill) else theme.ContentColor,
-            TextTransparency = if selected then 0 elseif row.hovered then 0.05 else 0.35,
+            TextTransparency = if selected
+                then 0
+                elseif row.hovered then 0.05
+                else self.window.theme.SecondaryTextTransparency,
         },
     }
 
@@ -21520,7 +21512,11 @@ function ListPicker:_setShown(shown, animate)
                 animate
             )
             w:_reveal(row.stroke, { Transparency = if selected then 0.2 else 1 }, animate)
-            w:_reveal(row.title, { TextTransparency = if selected then 0 else 0.35 }, animate)
+            w:_reveal(
+                row.title,
+                { TextTransparency = if selected then 0 else w.theme.SecondaryTextTransparency },
+                animate
+            )
             if row.iconLabel then
                 w:_reveal(row.iconLabel, { ImageTransparency = if selected then 0 else 0.4 }, animate)
             end
@@ -22304,16 +22300,14 @@ function Panel.new(host, properties)
         window = host.window,
         name = properties.name or properties.Name or "Panel",
         showPagePills = functions.readBool(properties, "showPagePills", true),
-        forgetState = properties.forgetState or properties.ForgetState or host.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", host.forgetState == true),
         -- Which page is open persists like any other control's value, so a panel reopens on the
         -- page the player left it on. `forgetState = true` opts out.
-        flag = properties.flag
-            or properties.Flag
-            or (
-                not (properties.forgetState or properties.ForgetState or host.forgetState)
-                    and functions.deriveFlagFromName(properties.name or properties.Name or "Panel")
-                or nil
-            ),
+        flag = properties.flag or properties.Flag or (not (functions.readBool(
+            properties,
+            "forgetState",
+            host.forgetState == true
+        )) and functions.deriveFlagFromName(properties.name or properties.Name or "Panel") or nil),
         value = nil,
         onPageChanged = properties.onPageChanged or properties.OnPageChanged,
 
@@ -24754,7 +24748,7 @@ function ReorderList.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
 
         rowHeight = math.max(tonumber(properties.rowHeight or properties.RowHeight) or defaultRowHeight, 26),
         showIndex = functions.readBool(properties, "showIndex", true),
@@ -24762,13 +24756,11 @@ function ReorderList.new(tab, properties)
         emptyText = properties.emptyText or properties.EmptyText or "Nothing here yet.",
         emptyIcon = properties.emptyIcon or properties.EmptyIcon or "lucide:list-ordered",
 
-        flag = properties.flag
-            or properties.Flag
-            or (
-                not (properties.forgetState or properties.ForgetState or tab.forgetState)
-                    and functions.deriveFlagFromName(properties.name or properties.Name or "Order")
-                or nil
-            ),
+        flag = properties.flag or properties.Flag or (not (functions.readBool(
+            properties,
+            "forgetState",
+            tab.forgetState == true
+        )) and functions.deriveFlagFromName(properties.name or properties.Name or "Order") or nil),
 
         callback = properties.callback or properties.Callback or function() end,
         onRemove = properties.onRemove or properties.OnRemove,
@@ -26903,73 +26895,122 @@ end
 
 -- Toggle each unit's visibility against the query. Empty query shows everything, so the
 -- open field doubles as a browse-all-pages view.
-local function applyFilter(window, query)
-    query = normalized(query)
-    local anyVisible = false
-    for _, entry in window._searchUnits do
-        local match = matches(entry.text, query)
-        entry.result.Visible = match
-        anyVisible = anyVisible or match
+local function renderResults(window)
+    if not window._searchMatches then
+        return
     end
-    window.searchEmpty.Visible = not anyVisible and query ~= ""
+    local entries = window._searchMatches
+    local first = math.max(1, math.floor(window.searchPage.CanvasPosition.Y / 69) + 1)
+    local count = math.min(32, math.max(12, math.ceil(window.searchPage.AbsoluteSize.Y / 69) + 3))
+    window._searchPool = window._searchPool or {}
+    for _, row in window._searchPool do
+        if row.entry then
+            row.entry.result = nil
+        end
+    end
+    for slot = 1, count do
+        local row = window._searchPool[slot]
+        if not row then
+            row = {}
+            row.button = window:Create("TextButton", {
+                Name = "SearchResult",
+                Text = "",
+                AutoButtonColor = false,
+                Size = UDim2.new(1, -20, 0, 62),
+                BorderSizePixel = 0,
+                Parent = window.searchPage,
+            }, { BackgroundColor3 = "StatBackground" })
+            window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = row.button })
+            row.title = window:Create("TextLabel", {
+                Text = "",
+                TextSize = 15,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(14, 9),
+                Size = UDim2.new(1, -28, 0, 20),
+                Parent = row.button,
+            }, { TextColor3 = "ContentColor", FontFace = "Font" })
+            row.path = window:Create("TextLabel", {
+                Text = "",
+                TextSize = 12,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(14, 34),
+                Size = UDim2.new(1, -28, 0, 18),
+                Parent = row.button,
+            }, {
+                TextColor3 = "ContentColor",
+                FontFace = "Font",
+                TextTransparency = "SecondaryTextTransparency",
+            })
+            local accept = require(utility.functions).guardPress(row.button, function()
+                return row.entry
+            end, function(signal, callback)
+                window:Connect(signal, callback)
+            end)
+            window:Connect(row.button.MouseButton1Click, function()
+                local entry = row.entry
+                if accept() and window._searching and entry and not entry.unit._removed then
+                    window:RevealControl(entry.unit)
+                end
+            end)
+            window._searchPool[slot] = row
+        end
+        local index = first + slot - 1
+        row.entry = entries[index]
+        row.button.Visible = row.entry ~= nil
+        if row.entry then
+            row.entry.result = row.button
+            row.title.Text, row.path.Text = row.entry.label, row.entry.path
+            row.button.Position = UDim2.new(0, 10, 0, (index - 1) * 69)
+        end
+    end
+    for slot = count + 1, #window._searchPool do
+        local row = window._searchPool[slot]
+        if row.entry then
+            row.entry.result = nil
+        end
+        row.entry, row.button.Visible = nil, false
+    end
 end
 
--- Global results are shortcuts with context. Controls stay in their original containers,
--- preserving dependencies, page visibility and current values while search is open.
+local function applyFilter(window, query)
+    query = normalized(query)
+    local found = {}
+    for _, entry in window._searchUnits do
+        if not entry.unit._removed and matches(entry.text, query) then
+            table.insert(found, entry)
+        end
+    end
+    window._searchMatches = found
+    window.searchPage.CanvasPosition = Vector2.zero
+    window.searchPage.CanvasSize = UDim2.fromOffset(0, math.max(0, #found * 69 - 7 + 43))
+    window.searchEmpty.Visible = #found == 0 and query ~= ""
+    renderResults(window)
+end
+
 local function gatherUnits(window)
     window._searchUnits = {}
-    for order, target in window:GetControlIndex(true) do
-        local unit = target.control
-        local result = window:Create("TextButton", {
-            Name = "SearchResult",
-            Text = "",
-            AutoButtonColor = false,
-            Size = UDim2.new(1, -20, 0, 62),
-            LayoutOrder = order,
-            BorderSizePixel = 0,
-            Parent = window.searchPage,
-        }, { BackgroundColor3 = "StatBackground" })
-        window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = result })
-        window:Create("TextLabel", {
-            Text = target.label,
-            TextSize = 15,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd,
-            BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(14, 9),
-            Size = UDim2.new(1, -28, 0, 20),
-            Parent = result,
-        }, { TextColor3 = "ContentColor", FontFace = "Font" })
-        window:Create("TextLabel", {
-            Text = target.path,
-            TextSize = 12,
-            TextTransparency = 0.3,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd,
-            BackgroundTransparency = 1,
-            Position = UDim2.fromOffset(14, 34),
-            Size = UDim2.new(1, -28, 0, 18),
-            Parent = result,
-        }, { TextColor3 = "ContentColor", FontFace = "Font" })
-        local connection = window:Connect(result.MouseButton1Click, function()
-            window:RevealControl(unit)
-        end)
+    for _, target in window:GetControlIndex(true) do
         table.insert(window._searchUnits, {
-            unit = unit,
-            text = normalized(target.path .. " " .. leafText(unit)),
-            result = result,
-            connection = connection,
+            unit = target.control,
+            label = target.label,
+            path = target.path,
+            text = normalized(target.path .. " " .. leafText(target.control)),
         })
     end
 end
 
--- Drop only the temporary result cards; the real controls never moved.
 local function restoreUnits(window)
-    for _, entry in window._searchUnits do
-        window:Disconnect(entry.connection)
-        window:DestroySubtree(entry.result)
+    for _, row in window._searchPool or {} do
+        if row.entry then
+            row.entry.result = nil
+        end
+        row.entry, row.button.Visible = nil, false
     end
-    window._searchUnits = {}
+    window._searchUnits, window._searchMatches = {}, nil
 end
 
 function search.open(window)
@@ -27087,7 +27128,7 @@ function search.build(window)
         AnchorPoint = Vector2.new(0.5, 0.5),
         BorderSizePixel = 0,
         BackgroundTransparency = 1,
-        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        AutomaticCanvasSize = Enum.AutomaticSize.None,
         CanvasSize = UDim2.new(0, 0, 0, 0),
         ScrollBarThickness = 0,
         ScrollingDirection = Enum.ScrollingDirection.Y,
@@ -27096,15 +27137,12 @@ function search.build(window)
         Parent = window.elements,
     })
 
-    window:Create("UIListLayout", {
-        Padding = UDim.new(0, 7),
-        FillDirection = Enum.FillDirection.Vertical,
-        VerticalAlignment = Enum.VerticalAlignment.Top,
-        HorizontalAlignment = Enum.HorizontalAlignment.Center,
-        SortOrder = Enum.SortOrder.LayoutOrder,
-
-        Parent = window.searchPage,
-    })
+    window:Connect(window.searchPage:GetPropertyChangedSignal("CanvasPosition"), function()
+        renderResults(window)
+    end)
+    window:Connect(window.searchPage:GetPropertyChangedSignal("AbsoluteSize"), function()
+        renderResults(window)
+    end)
 
     window:Create("UIPadding", {
         PaddingTop = UDim.new(0, 10),
@@ -27466,16 +27504,14 @@ function SegmentedPicker.new(tab, properties)
         window = tab.window,
         options = options,
         description = properties.description or properties.Description,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
         callback = properties.callback or properties.Callback or function() end,
 
-        flag = properties.flag
-            or properties.Flag
-            or (
-                not (properties.forgetState or properties.ForgetState or tab.forgetState)
-                    and functions.deriveFlagFromName(properties.name or properties.Name or "SegmentedPicker")
-                or nil
-            ),
+        flag = properties.flag or properties.Flag or (not (functions.readBool(
+            properties,
+            "forgetState",
+            tab.forgetState == true
+        )) and functions.deriveFlagFromName(properties.name or properties.Name or "SegmentedPicker") or nil),
     }, SegmentedPicker)
 
     self.window:_registerControl(self)
@@ -27498,8 +27534,12 @@ function SegmentedPicker.new(tab, properties)
     -- Set, so an untouched picker persisted nothing (Window:_persist reads control.value) and
     -- a consumer reading picker.value straight after building got nil for a control that is
     -- plainly showing a selection. Mirrors what _pick computes for the same pair.
-    self.value = if childIndex then self:_childText(index, childIndex) else options[index].text
-    self:_select(index, childIndex, true)
+    self.value = if childIndex
+        then self:_childText(index, childIndex)
+        else (options[index] and options[index].text or nil)
+    if options[index] then
+        self:_select(index, childIndex, true)
+    end
 
     if self.description then
         self.descriptor = require(script.Parent.descriptor).new(self.tab, { description = self.description })
@@ -28200,7 +28240,7 @@ function Slider.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
 
         range = properties.range or properties.Range or { 0, 100 },
         increment = properties.increment or properties.Increment or 1,
@@ -31139,7 +31179,7 @@ function Stepper.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState,
+        forgetState = functions.readBool(properties, "forgetState", tab.forgetState == true),
 
         min = min,
         max = max,
@@ -31152,13 +31192,11 @@ function Stepper.new(tab, properties)
 
         callback = properties.callback or properties.Callback or function() end,
 
-        flag = properties.flag
-            or properties.Flag
-            or (
-                not (properties.forgetState or properties.ForgetState or tab.forgetState)
-                    and functions.deriveFlagFromName(properties.name or properties.Name or "Amount")
-                or nil
-            ),
+        flag = properties.flag or properties.Flag or (not (functions.readBool(
+            properties,
+            "forgetState",
+            tab.forgetState == true
+        )) and functions.deriveFlagFromName(properties.name or properties.Name or "Amount") or nil),
     }, Stepper)
 
     local declared = functions.readValue(properties, { "value", "Value" })
@@ -32066,9 +32104,10 @@ function Tab.new(window, properties)
         neglectSelector = properties.neglectSelector or properties.NeglectSelector or false,
         customOrder = properties.customOrder or properties.CustomOrder or 0,
         -- when true, controls on this tab default to not persisting to config (the settings tab)
-        forgetState = properties.forgetState or properties.ForgetState or false,
+        forgetState = functions.readBool(properties, "forgetState", false),
         locked = properties.locked or properties.Locked or false,
 
+        _buildCallback = properties.build or properties.Build,
         elements = {},
         connections = {}, -- tracked so Remove can drop them without waiting for Unload
     }, Tab)
@@ -32243,7 +32282,26 @@ function Tab:SetLocked(locked)
     self:_applyLocked()
 end
 
+-- Optional pages allocate controls only when first selected; Build allows explicit prewarming.
+function Tab:Build()
+    if not self.tabPage or self._building then
+        return
+    end
+    local callback = self._buildCallback
+    if not callback then
+        return
+    end
+    self._buildCallback = nil
+    self._building = true
+    local ok, err = pcall(callback, self)
+    self._building = false
+    if not ok then
+        error(err, 0)
+    end
+end
+
 function Tab:Select(noAnimation)
+    self:Build()
     -- Selecting a tab with the all-pages search open leaves it: bring the strip back, but let
     -- the navigation below pick the page. The page search instead follows the player to the new
     -- tab with the same query (search.retarget below) - leaving the field open is the point of it.
@@ -32723,6 +32781,7 @@ function Tab:Remove()
     self.topbarItem = nil
     self.tabPage = nil
     self.elements = {}
+    self._buildCallback = nil
 end
 
 return Tab
@@ -35662,13 +35721,11 @@ function Toggle.new(tab, properties)
         compact = tab.compact or false, -- true when the host is a Row
         locked = properties.locked or properties.Locked or false,
 
-        flag = properties.flag
-            or properties.Flag
-            or (
-                not (properties.forgetState or properties.ForgetState or tab.forgetState)
-                    and functions.deriveFlagFromName(properties.name or properties.Name or "Switch")
-                or nil
-            ),
+        flag = properties.flag or properties.Flag or (not (functions.readBool(
+            properties,
+            "forgetState",
+            tab.forgetState == true
+        )) and functions.deriveFlagFromName(properties.name or properties.Name or "Switch") or nil),
 
         callback = properties.callback or properties.Callback or function() end,
 
@@ -37488,6 +37545,8 @@ function updateCheck.new(window, config, version)
         version = tostring(config.version or config.Version or version or ""),
         -- a request is never made more often than this, whoever asks
         lastRequest = nil,
+        timeout = math.clamp(tonumber(config.timeout or config.Timeout) or 15, 0.05, 60),
+        state = "idle",
         remote = nil,
         notes = nil,
         notified = false,
@@ -37512,13 +37571,16 @@ end
 
 -- Fetch and compare. Yields for the request; answers (hasUpdate, remoteVersion, notes). Within
 -- a minute of the last request it answers from that one instead of asking again.
-function updateCheck:check(): (boolean, string?, string?)
+function updateCheck:check()
     if self.window.unloaded then
         return false
     end
     local now = os.clock()
+    if self._inflight then
+        return self:_answer("inflight")
+    end
     if self.lastRequest and now - self.lastRequest < minimumInterval then
-        return self:_answer()
+        return self:_answer(if self.state == "success" then "cached" else self.state)
     end
     self.lastRequest = now
 
@@ -37526,11 +37588,36 @@ function updateCheck:check(): (boolean, string?, string?)
     local fetch = self._fetch or network.getFetchFn()
     if not fetch then
         self:_log("no way to make an HTTP request on this executor")
-        return false
+        self.state, self.error = "error", "HTTP unavailable"
+        return self:_answer()
     end
     -- the query keeps a CDN from handing back an old copy of the file
     local separator = if string.find(self.url, "?", 1, true) then "&" else "?"
-    local ok, response = pcall(fetch, { Url = self.url .. separator .. "rf=" .. tostring(os.time()), Method = "GET" })
+    local request: any = { done = false, expired = false }
+    self._inflight = request
+    task.spawn(function()
+        request.ok, request.response =
+            pcall(fetch, { Url = self.url .. separator .. "rf=" .. tostring(os.time()), Method = "GET" })
+        request.done = true
+        if request.expired and self._inflight == request then
+            self._inflight = nil
+        end
+    end)
+    local deadline = os.clock() + self.timeout
+    while not request.done and os.clock() < deadline and not self.window.unloaded do
+        task.wait(0.03)
+    end
+    if not request.done then
+        -- Keep native concurrency bounded until this provider actually returns. Late data is discarded.
+        self.state, self.error = "error", "Request timed out"
+        request.expired = true
+        return self:_answer()
+    end
+    self._inflight = nil
+    if self.window.unloaded then
+        return false
+    end
+    local ok, response = request.ok, request.response
     local body = ok and type(response) == "table" and response.Body
     if
         not ok
@@ -37539,16 +37626,19 @@ function updateCheck:check(): (boolean, string?, string?)
         or (response.Success == false)
         or (type(response.StatusCode) == "number" and (response.StatusCode < 200 or response.StatusCode >= 300))
     then
+        self.state, self.error = "error", "Request failed"
         self:_log("check failed:", if ok then tostring(response and response.StatusCode) else tostring(response))
         return self:_answer()
     end
 
     local remote, notes = updateCheck.read(body)
-    if not remote then
+    if not remote or not updateCheck.parse(remote) then
+        self.state, self.error = "error", "Invalid version response"
         self:_log("could not read a version from", self.url)
         return self:_answer()
     end
     self.remote, self.notes = remote, notes
+    self.state, self.error, self.checkedAt = "success", nil, os.clock()
     -- Version metadata is untrusted data, never authority to replace executable code.
 
     if updateCheck.compare(remote, self.version) > 0 then
@@ -37557,9 +37647,19 @@ function updateCheck:check(): (boolean, string?, string?)
     return self:_answer()
 end
 
-function updateCheck:_answer(): (boolean, string?, string?)
-    local newer = self.remote ~= nil and updateCheck.compare(self.remote, self.version) > 0
-    return newer, self.remote, self.notes
+function updateCheck:_answer(state)
+    state = state or self.state
+    local usable = state == "success" or state == "cached"
+    local newer = usable and self.remote ~= nil and updateCheck.compare(self.remote, self.version) > 0
+    return newer,
+        if usable then self.remote else nil,
+        if usable then self.notes else nil,
+        {
+            state = state,
+            error = self.error,
+            cachedVersion = self.remote,
+            age = if self.checkedAt then math.max(0, os.clock() - self.checkedAt) else nil,
+        }
 end
 
 -- Once per session for the notification; once per remote version for the dev's callback.
@@ -40145,12 +40245,18 @@ function Window:CreateThemeEditor(properties)
             editor.radius:Set(self.theme.ElementCornerRadius.Offset, true)
         end
     end
-    self:OnThemeChanged(function()
-        if not self.unloaded then
+    local disconnectTheme = self:OnThemeChanged(function()
+        if not self.unloaded and tab.tabPage and tab.tabPage.Parent then
             sync()
         end
     end)
     editor.name = tab:CreateInput({ name = "Preset name", value = "My theme", forgetState = true })
+    editor.name._disconnectThemeHook = function()
+        disconnectTheme()
+        if self._themeEditor == editor then
+            self._themeEditor = nil
+        end
+    end
     local saved = tab:CreateDropdown({
         name = "Saved presets",
         options = {},
@@ -40550,7 +40656,13 @@ function Window:_initExperience(properties)
         name = "Open Theme Studio",
         icon = "lucide:palette",
         callback = function()
-            self._themeEditor = self._themeEditor or self:CreateThemeEditor()
+            if
+                not self._themeEditor
+                or not self._themeEditor.tab.tabPage
+                or not self._themeEditor.tab.tabPage.Parent
+            then
+                self._themeEditor = self:CreateThemeEditor()
+            end
             self:Navigate(self._themeEditor.tab)
         end,
     })
@@ -43863,7 +43975,11 @@ local function favoriteRow(window, tab, entry)
             animate
         )
         self.window:_reveal(self.title, { TextTransparency = if shown then 0 else 1 }, animate)
-        self.window:_reveal(self.breadcrumb, { TextTransparency = if shown then 0.3 else 1 }, animate)
+        self.window:_reveal(
+            self.breadcrumb,
+            { TextTransparency = if shown then self.window.theme.SecondaryTextTransparency else 1 },
+            animate
+        )
         self.window:_reveal(self.glyph, { ImageTransparency = if shown then 0.25 else 1 }, animate)
     end
     window:ConnectFor(row, row.interact.MouseButton1Click, function()
@@ -43876,7 +43992,7 @@ local function favoriteRow(window, tab, entry)
 end
 
 function Window:CreateFavorites(properties)
-    if self._favoritesHandle then
+    if self._favoritesHandle and self._favoritesHandle.tab.tabPage and self._favoritesHandle.tab.tabPage.Parent then
         return self._favoritesHandle
     end
     local tab = self:CreateTab({ name = (properties or {}).name or "Favorites", icon = "lucide:star" })
@@ -43902,6 +44018,9 @@ function Window:CreateFavorites(properties)
     handle.empty =
         tab:CreateParagraph({ title = "No favorites yet", content = "Choose a control above to keep it close." })
     local function refresh()
+        if not tab.tabPage or not tab.tabPage.Parent then
+            return
+        end
         for _, row in handle.rows do
             require(script.Parent.Parent.utility.elementLifecycle).teardown(self, { row })
             self:DestroySubtree(row.main)
@@ -43926,11 +44045,17 @@ function Window:CreateFavorites(properties)
     end
     handle.Refresh = refresh
     self._refreshFavorites = refresh
-    self:_onPageShown(function(page)
+    local disconnect = self:_onPageShown(function(page)
         if page == tab then
             refresh()
         end
     end)
+    handle.empty._disconnectPageHook = function()
+        disconnect()
+        if self._favoritesHandle == handle then
+            self._favoritesHandle, self._favoritesTab, self._refreshFavorites = nil, nil, nil
+        end
+    end
     refresh()
     return handle
 end
@@ -48964,6 +49089,7 @@ export type WindowProps = {
 }
 
 export type TabProps = {
+    build: ((tab: Tab) -> ())?,
     name: string?,
     icon: (string | number)?,
     locked: boolean?,
@@ -49549,6 +49675,7 @@ export type Watermark = {
 }
 
 export type UpdateCheckProps = {
+    timeout: number?, -- logical response deadline in seconds (default 15, clamped 0.05–60); native calls cannot be forcibly aborted
     url: string, -- answers { "version": "1.0.3", "notes": "..." } or just "1.0.3"; remote code is ignored
     interval: number?, -- seconds between checks (default 600, never under 60)
     loader: string?, -- trusted developer-provided code to run after Rejoin; never replaced by remote metadata
@@ -50429,6 +50556,7 @@ export type Group = Moveable & {
 }
 
 export type Tab = {
+    Build: (self: Tab) -> (),
     CreateButton: (self: Tab, props: ButtonProps) -> Button,
     CreateFlipButton: (self: Tab, props: FlipButtonProps) -> FlipButton,
     CreateCopyButton: (self: Tab, props: CopyButtonProps) -> CopyButton,
@@ -50607,7 +50735,9 @@ export type Window = {
     -- the window alone, black then white behind it, for the Rayfield Photo tool; yields ~1s
     TakePhoto: (self: Window) -> boolean,
     -- check the updateCheck url now; yields; (hasUpdate, remoteVersion, notes)
-    CheckForUpdate: (self: Window) -> (boolean, string?, string?),
+    CheckForUpdate: (
+        self: Window
+    ) -> (boolean, string?, string?, { state: string, error: string?, cachedVersion: string?, age: number? }?),
     -- the inbox behind the bell: keep an entry without a toast, open it, read it, empty it
     AddToInbox: (self: Window, props: NotifyProps) -> InboxEntry?,
     OpenInbox: (self: Window) -> (),
@@ -52881,7 +53011,7 @@ function document.prepare(window, parsed)
                     end
                 end
             elseif kind == "ColorPicker" then
-                valid = type(value) == "string" and value:match("^%x%x%x%x%x%x$") ~= nil
+                valid = type(value) == "string" and (#value == 6 or #value == 8) and value:match("^%x+$") ~= nil
             elseif kind == "Keybind" then
                 valid = type(value) == "table" and type(value[1]) == "string" and type(value[2]) == "number"
                 if valid then
@@ -55151,19 +55281,22 @@ export type IconEntry = {
 }
 
 local cache: { [string]: any } = {} -- pack -> the raw decoded table, or false if fetching it failed
-local attempted: { [string]: boolean } = {}
+local attempted: { [string]: number } = {}
+local retryAt: { [string]: number } = {}
+local fetching: { [string]: boolean } = {}
 
 -- Fetches and loadstring()s one pack's data file. Synchronous (HttpGet yields the calling
 -- thread, same tradeoff every other dev-loadstring fetch in this codebase already makes) - only
 -- ever pays that cost once per pack per session, on whichever call happens to ask for it first.
 local function fetchPack(pack: string): any
-    if cache[pack] ~= nil then
+    if cache[pack] then
         return cache[pack] or nil
     end
-    if attempted[pack] then
+    if fetching[pack] or (retryAt[pack] and os.clock() < retryAt[pack]) then
         return nil
     end
-    attempted[pack] = true
+    fetching[pack] = true
+    attempted[pack] = (attempted[pack] or 0) + 1
 
     local ok, result = pcall(function()
         local code = game:HttpGet(baseUrl .. pack .. "/dist/Icons.lua", true)
@@ -55172,12 +55305,14 @@ local function fetchPack(pack: string): any
         return fn()
     end)
 
+    fetching[pack] = nil
     if ok and typeof(result) == "table" then
         cache[pack] = result
         return result
     end
 
-    cache[pack] = false -- remembered so a dead pack/repo doesn't retry a fetch every lookup
+    retryAt[pack] = os.clock() + math.min(300, 5 * 2 ^ math.min(attempted[pack] - 1, 6))
+    cache[pack] = false -- backoff bounds retries; a later lookup can recover.
     return nil
 end
 
@@ -55539,22 +55674,47 @@ imageCache.onCached = nil :: OnCachedCallback? -- image sets this to rebind blan
 local pngMagic = "\137PNG\r\n\26\n"
 
 -- Bound native requests; providers may yield but cannot create an unbounded fan-out.
-local jobs: { () -> () } = {}
+local jobs: { any } = {}
 local running = 0
 local requestLimit = 4
 local avatarWaiters: { [number]: { AvatarCallback } } = {}
 local preloadWaiters: { CacheSettledCallback }? = nil
 local preloadMissing = 0
 
-local function enqueue(job: () -> ())
-    table.insert(jobs, job)
+-- Deadlines settle consumers; a native request keeps its slot until it returns.
+local function enqueue(job: any, expired: () -> ())
+    local entry = { live = true, job = job, expired = expired }
+    entry.timer = task.delay(15, function()
+        if entry.live then
+            entry.live = false
+            local queued = table.find(jobs, entry)
+            if queued then
+                table.remove(jobs, queued)
+            end
+            expired()
+        end
+    end)
+    table.insert(jobs, entry)
     local function pump()
         while running < requestLimit and #jobs > 0 do
             local nextJob = table.remove(jobs, 1)
-            assert(nextJob)
+            if not nextJob or not nextJob.live then
+                continue
+            end
             running += 1
             task.spawn(function()
-                pcall(nextJob)
+                local ok = pcall(nextJob.job, function()
+                    return nextJob.live
+                end)
+                if nextJob.live then
+                    nextJob.live = false
+                    if nextJob.timer then
+                        pcall(task.cancel, nextJob.timer)
+                    end
+                    if not ok then
+                        nextJob.expired()
+                    end
+                end
                 running -= 1
                 pump()
             end)
@@ -55576,7 +55736,7 @@ local function cachedUri(filePath: string): string?
     return if ok and type(uri) == "string" and #uri > 0 then uri else nil
 end
 
-local function cacheFile(filePath: string, url: string): string?
+local function cacheFile(filePath: string, url: string, active: (() -> boolean)?): string?
     -- no custom assets or no file API means nothing can be cached at all
     if type(getfenv().getcustomasset) ~= "function" or not filesystem.usable() then
         return nil
@@ -55588,6 +55748,9 @@ local function cacheFile(filePath: string, url: string): string?
     pcall(filesystem.ensureFolder, cacheRoot)
     pcall(filesystem.ensureFolder, cacheFolder)
     local body = assetResolver:getAssetContentFromUrl(url, filePath, true)
+    if active and not active() then
+        return nil
+    end
     if not body or #body > 8 * 1024 * 1024 or string.sub(body, 1, 8) ~= pngMagic then
         return nil
     end
@@ -55627,9 +55790,12 @@ local function decodeThumbnailUrl(body: string): string?
     return nil
 end
 
-local function fetchAvatar(userId: number): string?
+local function fetchAvatar(userId: number, active: (() -> boolean)?): string?
     local cdnUrl: string? = nil
     for attempt = 1, 4 do
+        if active and not active() then
+            return nil
+        end
         -- retries must bypass the session cache or a cached "Pending" response wins forever
         local body = assetResolver:getAssetContentFromUrl(
             string.format(thumbEndpoint, userId, headshotPx, headshotPx),
@@ -55649,7 +55815,7 @@ local function fetchAvatar(userId: number): string?
         return nil
     end
 
-    return cacheFile(avatarPath(userId), cdnUrl)
+    return cacheFile(avatarPath(userId), cdnUrl, active)
 end
 
 -- onSettled(failed) fires once every background download has finished, with the count that never
@@ -55705,20 +55871,28 @@ function imageCache.preload(onSettled: PreloadCallback?): (boolean, number)
         settle()
     end
     for _, entry in missing do
-        enqueue(function()
+        local finished = false
+        local function finish()
+            if finished then
+                return
+            end
+            finished = true
+            remaining -= 1
+            if remaining == 0 then
+                settle()
+            end
+        end
+        enqueue(function(active: () -> boolean)
             -- Protect completion accounting from filesystem and provider exceptions too.
-            local ok, uri = pcall(cacheFile, entry.filePath, entry.url)
-            if ok and uri then
+            local ok, uri = pcall(cacheFile, entry.filePath, entry.url, active)
+            if active() and ok and uri then
                 rewrites[entry.id] = uri
                 if imageCache.onCached then
                     pcall(imageCache.onCached, entry.id)
                 end
             end
-            remaining -= 1
-            if remaining == 0 then
-                settle()
-            end
-        end)
+            finish()
+        end, finish)
     end
     return #missing == 0, #missing
 end
@@ -55745,15 +55919,24 @@ function imageCache.avatar(userId: unknown, onReady: AvatarCallback?): string
         else
             local listeners = { onReady }
             avatarWaiters[userId] = listeners
-            enqueue(function()
-                local ok, ready = pcall(fetchAvatar, userId)
-                avatarWaiters[userId] = nil
-                if ok and ready then
-                    for _, listener in listeners do
-                        pcall(listener, ready)
-                    end
+            local function failed()
+                if avatarWaiters[userId] == listeners then
+                    avatarWaiters[userId] = nil
                 end
-            end)
+                for _, listener in listeners do
+                    pcall(listener, "")
+                end
+            end
+            enqueue(function(active: () -> boolean)
+                local ok, ready = pcall(fetchAvatar, userId, active)
+                if not active() then
+                    return
+                end
+                avatarWaiters[userId] = nil
+                for _, listener in listeners do
+                    pcall(listener, if ok and ready then ready else "")
+                end
+            end, failed)
         end
     end
 
