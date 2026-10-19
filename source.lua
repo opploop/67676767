@@ -6259,6 +6259,8 @@ local locale = require(utility.locale)
 local image = require(utility.image)
 local moveable = require(utility.moveable)
 local clipboard = require(utility.clipboard)
+local actionFeedback = require(utility.actionFeedback)
+local colors = require(utility.colors)
 local network = require(utility.network)
 local capabilities = require(utility.capabilities)
 local hapticEngine = require(utility.HapticEngine)
@@ -6410,7 +6412,11 @@ function Dashboard:_text(parent, properties, shown: number?)
         TextColor3 = properties.color or "ContentColor",
         FontFace = if properties.bold then "TitleFont" else "Font",
     })
-    self:_fade(label, "TextTransparency", shown or 0)
+    self:_fade(label, "TextTransparency", function()
+        local amount = shown or 0
+        local secondary = self.window.theme.SecondaryTextTransparency
+        return if amount > 0 and type(secondary) == "number" then math.min(amount, secondary) else amount
+    end)
     return label
 end
 
@@ -6494,126 +6500,78 @@ function Dashboard:_button(parent, text: string, size: UDim2, position: UDim2, o
         end
     end)
 
-    local scale = window:Create("UIScale", { Scale = 1, Parent = button })
     local copying = text == "Copy Job ID" or text == "Copy Place ID" or text == "Copy Universe"
     local server = text == "Rejoin" or text == "Server Hop" or text == "Join Lowest Server"
-    local feedback = if server
+    local icon = if server
         then self:_icon(button, "lucide:loader-circle", 13, UDim2.new(1, -9, 0.5, 0), Vector2.new(1, 0.5), 0)
         else nil
-    if feedback then
-        feedback.Visible = false
-    end
-    local state: {
-        busy: boolean,
-        epoch: number,
-        button: TextButton,
-        scale: UIScale,
-        label: string,
-        spin: Tween?,
-        Activate: (() -> ())?,
-    } =
-        { busy = false, epoch = 0, button = button, scale = scale, label = button.Text }
-    self._buttonActions = self._buttonActions or {}
-    self._buttonActions[button] = state
-    local function live(epoch)
-        return not window.unloaded and button.Parent ~= nil and state.epoch == epoch
-    end
-    local function reset(epoch)
-        if not live(epoch) then
-            return
-        end
-        if state.spin then
-            state.spin:Cancel()
-            state.spin = nil
-        end
-        if feedback then
-            feedback.Visible = false
-            feedback.Rotation = 0
-        end
-        button.Text = state.label or locale.resolve(text)
-        state.busy = false
-        if server then
-            self._serverActionBusy = false
-        end
-    end
-    local function activate()
-        if state.busy or window.unloaded or not button.Parent or (server and self._serverActionBusy) then
-            return
-        end
-        hapticEngine.click()
-        soundEngine.click()
-        state.busy = true
-        state.epoch += 1
-        state.label = button.Text
-        local epoch = state.epoch
-        if server then
-            self._serverActionBusy = true
-        end
-        scale.Scale = 0.96
-        variables.tweenService
-            :Create(scale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 })
-            :Play()
-        if copying then
-            button.Text = locale.resolve("Copying...")
-        elseif server then
-            button.Text = locale.resolve(if text == "Rejoin" then "Rejoining..." else "Finding...")
-            feedback.Visible = true
-            local spin = variables.tweenService:Create(
-                feedback,
-                TweenInfo.new(0.75, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1),
-                { Rotation = 360 }
-            )
-            state.spin = spin
-            spin:Play()
-        end
-        if copying or server then
-            task.delay(15, function()
-                if live(epoch) and state.busy then
-                    state.epoch += 1
-                    reset(state.epoch)
-                    window:Toast({
-                        title = locale.resolve("Action timed out. Try again."),
-                        icon = "lucide:x",
-                        duration = 3,
-                    })
-                end
-            end)
-        end
-        task.spawn(function()
-            local ok, result = pcall(onClick)
-            if not live(epoch) then
-                return
+    if not self._buttonActions then
+        self._buttonActions = {}
+        function self:_disposeActions()
+            for _, action in table.clone(self._buttonActions) do
+                action:Destroy()
             end
-            if copying or server then
-                if copying then
-                    button.Text = locale.resolve(if ok and result ~= false then "Copied!" else "Try again")
-                else
-                    button.Text = locale.resolve(if not ok or result == false then "Try again" else "Joining...")
-                end
-                task.delay(1.8, function()
-                    reset(epoch)
-                end)
-            else
-                reset(epoch)
+            if self._disconnectUnload then
+                self._disconnectUnload()
+                self._disconnectUnload = nil
             end
-            if not ok then
-                window:Toast({ title = locale.resolve("Action failed. Try again."), icon = "lucide:x", duration = 3 })
-            end
+        end
+        self._disconnectUnload = window:OnUnload(function()
+            self:_disposeActions()
+        end)
+        window:ConnectFor(self, self.main.Destroying, function()
+            self:_disposeActions()
         end)
     end
-    state.Activate = activate
-    window:ConnectFor(self, button.MouseButton1Click, activate)
-    window:ConnectFor(self, button.Destroying, function()
-        state.epoch += 1
-        if state.spin then
-            state.spin:Cancel()
-            state.spin = nil
-        end
-        self._buttonActions[button] = nil
-        if server and state.busy then
-            self._serverActionBusy = false
-        end
-    end)
+    local state = actionFeedback.new(window, self, button, {
+        callback = onClick,
+        feedback = copying or server,
+        compact = copying,
+        busyText = if copying then "Copying..." elseif text == "Rejoin" then "Rejoining..." else "Finding...",
+        successText = if copying then "Copied!" else "Joining...",
+        errorText = "Try again",
+        icon = icon,
+        spin = server,
+        progressOnly = server,
+        timeout = 15,
+        releaseOnResult = not server,
+        canRun = function()
+            return not server or not self._serverActionBusy
+        end,
+        acquire = if server
+            then function()
+                self._serverActionBusy = true
+            end
+            else nil,
+        release = if server
+            then function()
+                self._serverActionBusy = false
+            end
+            else nil,
+        onPress = function()
+            hapticEngine.click()
+            soundEngine.click()
+        end,
+        onResult = function(ok, _, err)
+            if err then
+                window:_recordUsabilityError("callback", "Dashboard")
+                window:Toast({
+                    title = locale.resolve(
+                        if err == "timeout" then "Action timed out. Try again." else "Action failed. Try again."
+                    ),
+                    icon = "lucide:x",
+                    duration = 3,
+                })
+            elseif ok then
+                window:_clearCallbackError(self)
+            end
+        end,
+        onDispose = function()
+            self._buttonActions[button] = nil
+        end,
+    })
+    self._buttonActions[button] = state
+    window:ConnectFor(self, button.MouseButton1Click, state.Activate)
     return button
 end
 
@@ -6853,7 +6811,16 @@ function Dashboard:_buildProfile()
             TextTransparency = 1,
             LayoutOrder = 2,
             Parent = pill,
-        }, { TextColor3 = "AccentStroke", FontFace = "TitleFont" })
+        }, {
+            TextColor3 = {
+                "AccentStroke",
+                function(accent)
+                    local surface = colors.flatten(window.theme.ElementGradient)
+                    return colors.readableText(accent, surface:Lerp(accent, 0.12))
+                end,
+            },
+            FontFace = "TitleFont",
+        })
         self:_fade(word, "TextTransparency", 0)
         self.badgeLabel = word
 
@@ -7143,13 +7110,19 @@ function Dashboard:_buildLinks()
             UDim2.new(1, -14, 0.5, 0),
             function()
                 if type(link.callback) == "function" then
-                    self.window:_runGuarded(self, link.callback)
+                    link.callback()
                 end
                 if target ~= "" then
-                    self:_copy(target, "Copied")
+                    return self:_copy(target, "Copied")
                 end
+                return true
             end
         )
+        self._buttonActions[button]:Configure({
+            feedback = true,
+            busyText = if target ~= "" then "Copying..." else "Working...",
+            successText = if target ~= "" then "Copied!" else "Done",
+        })
         button.AnchorPoint = Vector2.new(1, 0.5)
     end
 end
@@ -7434,6 +7407,13 @@ function Dashboard:_setShown(shown, animate)
 end
 
 function Dashboard:_refreshTheme()
+    if self._shown then
+        for _, fade in self.fades do
+            if fade.property == "TextTransparency" and type(fade.shown) == "function" and fade.instance.Parent then
+                self.window:_reveal(fade.instance, { TextTransparency = fade.shown() }, false)
+            end
+        end
+    end
     for _, switch in { self.nameSwitch, self.avatarSwitch } do
         if switch then
             switch.paint(false)
@@ -35675,7 +35655,10 @@ function Toggle.new(tab, properties)
         icon = properties.icon or properties.Icon,
         description = properties.description or properties.Description,
         tooltip = properties.tooltip or properties.Tooltip,
-        forgetState = properties.forgetState or properties.ForgetState or tab.forgetState, -- dont save config for this element if true.
+        forgetState = if properties.forgetState ~= nil
+            then properties.forgetState
+            elseif properties.ForgetState ~= nil then properties.ForgetState
+            else tab.forgetState, -- an explicit false opts this control into persistence.
         compact = tab.compact or false, -- true when the host is a Row
         locked = properties.locked or properties.Locked or false,
 
@@ -51024,6 +51007,256 @@ end
 return acrylic
 ]=====]
 
+sources["utility/actionFeedback"] = [=====[
+--!nonstrict
+-- One owner for press, progress, completion, deadlines and disposal of an action button.
+local variables = require(script.Parent.variables)
+local locale = require(script.Parent.locale)
+local actionFeedback = {}
+
+function actionFeedback.new(window, owner, button, options, runtime)
+    runtime = runtime or task
+    local now = runtime.now or os.clock
+    local config = table.clone(options or {})
+    local c: any = { button = button, busy = false, epoch = 0, phase = "idle", label = button.Text }
+    c.scale = button:FindFirstChildWhichIsA("UIScale") or window:Create("UIScale", { Scale = 1, Parent = button })
+    local function live(epoch)
+        return c.phase ~= "disposed"
+            and not window.unloaded
+            and not owner._removed
+            and button.Parent ~= nil
+            and c.epoch == epoch
+    end
+    local function clearTimer(key)
+        local timer = c[key]
+        c[key] = nil
+        if timer and runtime.cancel then
+            pcall(runtime.cancel, timer)
+        end
+    end
+    local function stop()
+        if c.spin then
+            c.spin:Cancel()
+            c.spin = nil
+        end
+        if c.press then
+            c.press:Cancel()
+            c.press = nil
+        end
+        if c.icon then
+            c.icon.Rotation = 0
+            c.icon.Visible = true
+        end
+        if c.check then
+            c.check.Visible = false
+        end
+        if config.progressOnly and c.icon then
+            c.icon.Visible = false
+        end
+    end
+    local function release()
+        if c.locked then
+            c.locked = false
+            if config.release then
+                config.release()
+            end
+        end
+    end
+    local function reset(epoch)
+        if not live(epoch) then
+            return
+        end
+        stop()
+        button.Text = c.label
+        c.busy = false
+        c.phase = "idle"
+        release()
+    end
+    local function settle(epoch, ok, result, err)
+        if not live(epoch) or c.phase ~= "running" then
+            return
+        end
+        clearTimer("deadline")
+        clearTimer("minimumTimer")
+        c.phase = if ok then "success" else "error"
+        if c.spin then
+            c.spin:Cancel()
+            c.spin = nil
+        end
+        if c.icon then
+            c.icon.Rotation = 0
+        end
+        local text = if type(result) == "table" then result.text else nil
+        if config.feedback then
+            button.Text =
+                locale.resolve(text or (if ok then config.successText or "Done" else config.errorText or "Try again"))
+            if c.check then
+                c.check.Visible = ok
+            end
+            if c.icon then
+                c.icon.Visible = not ok and not config.progressOnly
+            end
+        end
+        -- Deadline state, not the displayed caption, determines whether work has finished.
+        if config.releaseOnResult ~= false then
+            release()
+        end
+        if config.onResult then
+            pcall(config.onResult, ok, result, err)
+        end
+        if not live(epoch) then
+            return
+        end
+        if config.feedback then
+            c.resultTimer = runtime.delay(config.resultDuration or 1.8, function()
+                c.resultTimer = nil
+                reset(epoch)
+            end)
+        else
+            reset(epoch)
+        end
+    end
+    function c:Configure(changes)
+        if self.busy or self.phase == "disposed" then
+            return false
+        end
+        for key, value in changes do
+            config[key] = value
+        end
+        self.icon = config.icon
+        self.check = config.successIcon
+        if self.check then
+            self.check.Visible = false
+        end
+        if config.progressOnly and self.icon then
+            self.icon.Visible = false
+        end
+        return true
+    end
+    function c.Activate()
+        if c.busy or not live(c.epoch) or (config.canRun and not config.canRun()) then
+            return false
+        end
+        c.epoch += 1
+        local epoch = c.epoch
+        c.label = button.Text
+        c.busy = true
+        c.phase = "running"
+        if config.acquire then
+            config.acquire()
+            c.locked = true
+        end
+        if config.onPress then
+            pcall(config.onPress)
+        end
+        c.scale.Scale = 0.96
+        c.press = variables.tweenService:Create(
+            c.scale,
+            TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            { Scale = 1 }
+        )
+        c.press:Play()
+        if c.check then
+            c.check.Visible = false
+        end
+        if config.feedback then
+            local caption = config.busyText or "Working..."
+            if config.compact and button.AbsoluteSize.X > 0 and button.AbsoluteSize.X < 80 then
+                caption = "..."
+            end
+            button.Text = locale.resolve(caption)
+        end
+        if config.spin and c.icon then
+            c.icon.Visible = true
+            c.icon.Rotation = 0
+            c.spin = variables.tweenService:Create(
+                c.icon,
+                TweenInfo.new(0.8, Enum.EasingStyle.Linear, Enum.EasingDirection.In, -1),
+                { Rotation = 360 }
+            )
+            c.spin:Play()
+        end
+        local timeout = config.timeout
+        if type(timeout) == "number" and timeout > 0 and timeout < math.huge then
+            c.deadline = runtime.delay(timeout, function()
+                c.deadline = nil
+                if live(epoch) and c.phase == "running" then
+                    settle(epoch, false, { text = config.errorText or "Try again" }, "timeout")
+                end
+            end)
+        end
+        runtime.spawn(function()
+            if not live(epoch) or c.phase ~= "running" then
+                return
+            end
+            local started = now()
+            local ok, result = pcall(config.callback or function()
+                return true
+            end)
+            if not live(epoch) or c.phase ~= "running" then
+                return
+            end
+            local success = ok and result ~= false and not (type(result) == "table" and result.ok == false)
+            local remaining = (config.minimumDuration or 0) - (now() - started)
+            local function complete()
+                settle(epoch, success, if ok then result else nil, if ok then nil else result)
+            end
+            if remaining > 0 then
+                c.minimumTimer = runtime.delay(remaining, function()
+                    c.minimumTimer = nil
+                    complete()
+                end)
+            else
+                complete()
+            end
+        end)
+        return true
+    end
+    function c:Cancel()
+        if self.phase == "disposed" then
+            return
+        end
+        self.epoch += 1
+        clearTimer("deadline")
+        clearTimer("resultTimer")
+        clearTimer("minimumTimer")
+        stop()
+        release()
+        self.busy = false
+        self.phase = "idle"
+        if button.Parent then
+            button.Text = self.label
+            self.scale.Scale = 1
+        end
+    end
+    function c:Destroy()
+        if self.phase == "disposed" then
+            return
+        end
+        self:Cancel()
+        self.phase = "disposed"
+        if self.connection then
+            window:Disconnect(self.connection)
+            local index = owner.connections and table.find(owner.connections, self.connection)
+            if index then
+                table.remove(owner.connections, index)
+            end
+            self.connection = nil
+        end
+        if config.onDispose then
+            config.onDispose()
+        end
+    end
+    c:Configure(config)
+    c.connection = window:ConnectFor(owner, button.Destroying, function()
+        c:Destroy()
+    end)
+    return c
+end
+
+return actionFeedback
+]=====]
+
 sources["utility/assetResolver"] = [=====[
 --!strict
 
@@ -53341,6 +53574,9 @@ function elementLifecycle.teardown(window, elements)
             end
         end
 
+        if element._disposeActions then
+            element:_disposeActions()
+        end
         if element._disconnectUnload then
             element._disconnectUnload()
             element._disconnectUnload = nil
