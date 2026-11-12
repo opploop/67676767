@@ -3645,6 +3645,7 @@ for _, name in
         "CreateSection",
         "CreateLabel",
         "CreateParagraph",
+        "CreateRichText",
         "CreateDivider",
         "CreateGroup",
         "CreateProgressBar",
@@ -13786,6 +13787,13 @@ end
 function Group:CreateLabel(properties)
     return self:_add("label", properties)
 end
+function Group:CreateRichText(properties)
+    -- Rich text is a full-width wrapping block; a row hosts it through a column.
+    if self.compact then
+        return self:CreateGroup({ direction = "column" }):CreateRichText(properties)
+    end
+    return self:_add("richtext", properties)
+end
 function Group:CreateParagraph(properties)
     return self:_add("paragraph", properties)
 end
@@ -19760,6 +19768,9 @@ end
 -- Opening and closing ------------------------------------------------------------------------------
 
 function ItemPicker:Open()
+    if self.locked or self._busy or self._removed or self.window.unloaded then
+        return
+    end
     if self.isOpen then
         return
     end
@@ -26113,6 +26124,149 @@ end
 return Resize
 ]=====]
 
+sources["components/richtext"] = [=====[
+--!nonstrict
+-- Copyright (c) 2026 Corridon Capital
+-- MPL-2.0: https://mozilla.org/MPL/2.0/
+local Paragraph = require(script.Parent.paragraph)
+local richtext = require(script.Parent.Parent.utility.richtext)
+local RichText = setmetatable({}, { __index = Paragraph })
+RichText.__index = RichText
+RichText.__type = "RichText"
+local semanticNames =
+    { title = true, description = true, highlight = true, success = true, warning = true, error = true }
+local function validateStyle(style)
+    assert(
+        type(style) == "table" or semanticNames[style] == true,
+        "Unknown RichText semantic style: " .. tostring(style)
+    )
+end
+
+local function copy(value)
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = {}
+    for key, item in value do
+        result[key] = copy(item)
+    end
+    return result
+end
+
+local function validate(content)
+    assert(type(content) == "string" or type(content) == "table", "RichText content must be text or an array of spans")
+    if type(content) == "table" then
+        for index, span in content do
+            assert(
+                type(index) == "number" and type(span) == "table" and type(span.text) == "string",
+                "RichText spans need text"
+            )
+        end
+    end
+end
+
+function RichText.new(tab, properties)
+    properties = properties or {}
+    local self = setmetatable(
+        Paragraph.new(tab, { title = properties.title or properties.Title, icon = properties.icon or properties.Icon }),
+        RichText
+    )
+    self.main.Name = "RichText"
+    self.name = properties.name or properties.Name
+    self._style = properties.style or properties.Style or "description"
+    self._content = ""
+    self.body.RichText = true
+    -- Unlike a fixed-height paragraph header, long RichText titles must also wrap.
+    self.headerRow.AutomaticSize = Enum.AutomaticSize.Y
+    self.headerRow.Size = UDim2.new(1, 0, 0, 0)
+    self.title.AutomaticSize = Enum.AutomaticSize.Y
+    self.title.Size = UDim2.new(1, if self.iconLabel then -24 else 0, 0, 0)
+    self.title.RichText = false
+    self:Set(properties.content or properties.Content or properties.text or properties.Text or "")
+    return self
+end
+
+function RichText:_render()
+    local theme = self.window.theme
+    local context = { theme = theme, light = richtext.isLight(theme.ElementColor or theme.StatBackground) }
+    local semantics = {
+        title = { color = "title", bold = true, size = 18 },
+        description = { color = "text", transparency = theme.SecondaryTextTransparency },
+        highlight = { color = "accent", bold = true },
+        success = { color = "success" },
+        warning = { color = "warning" },
+        error = { color = "error" },
+    }
+    local function style(value)
+        if type(value) == "table" then
+            return value
+        end
+        assert(semantics[value] ~= nil, "Unknown RichText semantic style: " .. tostring(value))
+        return semantics[value]
+    end
+    local markup, plain = {}, {}
+    local spans = if type(self._content) == "string" then { { text = self._content } } else self._content
+    for _, span in spans do
+        local raw = span.raw == true
+        local text = if raw then span.text else richtext.escape(span.text)
+        table.insert(markup, richtext.wrap(text, style(span.style or self._style), context))
+        table.insert(plain, if raw then richtext.strip(span.text) else span.text)
+    end
+    self._plain = table.concat(plain)
+    self.body.Text = table.concat(markup)
+    self.body.Visible = self._plain ~= ""
+    self.body.TextTransparency = if self._shown == false then 1 else 0
+end
+
+-- Set accepts plain text or spans. Raw Roblox markup requires raw=true on an individual span.
+function RichText:Set(content)
+    validate(content)
+    local previous = self._content
+    self._content = copy(content)
+    local ok, err = pcall(self._render, self)
+    if not ok then
+        self._content = previous
+        self:_render()
+        error(err, 0)
+    end
+end
+function RichText:SetContent(content)
+    return self:Set(content)
+end
+function RichText:Get()
+    return self._plain
+end
+function RichText:GetContent()
+    return copy(self._content)
+end
+function RichText:SetStyle(style)
+    validateStyle(style)
+    local previous = self._style
+    self._style = copy(style)
+    local ok, err = pcall(self._render, self)
+    if not ok then
+        self._style = previous
+        self:_render()
+        error(err, 0)
+    end
+end
+function RichText:_searchText()
+    return (self.title.Text or "") .. " " .. self:Get()
+end
+function RichText:_setShown(shown, animate)
+    if shown and self._userHidden then
+        return
+    end
+    Paragraph._setShown(self, shown, animate)
+    self:_render()
+end
+function RichText:_refreshTheme()
+    self:_render()
+end
+
+return RichText
+]=====]
+
 sources["components/ripplebutton"] = [=====[
 --!nonstrict
 
@@ -32406,6 +32560,11 @@ function Tab:_register(element)
     end
 
     return element
+end
+
+function Tab:CreateRichText(properties)
+    functions.validateProperties("RichText", properties)
+    return self:_register(require(script.Parent.richtext).new(self, properties))
 end
 
 -- Button
@@ -42116,6 +42275,10 @@ function Window:_wireTooltip(element)
     element._titleTooltipWired = true
     local target = element.tooltipTarget or element.main
     local function text()
+        local feedback = require(script.Parent.Parent.utility.controlFeedback).text(element)
+        if feedback then
+            return feedback
+        end
         if element.tooltip and element.tooltip ~= "" then
             return element.tooltip
         end
@@ -43759,8 +43922,12 @@ function Window:GetControlIndex(includeUtility)
                 if not name and control.title and control.title:IsA("TextLabel") then
                     name = control.title.Text
                 end
-                if (not name or name == "") and control.__type == "Paragraph" and control.body then
-                    name = string.sub(control.body.Text, 1, 80)
+                if
+                    (not name or name == "")
+                    and (control.__type == "Paragraph" or control.__type == "RichText")
+                    and control.body
+                then
+                    name = string.sub(if control.__type == "RichText" then control:Get() else control.body.Text, 1, 80)
                 end
                 if name then
                     table.insert(route, tostring(name))
@@ -47587,7 +47754,9 @@ function Window:ShowControlHelp(control)
     if not control or control._removed then
         return false
     end
-    local text = control._lockReason or control.tooltip or control.description
+    local text = require(script.Parent.Parent.utility.controlFeedback).text(control)
+        or control.tooltip
+        or control.description
     if not text or text == "" then
         return false
     end
@@ -48052,6 +48221,12 @@ export type Rayfield = types.Rayfield
 
 export type LabelProps = types.LabelProps
 export type ParagraphProps = types.ParagraphProps
+export type RichTextProps = types.RichTextProps
+export type RichTextSpan = types.RichTextSpan
+export type RichTextContent = types.RichTextContent
+export type RichTextStyle = types.RichTextStyle
+export type ControlStatus = types.ControlStatus
+export type ControlStatusKind = types.ControlStatusKind
 export type DividerProps = types.DividerProps
 export type TabboxProps = types.TabboxProps
 export type SubTabProps = types.SubTabProps
@@ -48116,6 +48291,7 @@ export type ReorderList = types.ReorderList
 export type PlayerDropdown = types.PlayerDropdown
 export type Label = types.Label
 export type Paragraph = types.Paragraph
+export type RichText = types.RichText
 export type Divider = types.Divider
 export type HudProps = types.HudProps
 export type Hud = types.Hud
@@ -49113,6 +49289,17 @@ export type LabelProps = {
     icon: (string | number)?,
 }
 
+export type RichTextStyle = "title" | "description" | "highlight" | "success" | "warning" | "error" | ConsoleStyle
+export type RichTextSpan = { text: string, style: RichTextStyle?, raw: boolean? }
+export type RichTextContent = string | { RichTextSpan }
+export type RichTextProps = {
+    name: string?,
+    title: string?,
+    icon: (string | number)?,
+    content: RichTextContent?,
+    style: RichTextStyle?,
+}
+
 export type ParagraphProps = {
     title: string?,
     content: string?,
@@ -49804,7 +49991,17 @@ export type DataLoadOptions = {
     timeoutText: string?,
     onStateChanged: ((DataLoadState) -> ())?,
 }
+export type ControlStatusKind = "idle" | "info" | "loading" | "success" | "error" | "cancelled"
+export type ControlStatus = {
+    kind: ControlStatusKind,
+    text: string,
+    progress: number?,
+    busy: boolean,
+    locked: boolean,
+    reason: string?,
+}
 export type RunOptions = {
+    cancelText: string?,
     timeout: number?,
     busyText: string?,
     successText: string?,
@@ -49814,6 +50011,9 @@ export type RunOptions = {
 }
 
 export type Moveable = {
+    Lock: (self: any, reason: string?) -> (),
+    Unlock: (self: any) -> (),
+    IsLocked: (self: any) -> boolean,
     SetCallbackPolicy: (self: any, mode: "live" | "throttle" | "commit", interval: number?) -> any,
     LoadOptions: (
         self: any,
@@ -49827,6 +50027,9 @@ export type Moveable = {
     SetControlValue: (self: any, value: any, silent: boolean?) -> any,
     OnChanged: (self: any, callback: (any, any, { restoring: boolean }) -> ()) -> () -> (),
     Destroy: (self: any) -> boolean,
+    SetStatus: (self: any, text: string?, kind: ControlStatusKind?, progress: number?) -> boolean,
+    GetStatus: (self: any) -> ControlStatus,
+    CancelRun: (self: any, text: string?) -> boolean,
     IsBusy: (self: any) -> boolean,
     SetBusy: (self: any, busy: boolean, text: string?) -> boolean,
     Run: (self: any, callback: (any, AsyncRequest) -> any, options: RunOptions?) -> boolean,
@@ -49843,9 +50046,9 @@ export type Moveable = {
 
 export type Button = Moveable & {
     locked: boolean,
-    SetLocked: (self: Button, locked: boolean) -> (),
+    SetLocked: (self: Button, locked: boolean, reason: string?) -> (),
     -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.
-    Lock: (self: Button) -> (),
+    Lock: (self: Button, reason: string?) -> (),
     Unlock: (self: Button) -> (),
     IsLocked: (self: Button) -> boolean,
 }
@@ -50109,13 +50312,13 @@ export type Toggle = Moveable & {
     value: boolean,
     locked: boolean,
     Set: (self: Toggle, value: boolean, skipCallback: boolean?) -> (),
-    SetLocked: (self: Toggle, locked: boolean) -> (),
+    SetLocked: (self: Toggle, locked: boolean, reason: string?) -> (),
     -- Element Locking (ported from upstream Rayfield Gen2 1.2): shared Lock/Unlock/IsLocked
     -- naming, aliased into this component's own SetLocked - see lockable.luau's own comment.
-    Lock: (self: Toggle) -> (),
+    Lock: (self: Toggle, reason: string?) -> (),
     Unlock: (self: Toggle) -> (),
     IsLocked: (self: Toggle) -> boolean,
-    SetStatus: (self: Toggle, text: string) -> (),
+
     -- Runs fn(toggle) on a repeating timer for as long as this toggle is on; fn can return a
     -- number to override the wait before the next call instead of `interval` (default 0.5s).
     -- Managed and error-isolated per tick - see toggle.luau's own comment on why this beats a
@@ -50146,10 +50349,10 @@ export type Dropdown = Moveable & {
     locked: boolean,
     Set: (self: Dropdown, value: string | { string }, skipCallback: boolean?) -> (),
     Reset: (self: Dropdown, skipCallback: boolean?) -> (), -- clears back to the placeholder
-    SetLocked: (self: Dropdown, locked: boolean) -> (),
+    SetLocked: (self: Dropdown, locked: boolean, reason: string?) -> (),
     Refresh: (self: Dropdown, options: { string }?) -> (), -- swap the option list, keeping the pick
     -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.
-    Lock: (self: Dropdown) -> (),
+    Lock: (self: Dropdown, reason: string?) -> (),
     Unlock: (self: Dropdown) -> (),
     IsLocked: (self: Dropdown) -> boolean,
 }
@@ -50407,6 +50610,15 @@ export type Label = Moveable & {
     Set: (self: Label, text: string) -> (),
 }
 
+export type RichText = Moveable & {
+    Set: (self: RichText, content: RichTextContent) -> (),
+    SetContent: (self: RichText, content: RichTextContent) -> (),
+    Get: (self: RichText) -> string,
+    GetContent: (self: RichText) -> RichTextContent,
+    SetTitle: (self: RichText, title: string) -> (),
+    SetStyle: (self: RichText, style: RichTextStyle) -> (),
+}
+
 export type Paragraph = Moveable & {
     Set: (self: Paragraph, props: { title: string?, content: string? }) -> (),
     SetTitle: (self: Paragraph, text: string) -> (),
@@ -50419,9 +50631,9 @@ export type Divider = Moveable & {
 
 export type HoldButton = Moveable & {
     locked: boolean,
-    SetLocked: (self: HoldButton, locked: boolean) -> (),
+    SetLocked: (self: HoldButton, locked: boolean, reason: string?) -> (),
     -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.
-    Lock: (self: HoldButton) -> (),
+    Lock: (self: HoldButton, reason: string?) -> (),
     Unlock: (self: HoldButton) -> (),
     IsLocked: (self: HoldButton) -> boolean,
 }
@@ -50465,6 +50677,7 @@ export type Collapsible = Moveable & {
     CreateSection: (self: Collapsible, props: SectionProps) -> Section,
     CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,
     CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,
+    CreateRichText: (self: Collapsible, props: RichTextProps?) -> RichText,
     CreateDivider: (self: Collapsible, props: DividerProps?) -> Divider,
     CreateProgressBar: (self: Collapsible, props: ProgressBarProps) -> ProgressBar,
     CreateConsole: (self: Collapsible, props: ConsoleProps) -> Console,
@@ -50531,6 +50744,7 @@ export type Group = Moveable & {
     CreateSection: (self: Group, props: SectionProps) -> Section,
     CreateLabel: (self: Group, props: LabelProps?) -> Label,
     CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,
+    CreateRichText: (self: Group, props: RichTextProps?) -> RichText,
     CreateDivider: (self: Group, props: DividerProps?) -> Divider,
     CreateProgressBar: (self: Group, props: ProgressBarProps) -> ProgressBar,
     CreateConsole: (self: Group, props: ConsoleProps) -> Console,
@@ -50586,6 +50800,7 @@ export type Tab = {
     CreateSection: (self: Tab, props: SectionProps) -> Section,
     CreateLabel: (self: Tab, props: LabelProps?) -> Label,
     CreateParagraph: (self: Tab, props: ParagraphProps?) -> Paragraph,
+    CreateRichText: (self: Tab, props: RichTextProps?) -> RichText,
     CreateDivider: (self: Tab, props: DividerProps?) -> Divider,
     CreateProgressBar: (self: Tab, props: ProgressBarProps) -> ProgressBar,
     CreateConsole: (self: Tab, props: ConsoleProps) -> Console,
@@ -52513,10 +52728,17 @@ sources["utility/componentReference"] = [=====[
 local reference = {}
 reference.entries = {
     {
+        name = "CreateRichText",
+        code = 'local control = tab:CreateRichText({title = "Selection", content = "A < B & C"})',
+        properties = "export type RichTextProps = {\n    name: string?,\n    title: string?,\n    icon: (string | number)?,\n    content: RichTextContent?,\n    style: RichTextStyle?,\n}",
+        methods = "export type RichText = Moveable & {\n    Set: (self: RichText, content: RichTextContent) -> (),\n    SetContent: (self: RichText, content: RichTextContent) -> (),\n    Get: (self: RichText) -> string,\n    GetContent: (self: RichText) -> RichTextContent,\n    SetTitle: (self: RichText, title: string) -> (),\n    SetStyle: (self: RichText, style: RichTextStyle) -> (),\n}",
+        props = { title = "Selection", content = "A < B & C" },
+    },
+    {
         name = "CreateButton",
         code = 'local control = tab:CreateButton({name = "Button"})',
         properties = 'export type ButtonProps = {\n    busyOnClick: boolean?,\n    actionOptions: {\n        busyText: string?,\n        successText: string?,\n        errorText: string?,\n        onComplete: ((boolean, any) -> ())?,\n    }?,\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    locked: boolean?,\n    -- a cheap destructive-action confirm: the first click just arms the button (its title flips\n    -- to confirmText for a few seconds), the callback only fires on the confirming second click\n    doubleClick: boolean?,\n    confirmText: string?, -- default "Click again to confirm"\n    callback: (() -> ())?,\n}',
-        methods = "export type Button = Moveable & {\n    locked: boolean,\n    SetLocked: (self: Button, locked: boolean) -> (),\n    -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.\n    Lock: (self: Button) -> (),\n    Unlock: (self: Button) -> (),\n    IsLocked: (self: Button) -> boolean,\n}",
+        methods = "export type Button = Moveable & {\n    locked: boolean,\n    SetLocked: (self: Button, locked: boolean, reason: string?) -> (),\n    -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.\n    Lock: (self: Button, reason: string?) -> (),\n    Unlock: (self: Button) -> (),\n    IsLocked: (self: Button) -> boolean,\n}",
         props = { name = "Button" },
     },
     {
@@ -52544,14 +52766,14 @@ reference.entries = {
         name = "CreateToggle",
         code = 'local control = tab:CreateToggle({name = "Toggle"})',
         properties = 'export type ToggleProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    value: boolean?,\n    locked: boolean?,\n    forgetState: boolean?,\n    callback: ((value: boolean) -> ())?,\n    -- a small colour chip beside the switch that opens a picker; saved under colorFlag (default\n    -- the toggle\'s flag and "Color")\n    color: (Color3 | string)?,\n    colorFlag: string?,\n    colorCallback: ((color: Color3) -> ())?,\n}',
-        methods = "export type Toggle = Moveable & {\n    value: boolean,\n    locked: boolean,\n    Set: (self: Toggle, value: boolean, skipCallback: boolean?) -> (),\n    SetLocked: (self: Toggle, locked: boolean) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): shared Lock/Unlock/IsLocked\n    -- naming, aliased into this component's own SetLocked - see lockable.luau's own comment.\n    Lock: (self: Toggle) -> (),\n    Unlock: (self: Toggle) -> (),\n    IsLocked: (self: Toggle) -> boolean,\n    SetStatus: (self: Toggle, text: string) -> (),\n    -- Runs fn(toggle) on a repeating timer for as long as this toggle is on; fn can return a\n    -- number to override the wait before the next call instead of `interval` (default 0.5s).\n    -- Managed and error-isolated per tick - see toggle.luau's own comment on why this beats a\n    -- hand-rolled while loop in the toggle's own callback.\n    Loop: (self: Toggle, fn: (toggle: any) -> number?, interval: number?) -> (),\n    color: Color3?, -- the chip's colour, when it has one\n    SetColor: (self: Toggle, color: Color3 | string, skipCallback: boolean?) -> (),\n}",
+        methods = "export type Toggle = Moveable & {\n    value: boolean,\n    locked: boolean,\n    Set: (self: Toggle, value: boolean, skipCallback: boolean?) -> (),\n    SetLocked: (self: Toggle, locked: boolean, reason: string?) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): shared Lock/Unlock/IsLocked\n    -- naming, aliased into this component's own SetLocked - see lockable.luau's own comment.\n    Lock: (self: Toggle, reason: string?) -> (),\n    Unlock: (self: Toggle) -> (),\n    IsLocked: (self: Toggle) -> boolean,\n\n    -- Runs fn(toggle) on a repeating timer for as long as this toggle is on; fn can return a\n    -- number to override the wait before the next call instead of `interval` (default 0.5s).\n    -- Managed and error-isolated per tick - see toggle.luau's own comment on why this beats a\n    -- hand-rolled while loop in the toggle's own callback.\n    Loop: (self: Toggle, fn: (toggle: any) -> number?, interval: number?) -> (),\n    color: Color3?, -- the chip's colour, when it has one\n    SetColor: (self: Toggle, color: Color3 | string, skipCallback: boolean?) -> (),\n}",
         props = { name = "Toggle" },
     },
     {
         name = "CreateSwitch",
         code = 'local control = tab:CreateSwitch({name = "Switch"})',
         properties = 'export type ToggleProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    value: boolean?,\n    locked: boolean?,\n    forgetState: boolean?,\n    callback: ((value: boolean) -> ())?,\n    -- a small colour chip beside the switch that opens a picker; saved under colorFlag (default\n    -- the toggle\'s flag and "Color")\n    color: (Color3 | string)?,\n    colorFlag: string?,\n    colorCallback: ((color: Color3) -> ())?,\n}',
-        methods = "export type Toggle = Moveable & {\n    value: boolean,\n    locked: boolean,\n    Set: (self: Toggle, value: boolean, skipCallback: boolean?) -> (),\n    SetLocked: (self: Toggle, locked: boolean) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): shared Lock/Unlock/IsLocked\n    -- naming, aliased into this component's own SetLocked - see lockable.luau's own comment.\n    Lock: (self: Toggle) -> (),\n    Unlock: (self: Toggle) -> (),\n    IsLocked: (self: Toggle) -> boolean,\n    SetStatus: (self: Toggle, text: string) -> (),\n    -- Runs fn(toggle) on a repeating timer for as long as this toggle is on; fn can return a\n    -- number to override the wait before the next call instead of `interval` (default 0.5s).\n    -- Managed and error-isolated per tick - see toggle.luau's own comment on why this beats a\n    -- hand-rolled while loop in the toggle's own callback.\n    Loop: (self: Toggle, fn: (toggle: any) -> number?, interval: number?) -> (),\n    color: Color3?, -- the chip's colour, when it has one\n    SetColor: (self: Toggle, color: Color3 | string, skipCallback: boolean?) -> (),\n}",
+        methods = "export type Toggle = Moveable & {\n    value: boolean,\n    locked: boolean,\n    Set: (self: Toggle, value: boolean, skipCallback: boolean?) -> (),\n    SetLocked: (self: Toggle, locked: boolean, reason: string?) -> (),\n    -- Element Locking (ported from upstream Rayfield Gen2 1.2): shared Lock/Unlock/IsLocked\n    -- naming, aliased into this component's own SetLocked - see lockable.luau's own comment.\n    Lock: (self: Toggle, reason: string?) -> (),\n    Unlock: (self: Toggle) -> (),\n    IsLocked: (self: Toggle) -> boolean,\n\n    -- Runs fn(toggle) on a repeating timer for as long as this toggle is on; fn can return a\n    -- number to override the wait before the next call instead of `interval` (default 0.5s).\n    -- Managed and error-isolated per tick - see toggle.luau's own comment on why this beats a\n    -- hand-rolled while loop in the toggle's own callback.\n    Loop: (self: Toggle, fn: (toggle: any) -> number?, interval: number?) -> (),\n    color: Color3?, -- the chip's colour, when it has one\n    SetColor: (self: Toggle, color: Color3 | string, skipCallback: boolean?) -> (),\n}",
         props = { name = "Switch" },
     },
     {
@@ -52614,7 +52836,7 @@ reference.entries = {
         name = "CreateDropdown",
         code = 'local control = tab:CreateDropdown({name = "Quality", options = {"Low", "High"}, value = "High"})',
         properties = 'export type DropdownProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    options: { string }?,\n    -- section headers (e.g. "MELEE"/"RANGED") - when given, takes over from `options` above,\n    -- which is instead derived by flattening every section\'s own option list in order\n    sections: { DropdownSection }?,\n    value: (string | { string })?,\n    multiSelect: boolean?,\n    placeholder: string?,\n    locked: boolean?,\n    forgetState: boolean?,\n    callback: ((value: any) -> ())?,\n}',
-        methods = "export type Dropdown = Moveable & {\n    value: { string }, -- always stored pruned to the current options, even single-select\n    locked: boolean,\n    Set: (self: Dropdown, value: string | { string }, skipCallback: boolean?) -> (),\n    Reset: (self: Dropdown, skipCallback: boolean?) -> (), -- clears back to the placeholder\n    SetLocked: (self: Dropdown, locked: boolean) -> (),\n    Refresh: (self: Dropdown, options: { string }?) -> (), -- swap the option list, keeping the pick\n    -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.\n    Lock: (self: Dropdown) -> (),\n    Unlock: (self: Dropdown) -> (),\n    IsLocked: (self: Dropdown) -> boolean,\n}",
+        methods = "export type Dropdown = Moveable & {\n    value: { string }, -- always stored pruned to the current options, even single-select\n    locked: boolean,\n    Set: (self: Dropdown, value: string | { string }, skipCallback: boolean?) -> (),\n    Reset: (self: Dropdown, skipCallback: boolean?) -> (), -- clears back to the placeholder\n    SetLocked: (self: Dropdown, locked: boolean, reason: string?) -> (),\n    Refresh: (self: Dropdown, options: { string }?) -> (), -- swap the option list, keeping the pick\n    -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.\n    Lock: (self: Dropdown, reason: string?) -> (),\n    Unlock: (self: Dropdown) -> (),\n    IsLocked: (self: Dropdown) -> boolean,\n}",
         props = { name = "Quality", options = { "Low", "High" }, value = "High" },
     },
     {
@@ -52796,7 +53018,7 @@ reference.entries = {
         name = "CreateGroup",
         code = 'local control = tab:CreateGroup({name = "Group"})',
         properties = 'export type GroupProps = {\n    direction: string?, -- "row" | "column" (default row); "horizontal"/"vertical" also work\n    -- Only meaningful for a column nested in a row, where the default is an equal split:\n    -- `width` pins this column and lets the rest of the row absorb what is left, `weight`\n    -- splits proportionally instead.\n    width: number?,\n    weight: number?,\n    -- Dependency group: hides/shows every child together based on another control\'s value -\n    -- Fluent\'s own DependencyGroupbox. dependsOn is whatever CreateToggle/CreateDropdown/etc\n    -- itself returned; condition defaults to a plain truthy check (built for a toggle) - pass\n    -- one explicitly for a dropdown/slider-driven group, e.g. function(v) return v == "Advanced"\n    -- end.\n    dependsOn: any?,\n    condition: ((value: any) -> boolean)?,\n}',
-        methods = "export type Group = Moveable & {\n    CreateButton: (self: Group, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Group, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Group, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Group, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Group, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Group, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Group, props: CheckboxProps) -> Checkbox,\n    CreateSlider: (self: Group, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Group, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,\n    CreateListPicker: (self: Group, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Group, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Group, props: PanelProps) -> Panel,\n    CreateInput: (self: Group, props: InputProps) -> Input,\n    CreateKeybind: (self: Group, props: KeybindProps) -> Keybind,\n    CreateColorPicker: (self: Group, props: ColorPickerProps) -> ColorPicker,\n    CreateGradientPicker: (self: Group, props: GradientPickerProps?) -> GradientPicker,\n    CreateStat: (self: Group, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Group, props: StatusCardProps) -> StatusCard,\n    CreateSection: (self: Group, props: SectionProps) -> Section,\n    CreateLabel: (self: Group, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,\n    CreateDivider: (self: Group, props: DividerProps?) -> Divider,\n    CreateProgressBar: (self: Group, props: ProgressBarProps) -> ProgressBar,\n    CreateConsole: (self: Group, props: ConsoleProps) -> Console,\n    CreateChart: (self: Group, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Group, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Group, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Group, props: ItemPickerProps) -> ItemPicker,\n    CreateDashboard: (self: Group, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Group, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Group, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Group, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Group, props: FAQProps) -> FAQ,\n    CreateTable: (self: Group, props: TableProps) -> Table,\n    CreateStepper: (self: Group, props: StepperProps) -> Stepper,\n    CreateScrollHint: (self: Group, props: ScrollHintProps?) -> ScrollHint,\n    CreateSegmentedPicker: (self: Group, props: SegmentedPickerProps?) -> SegmentedPicker,\n    CreateShimmerLabel: (self: Group, props: ShimmerLabelProps?) -> ShimmerLabel,\n    CreateGroup: (self: Group, props: GroupProps?) -> Group,\n    CreateHoldButton: (self: Group, props: HoldButtonProps?) -> HoldButton,\n    CreateCollapsible: (self: Group, props: CollapsibleProps?) -> Collapsible,\n    CreateChangelog: (self: Group, props: ChangelogProps?) -> Changelog,\n    CreateSpacer: (self: Group, props: SpacerProps?) -> Spacer,\n}",
+        methods = "export type Group = Moveable & {\n    CreateButton: (self: Group, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Group, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Group, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Group, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Group, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Group, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Group, props: CheckboxProps) -> Checkbox,\n    CreateSlider: (self: Group, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Group, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,\n    CreateListPicker: (self: Group, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Group, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Group, props: PanelProps) -> Panel,\n    CreateInput: (self: Group, props: InputProps) -> Input,\n    CreateKeybind: (self: Group, props: KeybindProps) -> Keybind,\n    CreateColorPicker: (self: Group, props: ColorPickerProps) -> ColorPicker,\n    CreateGradientPicker: (self: Group, props: GradientPickerProps?) -> GradientPicker,\n    CreateStat: (self: Group, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Group, props: StatusCardProps) -> StatusCard,\n    CreateSection: (self: Group, props: SectionProps) -> Section,\n    CreateLabel: (self: Group, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,\n    CreateRichText: (self: Group, props: RichTextProps?) -> RichText,\n    CreateDivider: (self: Group, props: DividerProps?) -> Divider,\n    CreateProgressBar: (self: Group, props: ProgressBarProps) -> ProgressBar,\n    CreateConsole: (self: Group, props: ConsoleProps) -> Console,\n    CreateChart: (self: Group, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Group, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Group, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Group, props: ItemPickerProps) -> ItemPicker,\n    CreateDashboard: (self: Group, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Group, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Group, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Group, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Group, props: FAQProps) -> FAQ,\n    CreateTable: (self: Group, props: TableProps) -> Table,\n    CreateStepper: (self: Group, props: StepperProps) -> Stepper,\n    CreateScrollHint: (self: Group, props: ScrollHintProps?) -> ScrollHint,\n    CreateSegmentedPicker: (self: Group, props: SegmentedPickerProps?) -> SegmentedPicker,\n    CreateShimmerLabel: (self: Group, props: ShimmerLabelProps?) -> ShimmerLabel,\n    CreateGroup: (self: Group, props: GroupProps?) -> Group,\n    CreateHoldButton: (self: Group, props: HoldButtonProps?) -> HoldButton,\n    CreateCollapsible: (self: Group, props: CollapsibleProps?) -> Collapsible,\n    CreateChangelog: (self: Group, props: ChangelogProps?) -> Changelog,\n    CreateSpacer: (self: Group, props: SpacerProps?) -> Spacer,\n}",
         props = { name = "Group" },
     },
     {
@@ -52817,14 +53039,14 @@ reference.entries = {
         name = "CreateHoldButton",
         code = 'local control = tab:CreateHoldButton({name = "HoldButton"})',
         properties = "export type HoldButtonProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?,\n    holdDuration: number?, -- seconds the fill takes to complete (default 1)\n    danger: boolean?, -- tint the fill red instead of the accent colour\n    locked: boolean?,\n    callback: (() -> ())?,\n}",
-        methods = "export type HoldButton = Moveable & {\n    locked: boolean,\n    SetLocked: (self: HoldButton, locked: boolean) -> (),\n    -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.\n    Lock: (self: HoldButton) -> (),\n    Unlock: (self: HoldButton) -> (),\n    IsLocked: (self: HoldButton) -> boolean,\n}",
+        methods = "export type HoldButton = Moveable & {\n    locked: boolean,\n    SetLocked: (self: HoldButton, locked: boolean, reason: string?) -> (),\n    -- Shared Lock/Unlock/IsLocked naming, aliased into SetLocked - see lockable.luau.\n    Lock: (self: HoldButton, reason: string?) -> (),\n    Unlock: (self: HoldButton) -> (),\n    IsLocked: (self: HoldButton) -> boolean,\n}",
         props = { name = "HoldButton" },
     },
     {
         name = "CreateCollapsible",
         code = 'local control = tab:CreateCollapsible({name = "Collapsible"})',
         properties = "export type CollapsibleProps = {\n    name: string?,\n    icon: (string | number)?,\n    expanded: boolean?, -- start open (default false)\n    flag: string?, -- config key for open/closed; derived from the name when omitted\n    forgetState: boolean?, -- don't persist open/closed\n}",
-        methods = "export type Collapsible = Moveable & {\n    expanded: boolean,\n    Toggle: (self: Collapsible) -> (),\n    SetExpanded: (self: Collapsible, expanded: boolean) -> (),\n    Set: (self: Collapsible, expanded: boolean, skipAnimation: boolean?) -> (),\n    Get: (self: Collapsible) -> boolean,\n    CreateButton: (self: Collapsible, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Collapsible, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Collapsible, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Collapsible, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Collapsible, props: CheckboxProps) -> Checkbox,\n    CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Collapsible, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,\n    CreateListPicker: (self: Collapsible, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Collapsible, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Collapsible, props: PanelProps) -> Panel,\n    CreateInput: (self: Collapsible, props: InputProps) -> Input,\n    CreateKeybind: (self: Collapsible, props: KeybindProps) -> Keybind,\n    CreateColorPicker: (self: Collapsible, props: ColorPickerProps) -> ColorPicker,\n    CreateGradientPicker: (self: Collapsible, props: GradientPickerProps?) -> GradientPicker,\n    CreateStat: (self: Collapsible, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Collapsible, props: StatusCardProps) -> StatusCard,\n    CreateSection: (self: Collapsible, props: SectionProps) -> Section,\n    CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,\n    CreateDivider: (self: Collapsible, props: DividerProps?) -> Divider,\n    CreateProgressBar: (self: Collapsible, props: ProgressBarProps) -> ProgressBar,\n    CreateConsole: (self: Collapsible, props: ConsoleProps) -> Console,\n    CreateChart: (self: Collapsible, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Collapsible, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Collapsible, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Collapsible, props: ItemPickerProps) -> ItemPicker,\n    CreateDashboard: (self: Collapsible, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Collapsible, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Collapsible, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Collapsible, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Collapsible, props: FAQProps) -> FAQ,\n    CreateTable: (self: Collapsible, props: TableProps) -> Table,\n    CreateStepper: (self: Collapsible, props: StepperProps) -> Stepper,\n    CreateScrollHint: (self: Collapsible, props: ScrollHintProps?) -> ScrollHint,\n    CreateSegmentedPicker: (self: Collapsible, props: SegmentedPickerProps?) -> SegmentedPicker,\n    CreateShimmerLabel: (self: Collapsible, props: ShimmerLabelProps?) -> ShimmerLabel,\n    CreateGroup: (self: Collapsible, props: GroupProps?) -> Group,\n    CreateHoldButton: (self: Collapsible, props: HoldButtonProps?) -> HoldButton,\n    CreateCollapsible: (self: Collapsible, props: CollapsibleProps?) -> Collapsible,\n    CreateChangelog: (self: Collapsible, props: ChangelogProps?) -> Changelog,\n    CreateSpacer: (self: Collapsible, props: SpacerProps?) -> Spacer,\n}",
+        methods = "export type Collapsible = Moveable & {\n    expanded: boolean,\n    Toggle: (self: Collapsible) -> (),\n    SetExpanded: (self: Collapsible, expanded: boolean) -> (),\n    Set: (self: Collapsible, expanded: boolean, skipAnimation: boolean?) -> (),\n    Get: (self: Collapsible) -> boolean,\n    CreateButton: (self: Collapsible, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Collapsible, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Collapsible, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Collapsible, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Collapsible, props: CheckboxProps) -> Checkbox,\n    CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Collapsible, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,\n    CreateListPicker: (self: Collapsible, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Collapsible, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Collapsible, props: PanelProps) -> Panel,\n    CreateInput: (self: Collapsible, props: InputProps) -> Input,\n    CreateKeybind: (self: Collapsible, props: KeybindProps) -> Keybind,\n    CreateColorPicker: (self: Collapsible, props: ColorPickerProps) -> ColorPicker,\n    CreateGradientPicker: (self: Collapsible, props: GradientPickerProps?) -> GradientPicker,\n    CreateStat: (self: Collapsible, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Collapsible, props: StatusCardProps) -> StatusCard,\n    CreateSection: (self: Collapsible, props: SectionProps) -> Section,\n    CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,\n    CreateRichText: (self: Collapsible, props: RichTextProps?) -> RichText,\n    CreateDivider: (self: Collapsible, props: DividerProps?) -> Divider,\n    CreateProgressBar: (self: Collapsible, props: ProgressBarProps) -> ProgressBar,\n    CreateConsole: (self: Collapsible, props: ConsoleProps) -> Console,\n    CreateChart: (self: Collapsible, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Collapsible, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Collapsible, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Collapsible, props: ItemPickerProps) -> ItemPicker,\n    CreateDashboard: (self: Collapsible, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Collapsible, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Collapsible, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Collapsible, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Collapsible, props: FAQProps) -> FAQ,\n    CreateTable: (self: Collapsible, props: TableProps) -> Table,\n    CreateStepper: (self: Collapsible, props: StepperProps) -> Stepper,\n    CreateScrollHint: (self: Collapsible, props: ScrollHintProps?) -> ScrollHint,\n    CreateSegmentedPicker: (self: Collapsible, props: SegmentedPickerProps?) -> SegmentedPicker,\n    CreateShimmerLabel: (self: Collapsible, props: ShimmerLabelProps?) -> ShimmerLabel,\n    CreateGroup: (self: Collapsible, props: GroupProps?) -> Group,\n    CreateHoldButton: (self: Collapsible, props: HoldButtonProps?) -> HoldButton,\n    CreateCollapsible: (self: Collapsible, props: CollapsibleProps?) -> Collapsible,\n    CreateChangelog: (self: Collapsible, props: ChangelogProps?) -> Changelog,\n    CreateSpacer: (self: Collapsible, props: SpacerProps?) -> Spacer,\n}",
         props = { name = "Collapsible" },
     },
     {
@@ -53227,6 +53449,7 @@ local function cancelTimer(control, key)
     end
 end
 local lifecycle = require(script.Parent.elementLifecycle)
+local feedback = require(script.Parent.controlFeedback)
 local callbackSetters = {
     Toggle = true,
     Checkbox = true,
@@ -53543,20 +53766,62 @@ function contract.install(window, control)
     function control:IsBusy()
         return self._busy == true
     end
+    function control:SetStatus(text, kind, progress)
+        return feedback.set(self, text, kind, progress)
+    end
+    function control:GetStatus()
+        local state = contract.copy(self._status or { kind = "idle", text = "" })
+        state.busy, state.locked, state.reason = self._busy == true, self.locked == true, self._lockReason
+        return state
+    end
+    function control:CancelRun(text)
+        if not self._cancelRun then
+            return false
+        end
+        return self._cancelRun(text)
+    end
     function control:SetBusy(busy, text)
         if self._removed or window.unloaded then
             return false
         end
-        if busy and not self._busy and self.interact then
-            self._activeBeforeBusy = self.interact.Active
+        if not busy and not self._busy then
+            return true
+        end
+        if busy and not self._busy then
+            self._titleBeforeBusy = self.title and self.title.Text
+            if self.interact then
+                self._activeBeforeBusy = self.interact.Active
+            end
         end
         self._busy = busy == true
         if self.title then
-            window:_bindLocale(self.title, "Text", if self._busy then text or "Working…" else self.name or "")
+            window:_bindLocale(
+                self.title,
+                "Text",
+                if self._busy then text or "Working…" else self._titleBeforeBusy or self.name or self.title.Text
+            )
         end
         if self.interact then
             self.interact.Active = if self._busy then false else self._activeBeforeBusy ~= false
         end
+        if self._busy then
+            if self._close then
+                self:_close()
+            end
+            if self.Close then
+                self:Close()
+            end
+            if self._dragRow and self._endDrag then
+                self:_endDrag()
+            end
+            if type(self.swatch) == "table" and self.swatch.Close then
+                self.swatch.Close()
+            end
+            self:SetStatus(text, "loading")
+        elseif self._status and self._status.kind == "loading" then
+            self:SetStatus(nil, "idle")
+        end
+        feedback.render(self)
         return true
     end
     function control:Run(callback, options)
@@ -53571,22 +53836,25 @@ function contract.install(window, control)
         local function current()
             return not settled and not self._removed and not window.unloaded and self._actionGeneration == id
         end
-        local function finish(ok, result, timedOut)
+        local function finish(ok, result, timedOut, cancelled, cancelText)
             if not current() then
                 return
             end
             settled = true
+            self._cancelRun = nil
             cancelTimer(self, "_actionTimer")
             self:SetBusy(false)
             if self.SetStatus then
                 self:SetStatus(
                     if ok
                         then options.successText or "Completed."
+                        elseif cancelled then cancelText or options.cancelText or "Cancelled."
                         elseif timedOut then options.timeoutText or "The action took too long. Try again."
-                        else options.errorText or "Could not complete the action. Try again."
+                        else options.errorText or "Could not complete the action. Try again.",
+                    if ok then "success" elseif cancelled then "cancelled" else "error"
                 )
             end
-            if not ok then
+            if not ok and not cancelled then
                 window:_recordUsabilityError(if timedOut then "action-timeout" else "action", self.__type)
                 window:_markCallbackError(self, result)
             else
@@ -53598,6 +53866,13 @@ function contract.install(window, control)
                     window:_recordUsabilityError("completion", self.__type)
                 end
             end
+        end
+        self._cancelRun = function(text)
+            if not current() then
+                return false
+            end
+            finish(false, "cancelled", false, true, text)
+            return true
         end
         local restoring = window:IsRestoringConfig()
         self:SetBusy(true, options.busyText)
@@ -53628,21 +53903,264 @@ function contract.install(window, control)
     function control:ShowHelp()
         return window:ShowControlHelp(self)
     end
+    if not control.Lock then
+        function control:Lock(reason)
+            return window:_setElementLocked(self, true, reason)
+        end
+        function control:Unlock()
+            return window:_setElementLocked(self, false)
+        end
+        function control:IsLocked()
+            return self.locked == true
+        end
+    end
     if control.Lock then
         local lock, unlock = control.Lock, control.Unlock
         function control:Lock(reason)
+            if self._removed or window.unloaded then
+                return false
+            end
+            feedback.capture(self)
             self._lockReason = reason or "This option is currently unavailable."
             local result = lock(self, reason)
-            window:_installTouchHelp(self)
+            if self._close then
+                self:_close()
+            end
+            if self.Close then
+                self:Close()
+            end
+            if type(self.swatch) == "table" and self.swatch.Close then
+                self.swatch.Close()
+            end
+            feedback.render(self)
             return result
         end
         function control:Unlock()
+            if self._removed or window.unloaded then
+                return false
+            end
             self._lockReason = nil
-            return unlock(self)
+            local result = unlock(self)
+            feedback.render(self)
+            return result
         end
+    end
+    if control.SetLocked then
+        local setLocked = control.SetLocked
+        function control:SetLocked(locked, reason)
+            if self._removed or window.unloaded then
+                return false
+            end
+            feedback.capture(self)
+            self._lockReason = if locked
+                then reason or self._lockReason or "This option is currently unavailable."
+                else nil
+            local result = setLocked(self, locked)
+            feedback.render(self)
+            return result
+        end
+    end
+    if control._setShown then
+        local setShown = control._setShown
+        control._setShown = function(element, shown, animate)
+            local result = setShown(element, shown, animate)
+            feedback.render(element)
+            return result
+        end
+    end
+    local refreshTheme = control._refreshTheme
+    function control:_refreshTheme(...)
+        if refreshTheme then
+            refreshTheme(self, ...)
+        end
+        feedback.render(self)
+    end
+    if control.locked then
+        feedback.capture(control)
+        control._lockReason = control._lockReason or "This option is currently unavailable."
+        feedback.render(control)
     end
 end
 return contract
+]=====]
+
+sources["utility/controlFeedback"] = [=====[
+--!nonstrict
+-- Copyright (c) 2026 Corridon Capital
+-- MPL-2.0: https://mozilla.org/MPL/2.0/
+-- Presentation only: status never grants permission, changes values or starts gameplay actions.
+local feedback = {}
+local richtext = require(script.Parent.richtext)
+local variables = require(script.Parent.variables)
+local defaults = {
+    idle = "",
+    info = "",
+    loading = "Working…",
+    success = "Completed.",
+    error = "Could not complete the action. Try again.",
+    cancelled = "Cancelled.",
+}
+
+function feedback.capture(control)
+    if control._feedbackBase then
+        return
+    end
+    local descriptor = control.descriptor
+    control._feedbackBase = {
+        text = if descriptor then descriptor.titleLabel.Text else "",
+        richText = if descriptor then descriptor.titleLabel.RichText else false,
+        existed = descriptor ~= nil,
+    }
+end
+
+function feedback.text(control)
+    if control.locked then
+        return control._lockReason or "This option is currently unavailable."
+    end
+    local status = control._status
+    if status and status.kind ~= "idle" then
+        return status.text
+            .. (
+                if status.progress ~= nil
+                    then " · " .. tostring(math.floor(status.progress * 100 + 0.5)) .. "%"
+                    else ""
+            )
+    end
+    return nil
+end
+
+function feedback.render(control)
+    local window = control.window
+    if control._removed or window.unloaded or not control.main or not control.main.Parent then
+        return
+    end
+    local text = feedback.text(control)
+    local shown = control._shown ~= false and not control._userHidden and not window.hidden
+    if text or control._feedbackBase then
+        feedback.capture(control)
+        -- Compact rows retain their height: hover/ShowHelp exposes status; a blocked card also opens help on tap.
+        -- Use a column host when a permanently visible, wrapping caption is required.
+        if not control.compact then
+            if not control.descriptor then
+                control.descriptor =
+                    require(script.Parent.Parent.components.descriptor).new(control.tab, { description = "" })
+            end
+            local descriptor, base = control.descriptor, control._feedbackBase
+            if not descriptor._feedbackBound then
+                descriptor._feedbackBound = true
+                local bindings = window.themeProperties[descriptor.titleLabel]
+                bindings.TextTransparency = {
+                    "SecondaryTextTransparency",
+                    function(value)
+                        if control._shown == false or control._userHidden or window.hidden then
+                            return 1
+                        end
+                        return if feedback.text(control) then 0 else value
+                    end,
+                }
+                bindings.TextColor3 = {
+                    "ContentColor",
+                    function(value)
+                        local state = control._status
+                        if not control.locked and state and (state.kind == "success" or state.kind == "error") then
+                            return richtext.color(
+                                state.kind,
+                                { theme = window.theme, light = richtext.isLight(window.theme.StatBackground) }
+                            )
+                        end
+                        return value
+                    end,
+                }
+            end
+            descriptor.main.LayoutOrder = control.main.LayoutOrder + 1
+            descriptor.main.Visible = shown and (text ~= nil or base.existed)
+            descriptor.titleLabel.RichText = if text then false else base.richText
+            descriptor.titleLabel.Text = text or base.text
+            local kind = control._status and control._status.kind
+            local color = if not control.locked and (kind == "error" or kind == "success")
+                then richtext.color(kind, {
+                    theme = window.theme,
+                    light = richtext.isLight(window.theme.ElementColor or window.theme.StatBackground),
+                })
+                else window.theme.ContentColor
+            -- A new tween cancels older reveal/theme tweens for these properties. Direct
+            -- assignment alone would let a previous theme fade overwrite the current status.
+            variables.tweenService
+                :Create(descriptor.titleLabel, TweenInfo.new(0.12), {
+                    TextColor3 = color,
+                    TextTransparency = if shown
+                        then (if text then 0 else window.theme.SecondaryTextTransparency)
+                        else 1,
+                })
+                :Play()
+        end
+    end
+    local blocked = control.locked or control._busy
+    if blocked and not control._feedbackShield then
+        local shield = window:Create("TextButton", {
+            Name = "ControlFeedback",
+            Text = "",
+            AutoButtonColor = false,
+            Active = true,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Size = UDim2.fromScale(1, 1),
+            ZIndex = 65,
+            Parent = control.main,
+        })
+        control._feedbackShield = shield
+        window:ConnectFor(control, shield.MouseButton1Click, function()
+            control:ShowHelp()
+        end)
+        window:ConnectFor(control, shield.MouseEnter, function()
+            local message = feedback.text(control)
+            if message and window:_interactive() then
+                window:_showTooltip(message)
+            end
+        end)
+        window:ConnectFor(control, shield.MouseLeave, function()
+            window:_hideTooltip()
+        end)
+    end
+    if control._feedbackShield then
+        control._feedbackShield.Visible = shown and blocked == true
+    end
+    local progress = control._status and control._status.progress
+    if progress ~= nil and not control._feedbackProgress then
+        control._feedbackProgress = window:Create("Frame", {
+            Name = "ControlProgress",
+            BorderSizePixel = 0,
+            AnchorPoint = Vector2.new(0, 1),
+            Position = UDim2.fromScale(0, 1),
+            Size = UDim2.new(progress, 0, 0, 2),
+            ZIndex = 66,
+            Parent = control.main,
+        }, { BackgroundColor3 = "AccentStroke" })
+    end
+    if control._feedbackProgress then
+        control._feedbackProgress.Visible = shown and progress ~= nil and not control.locked
+        control._feedbackProgress.Size = UDim2.new(progress or 0, 0, 0, 2)
+    end
+end
+
+function feedback.set(control, text, kind, progress)
+    if control._removed or control.window.unloaded then
+        return false
+    end
+    kind = kind or (if text == nil or text == "" then "idle" else "info")
+    assert(defaults[kind] ~= nil, "Unknown control status kind")
+    assert(text == nil or type(text) == "string", "Status text must be a string")
+    assert(
+        progress == nil or (type(progress) == "number" and progress == progress and progress >= 0 and progress <= 1),
+        "Status progress must be between 0 and 1"
+    )
+    feedback.capture(control)
+    control._status = { kind = kind, text = text or defaults[kind], progress = progress }
+    feedback.render(control)
+    return true
+end
+
+return feedback
 ]=====]
 
 sources["utility/elementLifecycle"] = [=====[
@@ -53680,6 +54198,8 @@ function elementLifecycle.teardown(window, elements)
         end
         element._refreshFieldFocus = nil
         element._busy = false
+        element._cancelRun = nil
+        element._actionGeneration = (element._actionGeneration or 0) + 1
         if element._changeListeners then
             table.clear(element._changeListeners)
         end
