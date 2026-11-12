@@ -3665,6 +3665,7 @@ for _, name in
         "CreateStackedChart",
         "CreateTarget",
         "CreateItemPicker",
+        "CreateItemDetails",
         "CreateDashboard",
         "CreateESPPreview",
         "CreateColorSwatch",
@@ -13836,6 +13837,12 @@ end
 function Group:CreateDashboard(properties)
     return self:_add("dashboard", properties)
 end
+function Group:CreateItemDetails(properties)
+    if self.compact then
+        return self:CreateGroup({ direction = "column" }):CreateItemDetails(properties)
+    end
+    return self:_add("itemdetails", properties)
+end
 function Group:CreateItemPicker(properties)
     return self:_add("itempicker", properties)
 end
@@ -15995,6 +16002,390 @@ moveable(Input)
 lockable(Input)
 
 return Input
+]=====]
+
+sources["components/itemdetails"] = [=====[
+--!nonstrict
+-- Copyright (c) 2026 Corridon Capital
+-- MPL-2.0: https://mozilla.org/MPL/2.0/
+local utility = script.Parent.Parent.utility
+local presentation = require(utility.itemPresentation)
+local lifecycle = require(utility.elementLifecycle)
+local copy = require(utility.controlContract).copy
+local Group = require(script.Parent.group)
+local ItemDetails = {}
+ItemDetails.__index = ItemDetails
+ItemDetails.__type = "ItemDetails"
+
+local function selection(value)
+    if value == nil then
+        return {}
+    end
+    local result, seen = {}, {}
+    for _, id in (if type(value) == "table" then value else { value }) do
+        assert(type(id) == "string" or type(id) == "number", "ItemDetails selection requires IDs")
+        id = tostring(id)
+        if not seen[id] then
+            seen[id] = true
+            table.insert(result, id)
+        end
+    end
+    return result
+end
+local function item(value)
+    assert(type(value) == "table" and value.id ~= nil, "Detail items require stable IDs")
+    local result = copy(value)
+    result.id = tostring(value.id)
+    result.name = tostring(value.name or value.id)
+    return result
+end
+function ItemDetails.new(tab, properties)
+    properties = properties or {}
+    local self = setmetatable({
+        tab = tab,
+        window = tab.window,
+        name = properties.name or "Selection details",
+        items = {},
+        selected = {},
+        _dynamic = {},
+        _badges = {},
+        _labels = {},
+        emptyText = properties.emptyText or "Select an item to see its details.",
+        loading = false,
+    }, ItemDetails)
+    local w = self.window
+    self.main = w:Create("Frame", {
+        Name = "ItemDetails",
+        Size = UDim2.new(1, -20, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Parent = tab.tabPage,
+    })
+    self.stroke = w:StyleElementBody(self.main)
+    w:Create("UIPadding", {
+        PaddingTop = UDim.new(0, 16),
+        PaddingBottom = UDim.new(0, 16),
+        PaddingLeft = UDim.new(0, 16),
+        PaddingRight = UDim.new(0, 16),
+        Parent = self.main,
+    })
+    w:Create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 12), Parent = self.main })
+    self.header = w:Create("Frame", {
+        Name = "Header",
+        Size = UDim2.new(1, 0, 0, 64),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        LayoutOrder = 0,
+        Parent = self.main,
+    })
+    self.thumbnail = presentation.thumbnail(w, self, self.header, 64)
+    local heading = w:Create("Frame", {
+        Position = UDim2.fromOffset(78, 0),
+        Size = UDim2.new(1, -78, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        Parent = self.header,
+    })
+    w:Create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 5), Parent = heading })
+    local function label(parent, size, order)
+        return w:Create("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+            BackgroundTransparency = 1,
+            Text = "",
+            TextWrapped = true,
+            RichText = false,
+            TextSize = size,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            LayoutOrder = order,
+            Parent = parent,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    end
+    self.title = label(heading, 18, 0)
+    self.stateLabel = label(heading, 12, 1)
+    self.body = label(self.main, 14, 1)
+    self.badgeHost = w:Create("Frame", {
+        Name = "Badges",
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        LayoutOrder = 2,
+        Parent = self.main,
+    })
+    w:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        Wraps = true,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 5),
+        Parent = self.badgeHost,
+    })
+    w:ConnectFor(self, self.badgeHost:GetPropertyChangedSignal("AbsoluteSize"), function()
+        for _, badge in self._badges do
+            badge:Fit()
+        end
+    end)
+    self.propertyHost = w:Create("Frame", {
+        Name = "Properties",
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        LayoutOrder = 3,
+        Parent = self.main,
+    })
+    w:Create(
+        "UIListLayout",
+        { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 7), Parent = self.propertyHost }
+    )
+    self:_newActions()
+    self:Refresh(properties.items or {})
+    self:Select(properties.selected)
+    if properties.source then
+        self:Bind(properties.source, properties.binding)
+    end
+    return self
+end
+function ItemDetails:_newActions()
+    if self._group then
+        lifecycle.teardown(self.window, { self._group })
+        self.window:DestroySubtree(self._group.main)
+    end
+    self._actionRecords = {}
+    self._group = Group.new({ window = self.window, tabPage = self.main, forgetState = true }, { direction = "column" })
+    self._group.main.LayoutOrder = 4
+end
+function ItemDetails:_render()
+    if self._removed then
+        return
+    end
+    local w = self.window
+    for _, node in self._dynamic do
+        w:DestroySubtree(node)
+    end
+    self._dynamic, self._badges, self._labels = {}, {}, {}
+    local count = #self.selected
+    local data = if count == 1 then self.items[self.selected[1]] else nil
+    self.state = if self.loading
+        then "loading"
+        elseif count == 0 then "empty"
+        elseif count > 1 then "multiple"
+        elseif not data or data.available == false then "unavailable"
+        else "ready"
+    self.title.Text = if count > 1 then tostring(count) .. " items selected" elseif data then data.name else self.name
+    self.stateLabel.Text = ({
+        empty = "No selection",
+        loading = "Loading details…",
+        multiple = "Multiple selection",
+        unavailable = "Item unavailable",
+        ready = "Selected item",
+    })[self.state]
+    self.body.Text = if self.state == "loading"
+        then "The selected ID is preserved while details load."
+        elseif count == 0 then self.emptyText
+        elseif count > 1 then "Select one item to inspect its actions."
+        elseif not data then "This item is not in the current data snapshot."
+        else tostring(data.description or "")
+    if data and data.available == false then
+        self.body.Text = tostring(data.disabledReason or "This item is currently unavailable.")
+            .. (if self.body.Text ~= "" then "\n" .. self.body.Text else "")
+    end
+    self.body.Visible = self.body.Text ~= ""
+    self.thumbnail:Set(data and data.image, data and data.name or "?")
+    for _, badge in (data and data.badges or {}) do
+        local b = presentation.badge(w, self.badgeHost, badge)
+        table.insert(self._badges, b)
+        table.insert(self._dynamic, b.label)
+    end
+    self.badgeHost.Visible = #self._badges > 0
+    local properties = if count > 1 then {} else (data and data.properties or {})
+    if count > 1 then
+        for _, id in self.selected do
+            table.insert(
+                properties,
+                { label = id, value = if self.items[id] then self.items[id].name else "Unavailable" }
+            )
+        end
+    end
+    for index, prop in properties do
+        local row = w:Create("Frame", {
+            Size = UDim2.new(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+            BackgroundTransparency = 1,
+            LayoutOrder = index,
+            Parent = self.propertyHost,
+        })
+        for _, definition in
+            {
+                { tostring(prop.label or prop.key or ""), 0, 0.4 },
+                { tostring(if prop.value ~= nil then prop.value else ""), 0.42, 0.58 },
+            }
+        do
+            local text = w:Create("TextLabel", {
+                Text = definition[1],
+                RichText = false,
+                TextWrapped = true,
+                AutomaticSize = Enum.AutomaticSize.Y,
+                BackgroundTransparency = 1,
+                TextSize = 13,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                Position = UDim2.fromScale(definition[2], 0),
+                Size = UDim2.new(definition[3], 0, 0, 0),
+                Parent = row,
+            }, { TextColor3 = "ContentColor", FontFace = "Font" })
+            table.insert(self._labels, text)
+        end
+        table.insert(self._dynamic, row)
+    end
+    self.propertyHost.Visible = #properties > 0
+    local key = data and data.id
+    if self._actionKey ~= key then
+        self:_newActions()
+        self._actionKey = key
+    end
+    self.actions = {}
+    local keep = {}
+    for index, definition in (data and data.actions or {}) do
+        local id = tostring(definition.id or definition.text or index)
+        assert(not keep[id], "Detail actions require unique IDs")
+        keep[id] = true
+        local record = self._actionRecords[id]
+        if not record then
+            record = { control = self._group:CreateButton({ name = definition.text or id, icon = definition.icon }) }
+            self._actionRecords[id] = record
+            local action = record.control
+            action.callback = function()
+                local current = record.definition
+                local snapshot = copy(record.snapshot)
+                action:Run(function(_, request)
+                    if current.callback then
+                        return current.callback(snapshot, request)
+                    end
+                    return false, "No action handler"
+                end, current.options)
+            end
+        end
+        record.definition = definition
+        record.snapshot = data
+        local action = record.control
+        action.name = definition.text or id
+        if not action:IsBusy() then
+            action.title.Text = action.name
+        else
+            action._titleBeforeBusy = action.name
+        end
+        action:MoveTo(index)
+        if self.state ~= "ready" or definition.enabled == false or not definition.callback then
+            action:Lock(definition.disabledReason or (data and data.disabledReason) or "This action is unavailable.")
+        else
+            action:Unlock()
+        end
+        table.insert(self.actions, action)
+    end
+    for id, record in table.clone(self._actionRecords) do
+        if not keep[id] then
+            record.control:Destroy()
+            self._actionRecords[id] = nil
+        end
+    end
+    self._group.main.Visible = #self.actions > 0
+    self:_setShown(self._shown ~= false and not w.hidden, false)
+    w:_notifyControlChanged(self)
+end
+function ItemDetails:Select(ids)
+    self.selected = selection(ids)
+    self.loading = false
+    self:_render()
+end
+function ItemDetails:GetSelection()
+    return table.clone(self.selected)
+end
+function ItemDetails:Get()
+    return if #self.selected == 1 then copy(self.items[self.selected[1]]) else nil
+end
+function ItemDetails:GetState()
+    return self.state
+end
+function ItemDetails:Refresh(items)
+    local nextItems = {}
+    for _, value in items do
+        local entry = item(value)
+        assert(not nextItems[entry.id], "Duplicate detail item ID")
+        nextItems[entry.id] = entry
+    end
+    self.items = nextItems
+    self.loading = false
+    self:_render()
+end
+function ItemDetails:Upsert(value)
+    local entry = item(value)
+    self.items[entry.id] = entry
+    if table.find(self.selected, entry.id) then
+        self.loading = false
+    end
+    self:_render()
+end
+function ItemDetails:SetLoading(loading)
+    self.loading = loading == true
+    self:_render()
+end
+function ItemDetails:_disposeActions()
+    if self._selectionDisconnect then
+        self._selectionDisconnect()
+        self._selectionDisconnect = nil
+    end
+end
+function ItemDetails:Unbind()
+    self:_disposeActions()
+end
+function ItemDetails:Bind(source, options)
+    assert(type(source) == "table", "ItemDetails.Bind requires a control")
+    options = options or {}
+    local read = options.getSelection or function(value)
+        return value
+    end
+    local subscribe = source.OnSelectionChanged or source.OnChanged
+    assert(type(subscribe) == "function", "Use the table's onRowClick callback to select detail IDs")
+    self:Unbind()
+    local function update(value)
+        if not self._removed then
+            self:Select(read(value, source))
+        end
+    end
+    self._selectionDisconnect = subscribe(source, update)
+    update(if source.GetSelectedItem then source:GetSelectedItem() else source:GetValue())
+    return self
+end
+function ItemDetails:_searchText()
+    return self.name .. " " .. self.title.Text .. " " .. self.body.Text
+end
+function ItemDetails:_setShown(shown, animate)
+    if shown and self._userHidden then
+        return
+    end
+    self._shown = shown
+    local w = self.window
+    w:_revealCommon(self, animate)
+    if not shown then
+        w:_hideCommon(self, animate)
+    end
+    self._shown = shown
+    self.thumbnail:Show(shown)
+    for _, text in { self.title, self.stateLabel, self.body } do
+        text.TextTransparency = if shown then 0 else 1
+    end
+    for _, text in self._labels do
+        text.TextTransparency = if shown then 0 else 1
+    end
+    for _, badge in self._badges do
+        badge:Show(shown)
+    end
+    self._group:_setShown(shown, animate)
+end
+function ItemDetails:_refreshTheme()
+    self:_setShown(self._shown ~= false, false)
+end
+require(utility.moveable)(ItemDetails)
+return ItemDetails
 ]=====]
 
 sources["components/itemgrid"] = [=====[
@@ -24705,6 +25096,7 @@ local lockable = require(utility.lockable)
 local locale = require(utility.locale)
 local hapticEngine = require(utility.HapticEngine)
 local soundEngine = require(utility.sound)
+local presentation = require(utility.itemPresentation)
 
 local defaultRowHeight = 38
 local rowGap = 6
@@ -24744,6 +25136,11 @@ local function normalise(entry)
             name = tostring(entry.name or entry.Name or id),
             icon = entry.icon or entry.Icon,
             color = entry.color or entry.Color,
+            image = entry.image or entry.Image,
+            subtitle = entry.subtitle or entry.Subtitle,
+            badges = entry.badges or entry.Badges or {},
+            enabled = functions.readBool(entry, "enabled", true),
+            disabledReason = entry.disabledReason or entry.DisabledReason,
         }
     end
     return nil
@@ -24777,6 +25174,12 @@ function ReorderList.new(tab, properties)
         onRemove = properties.onRemove or properties.OnRemove,
 
         entries = {}, -- ordered { id, name, icon?, color? }
+        rich = functions.readBool(properties, "rich", false),
+        showMoveButtons = functions.readBool(properties, "showMoveButtons", false),
+        maxHeight = properties.maxHeight or properties.MaxHeight,
+        onSelect = properties.onSelect or properties.OnSelect,
+        selectedId = nil,
+        _selectionListeners = {},
         rows = {}, -- parallel to entries, same index
         value = {}, -- ordered ids
         -- A restored order that still names items the list does not have yet (see _deserialize).
@@ -24784,11 +25187,18 @@ function ReorderList.new(tab, properties)
         savedOrder = nil,
     }, ReorderList)
 
+    local known = {}
     for _, entry in (properties.items or properties.Items or {}) do
         local normalised = normalise(entry)
-        if normalised then
+        if normalised and not known[normalised.id] then
+            known[normalised.id] = true
             table.insert(self.entries, normalised)
         end
+    end
+
+    if self.rich then
+        self.rowHeight = math.max(self.rowHeight, 76)
+        self.showMoveButtons = functions.readBool(properties, "showMoveButtons", true)
     end
 
     -- whether it starts out waiting for its items (see ReorderList:SetLoading)
@@ -24803,7 +25213,7 @@ function ReorderList.new(tab, properties)
     self:_rebuildRows()
     if self._autoLoading then
         task.delay(listLoadingGrace, function()
-            if self._autoLoading and not self.window.unloaded then
+            if self._autoLoading and not self._removed and not self.window.unloaded then
                 self:SetLoading(false)
             end
         end)
@@ -24815,6 +25225,238 @@ function ReorderList.new(tab, properties)
     end
 
     return self
+end
+
+function ReorderList:_decorateRow(row, contentX, rightInset)
+    local w, entry = self.window, row.entry
+    row._contentX = contentX
+    row._rightInset = rightInset
+    if entry.image then
+        row.thumbnail = presentation.thumbnail(w, self, row.frame, 40, function(signal, fn)
+            self:_rowConnect(row, signal, fn)
+        end)
+        row.thumbnail.frame.Position = UDim2.new(0, contentX, 0.5, -20)
+        row.thumbnail:Set(entry.image, entry.name)
+        contentX += 48
+    end
+    row.title.Size = UDim2.new(1, -(contentX + rightInset), 0, 20)
+    row.title.Position = UDim2.fromOffset(contentX, 6)
+    row.subtitle = w:Create("TextLabel", {
+        Text = tostring(if entry.enabled == false then entry.disabledReason or "Unavailable" else entry.subtitle or ""),
+        RichText = false,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        BackgroundTransparency = 1,
+        Position = UDim2.fromOffset(contentX, 27),
+        Size = UDim2.new(1, -(contentX + rightInset), 0, 17),
+        Parent = row.frame,
+    }, { TextColor3 = "ContentColor", FontFace = "Font" })
+    row.badges = {}
+    local host = w:Create("Frame", {
+        Size = UDim2.new(1, -(contentX + rightInset), 0, 22),
+        Position = UDim2.fromOffset(contentX, 47),
+        BackgroundTransparency = 1,
+        ClipsDescendants = true,
+        Parent = row.frame,
+    })
+    row.badgeHost = host
+    w:Create("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 4),
+        Parent = host,
+    })
+    for _, badge in entry.badges or {} do
+        table.insert(row.badges, presentation.badge(w, host, badge))
+    end
+    self:_rowConnect(row, host:GetPropertyChangedSignal("AbsoluteSize"), function()
+        for _, badge in row.badges do
+            badge:Fit()
+        end
+    end)
+end
+function ReorderList:_layoutRichRow(row)
+    local scale = if self.window.contentScale then self.window.contentScale.Scale else 1
+    local width = row.frame.AbsoluteSize.X / math.max(scale, 0.01)
+    local narrow = width > 0 and width < 340
+    local x = row._contentX
+    if row.thumbnail then
+        row.thumbnail.frame.Visible = not narrow
+        if not narrow then
+            x += 48
+        end
+    end
+    local right = row._rightInset - (if narrow and self.showMoveButtons then 30 else 0)
+    row.title.Position = UDim2.fromOffset(x, 6)
+    row.title.Size = UDim2.new(1, -(x + right), 0, 20)
+    row.subtitle.Position = UDim2.fromOffset(x, 27)
+    row.subtitle.Size = UDim2.new(1, -(x + right), 0, 17)
+    row.badgeHost.Position = UDim2.fromOffset(x, 47)
+    row.badgeHost.Size = UDim2.new(1, -(x + right), 0, 22)
+    for index, button in row.moves or {} do
+        button.Position = if narrow
+            then UDim2.new(1, -(if self.removable then 36 else 4), if index == 1 then 0.28 else 0.72, 0)
+            else UDim2.new(1, -(if self.removable then 36 else 4) - (2 - index) * 30, 0.5, 0)
+    end
+end
+function ReorderList:_buildMoveButtons(row)
+    row.moves = {}
+    for index, delta in { -1, 1 } do
+        local button = self.window:Create("TextButton", {
+            Name = if delta < 0 then "MoveUp" else "MoveDown",
+            Text = if delta < 0 then "↑" else "↓",
+            TextSize = 17,
+            AutoButtonColor = false,
+            Size = UDim2.fromOffset(28, 30),
+            AnchorPoint = Vector2.new(1, 0.5),
+            Position = UDim2.new(1, -(if self.removable then 36 else 4) - (2 - index) * 30, 0.5, 0),
+            BackgroundTransparency = 1,
+            ZIndex = 5,
+            Parent = row.frame,
+        }, { TextColor3 = "ContentColor", FontFace = "Font" })
+        table.insert(row.moves, button)
+        self:_rowConnect(row, button.MouseButton1Click, function()
+            self:MoveItem(row.entry.id, (table.find(self.rows, row) or 1) + delta)
+        end)
+    end
+end
+function ReorderList:_showDecorations(row, shown)
+    if row.thumbnail then
+        row.thumbnail:Show(shown)
+    end
+    if row.subtitle then
+        row.subtitle.TextTransparency = if shown then self.window.theme.SecondaryTextTransparency else 1
+    end
+    for _, badge in row.badges or {} do
+        badge:Show(shown)
+    end
+    for _, button in row.moves or {} do
+        button.TextTransparency = if not shown then 1 elseif row.entry.enabled == false then 0.65 else 0.1
+    end
+end
+function ReorderList:GetSelectedItem()
+    return self.selectedId
+end
+function ReorderList:OnSelectionChanged(callback)
+    assert(type(callback) == "function", "Expected selection callback")
+    local listener = { callback = callback }
+    table.insert(self._selectionListeners, listener)
+    return function()
+        local index = table.find(self._selectionListeners, listener)
+        if index then
+            table.remove(self._selectionListeners, index)
+        end
+    end
+end
+function ReorderList:SelectItem(id, silent)
+    if self._removed or self.window.unloaded or self.locked or self._busy then
+        return false
+    end
+    id = if id ~= nil then tostring(id) else nil
+    if id ~= nil then
+        local found = false
+        for _, entry in self.entries do
+            if entry.id == id then
+                found = true
+                break
+            end
+        end
+        if not found then
+            return false
+        end
+    end
+    if self.selectedId == id then
+        return true
+    end
+    self.selectedId = id
+    for _, row in self.rows do
+        self:_applyRowVisual(row, "rest")
+    end
+    if not silent then
+        if self.onSelect then
+            self.window:_runGuarded(self, self.onSelect, id)
+        end
+        for _, listener in table.clone(self._selectionListeners) do
+            if not self._removed then
+                pcall(listener.callback, id)
+            end
+        end
+    end
+    return true
+end
+function ReorderList:MoveItem(id, index)
+    if self.locked or self._busy or self._removed or self.window.unloaded then
+        return false
+    end
+    if self._dragIndex then
+        self:_endDrag(true)
+    end
+    local from
+    for i, entry in self.entries do
+        if entry.id == tostring(id) then
+            from = i
+            break
+        end
+    end
+    if not from or self.entries[from].enabled == false then
+        return false
+    end
+    assert(type(index) == "number" and index == index and math.abs(index) < math.huge, "Position must be finite")
+    index = math.clamp(math.floor(index), 1, #self.entries)
+    if from == index then
+        return false
+    end
+    table.insert(self.entries, index, table.remove(self.entries, from))
+    table.insert(self.rows, index, table.remove(self.rows, from))
+    self:_syncValue()
+    self:_layout(nil)
+    self.window:_runGuarded(self, self.callback, self:Get())
+    self.window:_persist(self)
+    return true
+end
+function ReorderList:_autoScroll(pointerY, dt, scale)
+    local target = self.stack
+    if (self._stackHeight or 0) <= target.AbsoluteWindowSize.Y / math.max(scale, 0.01) then
+        local ancestor = target.Parent
+        while ancestor do
+            if ancestor:IsA("ScrollingFrame") then
+                target = ancestor
+                break
+            end
+            ancestor = ancestor.Parent
+        end
+    end
+    local top, bottom = target.AbsolutePosition.Y, target.AbsolutePosition.Y + target.AbsoluteWindowSize.Y
+    local direction = if pointerY < top + 32 then -1 elseif pointerY > bottom - 32 then 1 else 0
+    local content = if target == self.stack
+        then self._stackHeight or 0
+        else target.AbsoluteCanvasSize.Y / math.max(scale, 0.01)
+    local maxY = math.max(0, content - target.AbsoluteWindowSize.Y / math.max(scale, 0.01))
+    target.CanvasPosition =
+        Vector2.new(0, math.clamp(target.CanvasPosition.Y + direction * 360 * math.min(dt, 0.1), 0, maxY))
+end
+function ReorderList:_disposeActions()
+    if self._dragIndex then
+        self:_endDrag(true)
+    end
+    table.clear(self._selectionListeners)
+    for _, row in self.rows do
+        for _, connection in row.connections do
+            self.window:Disconnect(connection)
+        end
+        table.clear(row.connections)
+    end
+    if self.skeleton then
+        self.skeleton:Destroy()
+        self.skeleton = nil
+    end
+end
+function ReorderList:_refreshTheme()
+    for _, row in self.rows do
+        self:_showDecorations(row, self._shown ~= false)
+        self:_applyRowVisual(row, "rest")
+    end
 end
 
 function ReorderList:_slot(): number
@@ -24867,7 +25509,12 @@ function ReorderList:_build()
 
     -- The row stack. Deliberately layout-free (see this file's header): _layout writes every
     -- child's Position and nothing else ever touches it.
-    self.stack = window:Create("Frame", {
+    self.stack = window:Create("ScrollingFrame", {
+        CanvasSize = UDim2.fromOffset(0, 0),
+        AutomaticCanvasSize = Enum.AutomaticSize.None,
+        ScrollBarThickness = 3,
+        ClipsDescendants = true,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
         Name = "Stack",
         Size = UDim2.new(1, -(sidePadding * 2), 0, 0),
         Position = UDim2.new(0, sidePadding, 0, headerTop + headerHeight + headerGap),
@@ -24890,6 +25537,11 @@ function ReorderList:_build()
         if
             (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch)
             and self._dragIndex
+            and (
+                not self._dragInput
+                or self._dragInput.UserInputType ~= Enum.UserInputType.Touch
+                or input == self._dragInput
+            )
         then
             self:_endDrag()
         end
@@ -24936,12 +25588,12 @@ end
 -- tracked per row rather than only on the element: window:ConnectFor files them for teardown at
 -- Unload, which is far too late for a list that rebuilds a dozen times a session.
 function ReorderList:_rowConnect(row, signal, handler)
-    table.insert(row.connections, self.window:ConnectFor(self, signal, handler))
+    table.insert(row.connections, self.window:Connect(signal, handler))
 end
 
 function ReorderList:_buildRow(entry, index)
     local window = self.window
-    local row = { connections = {} }
+    local row: any = { connections = {}, _dragMoved = false }
 
     row.entry = entry
 
@@ -25024,7 +25676,7 @@ function ReorderList:_buildRow(entry, index)
         contentX += 22
     end
 
-    local rightInset = if self.removable then 38 else 12
+    local rightInset = (if self.removable then 38 else 12) + (if self.showMoveButtons then 62 else 0)
 
     row.title = window:Create("TextLabel", {
         Text = locale.t(entry.name),
@@ -25082,6 +25734,10 @@ function ReorderList:_buildRow(entry, index)
         end)
     end
 
+    if self.rich then
+        self:_decorateRow(row, contentX, rightInset)
+    end
+
     -- Covers the row minus the remove button, which sits above it on ZIndex.
     row.interact = window:Create("TextButton", {
         Name = "Interact",
@@ -25110,12 +25766,38 @@ function ReorderList:_buildRow(entry, index)
             self:_applyRowVisual(row, "rest")
         end
     end)
-    self:_rowConnect(row, row.interact.InputBegan, function(input)
+    if self.showMoveButtons then
+        self:_buildMoveButtons(row)
+    end
+    if self.rich then
+        self:_rowConnect(row, row.frame:GetPropertyChangedSignal("AbsoluteSize"), function()
+            self:_layoutRichRow(row)
+        end)
+        self:_layoutRichRow(row)
+    end
+    self:_rowConnect(row, row.interact.MouseButton1Click, function()
+        if self.rich or not row._dragMoved then
+            self:SelectItem(entry.id)
+        end
+    end)
+    local dragTarget = row.interact
+    if self.rich then
+        dragTarget = window:Create("TextButton", {
+            Name = "DragHandle",
+            Text = "",
+            Size = UDim2.fromOffset(30, self.rowHeight),
+            BackgroundTransparency = 1,
+            ZIndex = 4,
+            Parent = row.frame,
+        })
+        row.dragHandle = dragTarget
+    end
+    self:_rowConnect(row, dragTarget.InputBegan, function(input)
         if
             input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch
         then
-            self:_beginDrag(row)
+            self:_beginDrag(row, input)
         end
     end)
 
@@ -25134,7 +25816,9 @@ function ReorderList:_applyRowVisual(row, state)
     ts:Create(row.frame, liftInfo, { BackgroundTransparency = background }):Play()
     ts:Create(row.stroke, liftInfo, {
         Transparency = stroke,
-        Color = if state == "lift" then self.window.theme.AccentStroke else self.window.theme.ElementStroke,
+        Color = if state == "lift" or self.selectedId == row.entry.id
+            then self.window.theme.AccentStroke
+            else self.window.theme.ElementStroke,
     }):Play()
 
     local dotTransparency = if state == "rest" then 0.45 else 0.15
@@ -25171,8 +25855,13 @@ function ReorderList:_syncHeight()
         elseif count == 0 then emptyHeight
         else count * self.rowHeight + (count - 1) * rowGap
 
-    self.stack.Size = UDim2.new(1, -(sidePadding * 2), 0, stackHeight)
-    self.main.Size = UDim2.new(1, -20, 0, headerTop + headerHeight + headerGap + stackHeight + sidePadding)
+    self._stackHeight = stackHeight
+    local height = if self.maxHeight
+        then math.min(stackHeight, math.max(self.maxHeight, self.rowHeight))
+        else stackHeight
+    self.stack.Size = UDim2.new(1, -(sidePadding * 2), 0, height)
+    self.stack.CanvasSize = UDim2.fromOffset(0, stackHeight)
+    self.main.Size = UDim2.new(1, -20, 0, headerTop + headerHeight + headerGap + height + sidePadding)
     self.empty.frame.Visible = count == 0 and not placeholders
 end
 
@@ -25187,7 +25876,7 @@ end
 function ReorderList:_rebuildRows()
     -- a rebuild mid-drag would leave _dragRow pointing at a destroyed frame
     if self._dragIndex then
-        self:_endDrag()
+        self:_endDrag(true)
     end
 
     for _, row in self.rows do
@@ -25223,11 +25912,14 @@ end
 -- known positions - the drag loop itself is what calls it, so a test that stubs this exercises
 -- the real path rather than a parallel one.
 function ReorderList:_pointerY(): number
+    if self._dragInput and self._dragInput.UserInputType == Enum.UserInputType.Touch then
+        return self._dragInput.Position.Y
+    end
     return variables.userInputService:GetMouseLocation().Y
 end
 
-function ReorderList:_beginDrag(row)
-    if self.locked or self._dragIndex then
+function ReorderList:_beginDrag(row, input)
+    if self.locked or self._busy or self._removed or row.entry.enabled == false or self._dragIndex then
         return
     end
 
@@ -25239,6 +25931,9 @@ function ReorderList:_beginDrag(row)
     hapticEngine.click()
     soundEngine.click()
 
+    self._dragOrigin = table.clone(self.entries)
+    self._dragInput = input
+    row._dragMoved = false
     self._dragIndex = index
     self._dragRow = row
     -- grab offset, so the row doesn't jump its centre to the cursor on pickup
@@ -25246,6 +25941,12 @@ function ReorderList:_beginDrag(row)
 
     -- above every other row, so the dragged one passes over them rather than under
     row.frame.ZIndex = 30
+    for _, button in row.moves or {} do
+        button.ZIndex = 32
+    end
+    if row.dragHandle then
+        row.dragHandle.ZIndex = 32
+    end
     if row.removeButton then
         row.removeButton.ZIndex = 32
         row.removeGlyph.ZIndex = 32
@@ -25256,7 +25957,7 @@ function ReorderList:_beginDrag(row)
         self._dragConnection:Disconnect()
     end
     -- Self-terminates if the window unloads mid-drag: InputEnded won't fire to clean us up then.
-    self._dragConnection = variables.runService.RenderStepped:Connect(function()
+    self._dragConnection = variables.runService.RenderStepped:Connect(function(dt)
         if self.window.unloaded or not self._dragIndex then
             if self._dragConnection then
                 self._dragConnection:Disconnect()
@@ -25264,11 +25965,11 @@ function ReorderList:_beginDrag(row)
             end
             return
         end
-        self:_follow()
+        self:_follow(dt)
     end)
 end
 
-function ReorderList:_follow()
+function ReorderList:_follow(dt)
     local row = self._dragRow
     if not row or not row.frame.Parent then
         return
@@ -25276,7 +25977,10 @@ function ReorderList:_follow()
 
     local slot = self:_slot()
     local count = #self.rows
-    local top = self:_pointerY() - self._grabOffset - self.stack.AbsolutePosition.Y
+    local scale = if row.frame.AbsoluteSize.Y > 0 then row.frame.AbsoluteSize.Y / self.rowHeight else 1
+    self:_autoScroll(self:_pointerY(), dt or 1 / 60, scale)
+    local top = (self:_pointerY() - self._grabOffset - self.stack.AbsolutePosition.Y) / scale
+        + self.stack.CanvasPosition.Y
     top = math.clamp(top, 0, math.max((count - 1) * slot, 0))
 
     -- written, never tweened: a tween here trails the cursor by its own duration, which reads as
@@ -25285,6 +25989,7 @@ function ReorderList:_follow()
 
     local target = math.clamp(math.floor(top / slot + 0.5) + 1, 1, count)
     if target ~= self._dragIndex then
+        row._dragMoved = true
         table.remove(self.rows, self._dragIndex)
         table.insert(self.rows, target, row)
         table.remove(self.entries, self._dragIndex)
@@ -25295,10 +26000,11 @@ function ReorderList:_follow()
     end
 end
 
-function ReorderList:_endDrag()
+function ReorderList:_endDrag(cancelled)
     local row = self._dragRow
     self._dragIndex = nil
     self._dragRow = nil
+    self._dragInput = nil
 
     if self._dragConnection then
         self._dragConnection:Disconnect()
@@ -25309,7 +26015,25 @@ function ReorderList:_endDrag()
         return
     end
 
+    if cancelled and self._dragOrigin then
+        local byId = {}
+        for _, existing in self.rows do
+            byId[existing.entry.id] = existing
+        end
+        self.entries = self._dragOrigin
+        self.rows = {}
+        for _, entry in self.entries do
+            table.insert(self.rows, byId[entry.id])
+        end
+    end
+    self._dragOrigin = nil
     row.frame.ZIndex = 1
+    for _, button in row.moves or {} do
+        button.ZIndex = 5
+    end
+    if row.dragHandle then
+        row.dragHandle.ZIndex = 4
+    end
     if row.removeButton then
         row.removeButton.ZIndex = 3
         row.removeGlyph.ZIndex = 3
@@ -25321,6 +26045,9 @@ function ReorderList:_endDrag()
 
     local before = self.value
     self:_syncValue()
+    if cancelled then
+        return
+    end
 
     local changed = #before ~= #self.value
     if not changed then
@@ -25429,6 +26156,9 @@ end
 -- keep their relative order at the end, so a saved config from before a new item existed still
 -- loads cleanly instead of dropping it.
 function ReorderList:Set(order, skipCallback)
+    if self._dragIndex then
+        self:_endDrag(true)
+    end
     if type(order) ~= "table" then
         return
     end
@@ -25464,6 +26194,9 @@ end
 -- Append one item. Ignored if its id is already in the list - two rows with one id would make
 -- the order ambiguous and RemoveItem non-deterministic.
 function ReorderList:Add(entry, skipCallback)
+    if self._dragIndex then
+        self:_endDrag(true)
+    end
     local normalised = normalise(entry)
     if not normalised then
         return false
@@ -25487,6 +26220,9 @@ end
 -- Drop one item by id. Named RemoveItem, not Remove, because Remove() destroys the element
 -- itself here the same way it does on every other component.
 function ReorderList:RemoveItem(id, skipCallback)
+    if self._dragIndex then
+        self:_endDrag(true)
+    end
     id = tostring(id)
     for index, entry in self.entries do
         if entry.id == id then
@@ -25515,6 +26251,10 @@ end
 -- the list rebuilding around a feature that registered late shouldn't reshuffle the player's
 -- own arrangement of the others.
 function ReorderList:Refresh(items, skipCallback)
+    if self._dragIndex then
+        self:_endDrag(true)
+    end
+    local anchor = functions.captureScrollAnchor(self.entries, self.stack, self:_slot())
     local order = {}
     for _, entry in self.entries do
         table.insert(order, entry.id)
@@ -25545,6 +26285,7 @@ function ReorderList:Refresh(items, skipCallback)
         self._autoLoading = false
     end
     self:Set(order, true)
+    functions.restoreScrollAnchor(anchor, self.entries, self.stack, self:_slot())
 
     if not skipCallback then
         self.window:_runGuarded(self, self.callback, self:Get())
@@ -25555,6 +26296,7 @@ end
 function ReorderList:_setShown(shown, animate)
     local w = self.window
     self._revealed = shown
+    self._shown = shown
     if self.skeleton then
         self.skeleton:SetVisible(shown)
     end
@@ -25563,6 +26305,7 @@ function ReorderList:_setShown(shown, animate)
         w:_reveal(self.emptyLabel, { TextTransparency = 0.55 }, animate)
         w:_reveal(self.empty.icon, { ImageTransparency = 0.65 }, animate)
         for _, row in self.rows do
+            self:_showDecorations(row, true)
             local entry = row.entry
             w:_reveal(row.frame, { BackgroundTransparency = if row.hovered then rowHover else rowRest }, animate)
             w:_reveal(row.stroke, { Transparency = if row.hovered then 0.7 else 0.85 }, animate)
@@ -25586,6 +26329,7 @@ function ReorderList:_setShown(shown, animate)
         w:_reveal(self.emptyLabel, { TextTransparency = 1 }, animate)
         w:_reveal(self.empty.icon, { ImageTransparency = 1 }, animate)
         for _, row in self.rows do
+            self:_showDecorations(row, false)
             w:_reveal(row.frame, { BackgroundTransparency = 1 }, animate)
             w:_reveal(row.stroke, { Transparency = 1 }, animate)
             w:_reveal(row.title, { TextTransparency = 1 }, animate)
@@ -25623,18 +26367,15 @@ function ReorderList:_minWidth()
 end
 
 function ReorderList:Remove()
-    if self.skeleton then
-        self.skeleton:Destroy() -- its pulse repeats forever otherwise
-        self.skeleton = nil
+    if self.Destroy then
+        return self:Destroy()
     end
-    if self._dragConnection then
-        self._dragConnection:Disconnect()
-        self._dragConnection = nil
-    end
+    require(utility.elementLifecycle).teardown(self.window, { self })
     if self.descriptor then
-        self.descriptor:Remove()
+        self.window:DestroySubtree(self.descriptor.main)
     end
-    self.main:Destroy()
+    self.window:DestroySubtree(self.main)
+    return true
 end
 
 return ReorderList
@@ -32754,6 +33495,11 @@ function Tab:CreateDashboard(properties)
 end
 
 -- A row that opens a whole page of cards to pick from - see itempicker.luau's own header.
+function Tab:CreateItemDetails(properties)
+    functions.validateProperties("ItemDetails", properties)
+    return self:_register(require(script.Parent.itemdetails).new(self, properties))
+end
+
 function Tab:CreateItemPicker(properties)
     functions.validateProperties("ItemPicker", properties)
     return self:_register(require(script.Parent.itempicker).new(self, properties))
@@ -48287,6 +49033,12 @@ export type Dashboard = types.Dashboard
 export type PickerItem = types.PickerItem
 export type ItemPickerProps = types.ItemPickerProps
 export type ItemPicker = types.ItemPicker
+export type ItemDetails = types.ItemDetails
+export type ItemDetailsProps = types.ItemDetailsProps
+export type DetailItem = types.DetailItem
+export type DetailAction = types.DetailAction
+export type DetailProperty = types.DetailProperty
+export type DetailBadge = types.DetailBadge
 export type ReorderList = types.ReorderList
 export type PlayerDropdown = types.PlayerDropdown
 export type Label = types.Label
@@ -49671,7 +50423,54 @@ export type GridFilter = string | ((item: GridItem) -> boolean) | {
     tags: ({ string } | { [string]: boolean })?,
 }
 
+export type DetailBadge = string | { text: string, color: (Color3 | string)? }
+export type DetailAction = {
+    id: string?,
+    text: string,
+    icon: (string | number)?,
+    enabled: boolean?,
+    disabledReason: string?,
+    callback: ((DetailItem, AsyncRequest) -> any)?,
+    options: RunOptions?,
+}
+export type DetailProperty = { key: string?, label: string, value: any }
+export type DetailItem = {
+    id: string,
+    name: string,
+    image: (string | number)?,
+    description: string?,
+    badges: { DetailBadge }?,
+    properties: { DetailProperty }?,
+    actions: { DetailAction }?,
+    available: boolean?,
+    disabledReason: string?,
+}
+export type ItemDetailsProps = {
+    name: string?,
+    emptyText: string?,
+    items: { DetailItem }?,
+    selected: (string | { string })?,
+    source: any?,
+    binding: { getSelection: ((any, any) -> any)? }?,
+}
+export type ItemDetails = Moveable & {
+    Select: (self: ItemDetails, ids: (string | { string })?) -> (),
+    GetSelection: (self: ItemDetails) -> { string },
+    Get: (self: ItemDetails) -> DetailItem?,
+    GetState: (self: ItemDetails) -> string,
+    Refresh: (self: ItemDetails, items: { DetailItem }) -> (),
+    Upsert: (self: ItemDetails, item: DetailItem) -> (),
+    SetLoading: (self: ItemDetails, loading: boolean) -> (),
+    Bind: (self: ItemDetails, source: any, options: { getSelection: ((any, any) -> any)? }?) -> ItemDetails,
+    Unbind: (self: ItemDetails) -> (),
+}
+
 export type ReorderItem = {
+    image: (string | number)?,
+    subtitle: string?,
+    badges: { DetailBadge }?,
+    enabled: boolean?,
+    disabledReason: string?,
     id: string?, -- defaults to `name` when omitted
     name: string?,
     icon: (string | number)?,
@@ -49679,6 +50478,10 @@ export type ReorderItem = {
 }
 
 export type ReorderListProps = {
+    rich: boolean?,
+    showMoveButtons: boolean?,
+    maxHeight: number?,
+    onSelect: ((string?) -> ())?,
     name: string?,
     description: string?,
     icon: (string | number)?,
@@ -50523,6 +51326,10 @@ export type ItemPicker = Moveable & {
 }
 
 export type ReorderList = Moveable & {
+    SelectItem: (self: ReorderList, id: string?, silent: boolean?) -> boolean,
+    GetSelectedItem: (self: ReorderList) -> string?,
+    OnSelectionChanged: (self: ReorderList, callback: (string?) -> ()) -> () -> (),
+    MoveItem: (self: ReorderList, id: string, position: number) -> boolean,
     value: { string }, -- the current order, as ids
     locked: boolean,
     Get: (self: ReorderList) -> { string },
@@ -50685,6 +51492,7 @@ export type Collapsible = Moveable & {
     CreateStackedChart: (self: Collapsible, props: StackedChartProps) -> StackedChart,
     CreateTarget: (self: Collapsible, props: TargetProps) -> Target,
     CreateItemPicker: (self: Collapsible, props: ItemPickerProps) -> ItemPicker,
+    CreateItemDetails: (self: Collapsible, props: ItemDetailsProps?) -> ItemDetails,
     CreateDashboard: (self: Collapsible, props: DashboardProps?) -> Dashboard,
     CreateESPPreview: (self: Collapsible, props: ESPPreviewProps?) -> ESPPreview,
     CreateColorSwatch: (self: Collapsible, props: ColorSwatchProps) -> ColorSwatch,
@@ -50752,6 +51560,7 @@ export type Group = Moveable & {
     CreateStackedChart: (self: Group, props: StackedChartProps) -> StackedChart,
     CreateTarget: (self: Group, props: TargetProps) -> Target,
     CreateItemPicker: (self: Group, props: ItemPickerProps) -> ItemPicker,
+    CreateItemDetails: (self: Group, props: ItemDetailsProps?) -> ItemDetails,
     CreateDashboard: (self: Group, props: DashboardProps?) -> Dashboard,
     CreateESPPreview: (self: Group, props: ESPPreviewProps?) -> ESPPreview,
     CreateColorSwatch: (self: Group, props: ColorSwatchProps) -> ColorSwatch,
@@ -50808,6 +51617,7 @@ export type Tab = {
     CreateStackedChart: (self: Tab, props: StackedChartProps) -> StackedChart,
     CreateTarget: (self: Tab, props: TargetProps) -> Target,
     CreateItemPicker: (self: Tab, props: ItemPickerProps) -> ItemPicker,
+    CreateItemDetails: (self: Tab, props: ItemDetailsProps?) -> ItemDetails,
     CreateDashboard: (self: Tab, props: DashboardProps?) -> Dashboard,
     CreateESPPreview: (self: Tab, props: ESPPreviewProps?) -> ESPPreview,
     CreateColorSwatch: (self: Tab, props: ColorSwatchProps) -> ColorSwatch,
@@ -52849,8 +53659,8 @@ reference.entries = {
     {
         name = "CreateReorderList",
         code = 'local control = tab:CreateReorderList({name = "ReorderList"})',
-        properties = "export type ReorderListProps = {\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?, -- persists the ORDER (an array of ids)\n    items: { string | ReorderItem }?,\n    rowHeight: number?, -- default 38, floor 26\n    showIndex: boolean?, -- the 1/2/3 badge, default true\n    removable: boolean?, -- per-row remove button, default false\n    emptyText: string?,\n    onRemove: ((id: string) -> ())?,\n    callback: ((order: { string }) -> ())?,\n}",
-        methods = "export type ReorderList = Moveable & {\n    value: { string }, -- the current order, as ids\n    locked: boolean,\n    Get: (self: ReorderList) -> { string },\n    Set: (self: ReorderList, order: { string }, skipCallback: boolean?) -> (),\n    Add: (self: ReorderList, item: string | ReorderItem, skipCallback: boolean?) -> boolean,\n    -- RemoveItem, not Remove: Remove() destroys the element, as on every other component\n    RemoveItem: (self: ReorderList, id: string, skipCallback: boolean?) -> boolean,\n    Refresh: (self: ReorderList, items: { string | ReorderItem }, skipCallback: boolean?) -> (),\n    Lock: (self: ReorderList, reason: string?) -> (),\n    Unlock: (self: ReorderList) -> (),\n    IsLocked: (self: ReorderList) -> boolean,\n}",
+        properties = "export type ReorderListProps = {\n    rich: boolean?,\n    showMoveButtons: boolean?,\n    maxHeight: number?,\n    onSelect: ((string?) -> ())?,\n    name: string?,\n    description: string?,\n    icon: (string | number)?,\n    tooltip: string?,\n    flag: string?, -- persists the ORDER (an array of ids)\n    items: { string | ReorderItem }?,\n    rowHeight: number?, -- default 38, floor 26\n    showIndex: boolean?, -- the 1/2/3 badge, default true\n    removable: boolean?, -- per-row remove button, default false\n    emptyText: string?,\n    onRemove: ((id: string) -> ())?,\n    callback: ((order: { string }) -> ())?,\n}",
+        methods = "export type ReorderList = Moveable & {\n    SelectItem: (self: ReorderList, id: string?, silent: boolean?) -> boolean,\n    GetSelectedItem: (self: ReorderList) -> string?,\n    OnSelectionChanged: (self: ReorderList, callback: (string?) -> ()) -> () -> (),\n    MoveItem: (self: ReorderList, id: string, position: number) -> boolean,\n    value: { string }, -- the current order, as ids\n    locked: boolean,\n    Get: (self: ReorderList) -> { string },\n    Set: (self: ReorderList, order: { string }, skipCallback: boolean?) -> (),\n    Add: (self: ReorderList, item: string | ReorderItem, skipCallback: boolean?) -> boolean,\n    -- RemoveItem, not Remove: Remove() destroys the element, as on every other component\n    RemoveItem: (self: ReorderList, id: string, skipCallback: boolean?) -> boolean,\n    Refresh: (self: ReorderList, items: { string | ReorderItem }, skipCallback: boolean?) -> (),\n    Lock: (self: ReorderList, reason: string?) -> (),\n    Unlock: (self: ReorderList) -> (),\n    IsLocked: (self: ReorderList) -> boolean,\n}",
         props = { name = "ReorderList" },
     },
     {
@@ -52959,6 +53769,17 @@ reference.entries = {
         props = { name = "Dashboard" },
     },
     {
+        name = "CreateItemDetails",
+        code = 'local control = tab:CreateItemDetails({name = "Selection details", items = {{id = "example", name = "Example item", description = "Select an item to inspect it."}}, selected = "example"})',
+        properties = "export type ItemDetailsProps = {\n    name: string?,\n    emptyText: string?,\n    items: { DetailItem }?,\n    selected: (string | { string })?,\n    source: any?,\n    binding: { getSelection: ((any, any) -> any)? }?,\n}",
+        methods = "export type ItemDetails = Moveable & {\n    Select: (self: ItemDetails, ids: (string | { string })?) -> (),\n    GetSelection: (self: ItemDetails) -> { string },\n    Get: (self: ItemDetails) -> DetailItem?,\n    GetState: (self: ItemDetails) -> string,\n    Refresh: (self: ItemDetails, items: { DetailItem }) -> (),\n    Upsert: (self: ItemDetails, item: DetailItem) -> (),\n    SetLoading: (self: ItemDetails, loading: boolean) -> (),\n    Bind: (self: ItemDetails, source: any, options: { getSelection: ((any, any) -> any)? }?) -> ItemDetails,\n    Unbind: (self: ItemDetails) -> (),\n}",
+        props = {
+            name = "Selection details",
+            items = { { id = "example", name = "Example item", description = "Select an item to inspect it." } },
+            selected = "example",
+        },
+    },
+    {
         name = "CreateItemPicker",
         code = 'local control = tab:CreateItemPicker({name = "ItemPicker"})',
         properties = 'export type ItemPickerProps = {\n    name: string?, -- the row\'s label\n    title: string?, -- the picker\'s heading; default "Select " .. name\n    icon: (string | number)?,\n    description: string?,\n    tooltip: string?,\n    flag: string?,\n    forgetState: boolean?,\n    items: { PickerItem }?,\n    filters: { GridFilterChip }?, -- a chip each, after "All"\n    search: (boolean | string)?, -- the placeholder\n    multiSelect: boolean?, -- default true\n    value: (string | { string })?,\n    emptyText: string?,\n    callback: ((selected: { string }) -> ())?,\n}',
@@ -53018,7 +53839,7 @@ reference.entries = {
         name = "CreateGroup",
         code = 'local control = tab:CreateGroup({name = "Group"})',
         properties = 'export type GroupProps = {\n    direction: string?, -- "row" | "column" (default row); "horizontal"/"vertical" also work\n    -- Only meaningful for a column nested in a row, where the default is an equal split:\n    -- `width` pins this column and lets the rest of the row absorb what is left, `weight`\n    -- splits proportionally instead.\n    width: number?,\n    weight: number?,\n    -- Dependency group: hides/shows every child together based on another control\'s value -\n    -- Fluent\'s own DependencyGroupbox. dependsOn is whatever CreateToggle/CreateDropdown/etc\n    -- itself returned; condition defaults to a plain truthy check (built for a toggle) - pass\n    -- one explicitly for a dropdown/slider-driven group, e.g. function(v) return v == "Advanced"\n    -- end.\n    dependsOn: any?,\n    condition: ((value: any) -> boolean)?,\n}',
-        methods = "export type Group = Moveable & {\n    CreateButton: (self: Group, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Group, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Group, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Group, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Group, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Group, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Group, props: CheckboxProps) -> Checkbox,\n    CreateSlider: (self: Group, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Group, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,\n    CreateListPicker: (self: Group, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Group, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Group, props: PanelProps) -> Panel,\n    CreateInput: (self: Group, props: InputProps) -> Input,\n    CreateKeybind: (self: Group, props: KeybindProps) -> Keybind,\n    CreateColorPicker: (self: Group, props: ColorPickerProps) -> ColorPicker,\n    CreateGradientPicker: (self: Group, props: GradientPickerProps?) -> GradientPicker,\n    CreateStat: (self: Group, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Group, props: StatusCardProps) -> StatusCard,\n    CreateSection: (self: Group, props: SectionProps) -> Section,\n    CreateLabel: (self: Group, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,\n    CreateRichText: (self: Group, props: RichTextProps?) -> RichText,\n    CreateDivider: (self: Group, props: DividerProps?) -> Divider,\n    CreateProgressBar: (self: Group, props: ProgressBarProps) -> ProgressBar,\n    CreateConsole: (self: Group, props: ConsoleProps) -> Console,\n    CreateChart: (self: Group, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Group, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Group, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Group, props: ItemPickerProps) -> ItemPicker,\n    CreateDashboard: (self: Group, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Group, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Group, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Group, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Group, props: FAQProps) -> FAQ,\n    CreateTable: (self: Group, props: TableProps) -> Table,\n    CreateStepper: (self: Group, props: StepperProps) -> Stepper,\n    CreateScrollHint: (self: Group, props: ScrollHintProps?) -> ScrollHint,\n    CreateSegmentedPicker: (self: Group, props: SegmentedPickerProps?) -> SegmentedPicker,\n    CreateShimmerLabel: (self: Group, props: ShimmerLabelProps?) -> ShimmerLabel,\n    CreateGroup: (self: Group, props: GroupProps?) -> Group,\n    CreateHoldButton: (self: Group, props: HoldButtonProps?) -> HoldButton,\n    CreateCollapsible: (self: Group, props: CollapsibleProps?) -> Collapsible,\n    CreateChangelog: (self: Group, props: ChangelogProps?) -> Changelog,\n    CreateSpacer: (self: Group, props: SpacerProps?) -> Spacer,\n}",
+        methods = "export type Group = Moveable & {\n    CreateButton: (self: Group, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Group, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Group, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Group, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Group, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Group, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Group, props: CheckboxProps) -> Checkbox,\n    CreateSlider: (self: Group, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Group, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Group, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Group, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Group, props: ItemGridProps) -> ItemGrid,\n    CreateListPicker: (self: Group, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Group, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Group, props: PanelProps) -> Panel,\n    CreateInput: (self: Group, props: InputProps) -> Input,\n    CreateKeybind: (self: Group, props: KeybindProps) -> Keybind,\n    CreateColorPicker: (self: Group, props: ColorPickerProps) -> ColorPicker,\n    CreateGradientPicker: (self: Group, props: GradientPickerProps?) -> GradientPicker,\n    CreateStat: (self: Group, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Group, props: StatusCardProps) -> StatusCard,\n    CreateSection: (self: Group, props: SectionProps) -> Section,\n    CreateLabel: (self: Group, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Group, props: ParagraphProps?) -> Paragraph,\n    CreateRichText: (self: Group, props: RichTextProps?) -> RichText,\n    CreateDivider: (self: Group, props: DividerProps?) -> Divider,\n    CreateProgressBar: (self: Group, props: ProgressBarProps) -> ProgressBar,\n    CreateConsole: (self: Group, props: ConsoleProps) -> Console,\n    CreateChart: (self: Group, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Group, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Group, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Group, props: ItemPickerProps) -> ItemPicker,\n    CreateItemDetails: (self: Group, props: ItemDetailsProps?) -> ItemDetails,\n    CreateDashboard: (self: Group, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Group, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Group, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Group, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Group, props: FAQProps) -> FAQ,\n    CreateTable: (self: Group, props: TableProps) -> Table,\n    CreateStepper: (self: Group, props: StepperProps) -> Stepper,\n    CreateScrollHint: (self: Group, props: ScrollHintProps?) -> ScrollHint,\n    CreateSegmentedPicker: (self: Group, props: SegmentedPickerProps?) -> SegmentedPicker,\n    CreateShimmerLabel: (self: Group, props: ShimmerLabelProps?) -> ShimmerLabel,\n    CreateGroup: (self: Group, props: GroupProps?) -> Group,\n    CreateHoldButton: (self: Group, props: HoldButtonProps?) -> HoldButton,\n    CreateCollapsible: (self: Group, props: CollapsibleProps?) -> Collapsible,\n    CreateChangelog: (self: Group, props: ChangelogProps?) -> Changelog,\n    CreateSpacer: (self: Group, props: SpacerProps?) -> Spacer,\n}",
         props = { name = "Group" },
     },
     {
@@ -53046,7 +53867,7 @@ reference.entries = {
         name = "CreateCollapsible",
         code = 'local control = tab:CreateCollapsible({name = "Collapsible"})',
         properties = "export type CollapsibleProps = {\n    name: string?,\n    icon: (string | number)?,\n    expanded: boolean?, -- start open (default false)\n    flag: string?, -- config key for open/closed; derived from the name when omitted\n    forgetState: boolean?, -- don't persist open/closed\n}",
-        methods = "export type Collapsible = Moveable & {\n    expanded: boolean,\n    Toggle: (self: Collapsible) -> (),\n    SetExpanded: (self: Collapsible, expanded: boolean) -> (),\n    Set: (self: Collapsible, expanded: boolean, skipAnimation: boolean?) -> (),\n    Get: (self: Collapsible) -> boolean,\n    CreateButton: (self: Collapsible, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Collapsible, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Collapsible, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Collapsible, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Collapsible, props: CheckboxProps) -> Checkbox,\n    CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Collapsible, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,\n    CreateListPicker: (self: Collapsible, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Collapsible, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Collapsible, props: PanelProps) -> Panel,\n    CreateInput: (self: Collapsible, props: InputProps) -> Input,\n    CreateKeybind: (self: Collapsible, props: KeybindProps) -> Keybind,\n    CreateColorPicker: (self: Collapsible, props: ColorPickerProps) -> ColorPicker,\n    CreateGradientPicker: (self: Collapsible, props: GradientPickerProps?) -> GradientPicker,\n    CreateStat: (self: Collapsible, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Collapsible, props: StatusCardProps) -> StatusCard,\n    CreateSection: (self: Collapsible, props: SectionProps) -> Section,\n    CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,\n    CreateRichText: (self: Collapsible, props: RichTextProps?) -> RichText,\n    CreateDivider: (self: Collapsible, props: DividerProps?) -> Divider,\n    CreateProgressBar: (self: Collapsible, props: ProgressBarProps) -> ProgressBar,\n    CreateConsole: (self: Collapsible, props: ConsoleProps) -> Console,\n    CreateChart: (self: Collapsible, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Collapsible, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Collapsible, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Collapsible, props: ItemPickerProps) -> ItemPicker,\n    CreateDashboard: (self: Collapsible, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Collapsible, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Collapsible, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Collapsible, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Collapsible, props: FAQProps) -> FAQ,\n    CreateTable: (self: Collapsible, props: TableProps) -> Table,\n    CreateStepper: (self: Collapsible, props: StepperProps) -> Stepper,\n    CreateScrollHint: (self: Collapsible, props: ScrollHintProps?) -> ScrollHint,\n    CreateSegmentedPicker: (self: Collapsible, props: SegmentedPickerProps?) -> SegmentedPicker,\n    CreateShimmerLabel: (self: Collapsible, props: ShimmerLabelProps?) -> ShimmerLabel,\n    CreateGroup: (self: Collapsible, props: GroupProps?) -> Group,\n    CreateHoldButton: (self: Collapsible, props: HoldButtonProps?) -> HoldButton,\n    CreateCollapsible: (self: Collapsible, props: CollapsibleProps?) -> Collapsible,\n    CreateChangelog: (self: Collapsible, props: ChangelogProps?) -> Changelog,\n    CreateSpacer: (self: Collapsible, props: SpacerProps?) -> Spacer,\n}",
+        methods = "export type Collapsible = Moveable & {\n    expanded: boolean,\n    Toggle: (self: Collapsible) -> (),\n    SetExpanded: (self: Collapsible, expanded: boolean) -> (),\n    Set: (self: Collapsible, expanded: boolean, skipAnimation: boolean?) -> (),\n    Get: (self: Collapsible) -> boolean,\n    CreateButton: (self: Collapsible, props: ButtonProps) -> Button,\n    CreateFlipButton: (self: Collapsible, props: FlipButtonProps) -> FlipButton,\n    CreateCopyButton: (self: Collapsible, props: CopyButtonProps) -> CopyButton,\n    CreateRippleButton: (self: Collapsible, props: RippleButtonProps) -> RippleButton,\n    CreateToggle: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateSwitch: (self: Collapsible, props: ToggleProps) -> Toggle,\n    CreateCheckbox: (self: Collapsible, props: CheckboxProps) -> Checkbox,\n    CreateSlider: (self: Collapsible, props: SliderProps) -> Slider,\n    CreateDropdown: (self: Collapsible, props: DropdownProps) -> Dropdown,\n    CreatePlayerDropdown: (self: Collapsible, props: PlayerDropdownProps) -> PlayerDropdown,\n    CreateReorderList: (self: Collapsible, props: ReorderListProps) -> ReorderList,\n    CreateItemGrid: (self: Collapsible, props: ItemGridProps) -> ItemGrid,\n    CreateListPicker: (self: Collapsible, props: ListPickerProps) -> ListPicker,\n    CreateTabbox: (self: Collapsible, props: TabboxProps) -> Tabbox,\n    CreatePanel: (self: Collapsible, props: PanelProps) -> Panel,\n    CreateInput: (self: Collapsible, props: InputProps) -> Input,\n    CreateKeybind: (self: Collapsible, props: KeybindProps) -> Keybind,\n    CreateColorPicker: (self: Collapsible, props: ColorPickerProps) -> ColorPicker,\n    CreateGradientPicker: (self: Collapsible, props: GradientPickerProps?) -> GradientPicker,\n    CreateStat: (self: Collapsible, props: StatProps) -> Stat,\n    CreateStatusCard: (self: Collapsible, props: StatusCardProps) -> StatusCard,\n    CreateSection: (self: Collapsible, props: SectionProps) -> Section,\n    CreateLabel: (self: Collapsible, props: LabelProps?) -> Label,\n    CreateParagraph: (self: Collapsible, props: ParagraphProps?) -> Paragraph,\n    CreateRichText: (self: Collapsible, props: RichTextProps?) -> RichText,\n    CreateDivider: (self: Collapsible, props: DividerProps?) -> Divider,\n    CreateProgressBar: (self: Collapsible, props: ProgressBarProps) -> ProgressBar,\n    CreateConsole: (self: Collapsible, props: ConsoleProps) -> Console,\n    CreateChart: (self: Collapsible, props: ChartProps) -> Chart,\n    CreateStackedChart: (self: Collapsible, props: StackedChartProps) -> StackedChart,\n    CreateTarget: (self: Collapsible, props: TargetProps) -> Target,\n    CreateItemPicker: (self: Collapsible, props: ItemPickerProps) -> ItemPicker,\n    CreateItemDetails: (self: Collapsible, props: ItemDetailsProps?) -> ItemDetails,\n    CreateDashboard: (self: Collapsible, props: DashboardProps?) -> Dashboard,\n    CreateESPPreview: (self: Collapsible, props: ESPPreviewProps?) -> ESPPreview,\n    CreateColorSwatch: (self: Collapsible, props: ColorSwatchProps) -> ColorSwatch,\n    CreateCountdown: (self: Collapsible, props: CountdownProps) -> Countdown,\n    CreateFAQ: (self: Collapsible, props: FAQProps) -> FAQ,\n    CreateTable: (self: Collapsible, props: TableProps) -> Table,\n    CreateStepper: (self: Collapsible, props: StepperProps) -> Stepper,\n    CreateScrollHint: (self: Collapsible, props: ScrollHintProps?) -> ScrollHint,\n    CreateSegmentedPicker: (self: Collapsible, props: SegmentedPickerProps?) -> SegmentedPicker,\n    CreateShimmerLabel: (self: Collapsible, props: ShimmerLabelProps?) -> ShimmerLabel,\n    CreateGroup: (self: Collapsible, props: GroupProps?) -> Group,\n    CreateHoldButton: (self: Collapsible, props: HoldButtonProps?) -> HoldButton,\n    CreateCollapsible: (self: Collapsible, props: CollapsibleProps?) -> Collapsible,\n    CreateChangelog: (self: Collapsible, props: ChangelogProps?) -> Changelog,\n    CreateSpacer: (self: Collapsible, props: SpacerProps?) -> Spacer,\n}",
         props = { name = "Collapsible" },
     },
     {
@@ -56464,6 +57285,101 @@ function imageCache.avatar(userId: unknown, onReady: AvatarCallback?): string
 end
 
 return imageCache
+]=====]
+
+sources["utility/itemPresentation"] = [=====[
+--!nonstrict
+-- Copyright (c) 2026 Corridon Capital
+-- MPL-2.0: https://mozilla.org/MPL/2.0/
+local image = require(script.Parent.image)
+local richtext = require(script.Parent.richtext)
+local presentation = {}
+
+function presentation.thumbnail(window, owner, parent, size, connect)
+    local frame = window:Create(
+        "Frame",
+        { Name = "Thumbnail", Size = UDim2.fromOffset(size, size), BorderSizePixel = 0, Parent = parent },
+        { BackgroundColor3 = "StatBackground" }
+    )
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = frame })
+    local fallback = window:Create("TextLabel", {
+        Text = "?",
+        TextSize = math.floor(size * 0.35),
+        RichText = false,
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Parent = frame,
+    }, { TextColor3 = "ContentColor", FontFace = "TitleFont" })
+    local picture = window:Create(
+        "ImageLabel",
+        { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit, Parent = frame }
+    )
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = picture })
+    local function refresh()
+        fallback.Visible = not picture.IsLoaded or picture.Image == ""
+    end
+    local wire = connect or function(signal, fn)
+        return window:ConnectFor(owner, signal, fn)
+    end
+    wire(picture:GetPropertyChangedSignal("IsLoaded"), refresh)
+    wire(picture:GetPropertyChangedSignal("Image"), refresh)
+    local result = { frame = frame, image = picture, fallback = fallback }
+    function result:Set(value, name)
+        local text = tostring(name or "?")
+        local ok, ending = pcall(utf8.offset, text, 3)
+        fallback.Text = if ok then string.upper(if ending then string.sub(text, 1, ending - 1) else text) else "?"
+        image.assign(picture, "Image", value or "")
+        refresh()
+    end
+    function result:Show(shown)
+        frame.BackgroundTransparency = if shown then 0 else 1
+        picture.ImageTransparency = if shown then 0 else 1
+        fallback.TextTransparency = if shown then 0 else 1
+    end
+    return result
+end
+
+function presentation.badge(window, parent, spec)
+    spec = if type(spec) == "string" then { text = spec } else spec
+    local label = window:Create("TextLabel", {
+        Name = "Badge",
+        Text = tostring(spec.text or ""),
+        RichText = false,
+        TextSize = 11,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.fromOffset(0, 22),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 0.85,
+        Parent = parent,
+    }, { TextColor3 = "ContentColor", BackgroundColor3 = "ContentColor", FontFace = "Font" })
+    window:Create("UIPadding", { PaddingLeft = UDim.new(0, 7), PaddingRight = UDim.new(0, 7), Parent = label })
+    window:Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = label })
+    local constraint = window:Create("UISizeConstraint", { MaxSize = Vector2.new(10000, 22), Parent = label })
+    local function fit()
+        local width = parent.AbsoluteSize.X
+        local scale = if window.contentScale then window.contentScale.Scale else 1
+        if width > 0 then
+            constraint.MaxSize = Vector2.new(math.max(16, width / math.max(scale, 0.01)), 22)
+        end
+    end
+    fit()
+    local result = { label = label, color = spec.color }
+    result.Fit = fit
+    function result:Show(shown)
+        fit()
+        local color = richtext.color(
+            self.color,
+            { theme = window.theme, light = richtext.isLight(window.theme.StatBackground) }
+        ) or window.theme.ContentColor
+        label.TextColor3 = color
+        label.BackgroundColor3 = color
+        label.TextTransparency = if shown then 0 else 1
+        label.BackgroundTransparency = if shown then 0.88 else 1
+    end
+    return result
+end
+return presentation
 ]=====]
 
 sources["utility/locale"] = [=====[
