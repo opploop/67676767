@@ -16064,25 +16064,33 @@ function ItemDetails.new(tab, properties)
     })
     self.stroke = w:StyleElementBody(self.main)
     w:Create("UIPadding", {
-        PaddingTop = UDim.new(0, 16),
-        PaddingBottom = UDim.new(0, 16),
-        PaddingLeft = UDim.new(0, 16),
-        PaddingRight = UDim.new(0, 16),
+        PaddingTop = UDim.new(0, 12),
+        PaddingBottom = UDim.new(0, 12),
+        PaddingLeft = UDim.new(0, 12),
+        PaddingRight = UDim.new(0, 12),
         Parent = self.main,
     })
-    w:Create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 12), Parent = self.main })
+    w:Create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8), Parent = self.main })
     self.header = w:Create("Frame", {
         Name = "Header",
-        Size = UDim2.new(1, 0, 0, 64),
+        Size = UDim2.new(1, 0, 0, 44),
         AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
         LayoutOrder = 0,
         Parent = self.main,
     })
-    self.thumbnail = presentation.thumbnail(w, self, self.header, 64)
+    self.thumbnail = presentation.thumbnail(w, self, self.header, 44)
+    self.emptyGlyph = w:Create("ImageLabel", {
+        Name = "EmptySelection",
+        Image = "lucide:mouse-pointer-2",
+        Size = UDim2.fromOffset(20, 20),
+        Position = UDim2.fromOffset(12, 12),
+        BackgroundTransparency = 1,
+        Parent = self.header,
+    }, { ImageColor3 = "ContentColor" })
     local heading = w:Create("Frame", {
-        Position = UDim2.fromOffset(78, 0),
-        Size = UDim2.new(1, -78, 0, 0),
+        Position = UDim2.fromOffset(54, 0),
+        Size = UDim2.new(1, -54, 0, 0),
         AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
         Parent = self.header,
@@ -16102,9 +16110,11 @@ function ItemDetails.new(tab, properties)
             Parent = parent,
         }, { TextColor3 = "ContentColor", FontFace = "Font" })
     end
-    self.title = label(heading, 18, 0)
+    self.title = label(heading, 17, 0)
+    self.title.FontFace = w.theme.TitleFont
+    w.themeProperties[self.title].FontFace = "TitleFont"
     self.stateLabel = label(heading, 12, 1)
-    self.body = label(self.main, 14, 1)
+    self.body = label(heading, 13, 2)
     self.badgeHost = w:Create("Frame", {
         Name = "Badges",
         Size = UDim2.new(1, 0, 0, 0),
@@ -16135,8 +16145,19 @@ function ItemDetails.new(tab, properties)
     })
     w:Create(
         "UIListLayout",
-        { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 7), Parent = self.propertyHost }
+        { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4), Parent = self.propertyHost }
     )
+    w:ConnectFor(self, self.propertyHost:GetPropertyChangedSignal("AbsoluteSize"), function()
+        self:_layoutProperties()
+    end)
+    self.actionDivider = w:Create("Frame", {
+        Name = "ActionDivider",
+        Size = UDim2.new(1, 0, 0, 1),
+        BorderSizePixel = 0,
+        BackgroundTransparency = 0.8,
+        LayoutOrder = 4,
+        Parent = self.main,
+    }, { BackgroundColor3 = "ContentColor" })
     self:_newActions()
     self:Refresh(properties.items or {})
     self:Select(properties.selected)
@@ -16145,6 +16166,22 @@ function ItemDetails.new(tab, properties)
     end
     return self
 end
+function ItemDetails:_layoutProperties()
+    local scale = if self.window.contentScale then self.window.contentScale.Scale else 1
+    local width = self.propertyHost.AbsoluteSize.X / math.max(scale, 0.01)
+    local narrow = width > 0 and width < 300
+    for _, pair in self._propertyPairs or {} do
+        pair.layout.FillDirection = if narrow then Enum.FillDirection.Vertical else Enum.FillDirection.Horizontal
+        pair.layout.Padding = UDim.new(0, if narrow then 4 else 0)
+        if pair.divider then
+            pair.divider.Size = if narrow then UDim2.new(1, 0, 0, 1) else UDim2.fromOffset(8, 24)
+            pair.rule.Size = if narrow then UDim2.fromScale(1, 1) else UDim2.fromOffset(1, 16)
+        end
+        for _, cell in pair.cells do
+            cell.Size = if narrow then UDim2.new(1, 0, 0, 0) else UDim2.new(0.5, -4, 0, 0)
+        end
+    end
+end
 function ItemDetails:_newActions()
     if self._group then
         lifecycle.teardown(self.window, { self._group })
@@ -16152,7 +16189,7 @@ function ItemDetails:_newActions()
     end
     self._actionRecords = {}
     self._group = Group.new({ window = self.window, tabPage = self.main, forgetState = true }, { direction = "column" })
-    self._group.main.LayoutOrder = 4
+    self._group.main.LayoutOrder = 5
 end
 function ItemDetails:_render()
     if self._removed then
@@ -16163,6 +16200,8 @@ function ItemDetails:_render()
         w:DestroySubtree(node)
     end
     self._dynamic, self._badges, self._labels = {}, {}, {}
+    self._rules = {}
+    self._propertyImages = {}
     local count = #self.selected
     local data = if count == 1 then self.items[self.selected[1]] else nil
     self.state = if self.loading
@@ -16177,8 +16216,11 @@ function ItemDetails:_render()
         loading = "Loading details…",
         multiple = "Multiple selection",
         unavailable = "Item unavailable",
-        ready = "Selected item",
+        ready = "",
     })[self.state]
+    self.stateLabel.Visible = self.state ~= "ready" and self.state ~= "empty"
+    self.thumbnail.frame.Visible = count > 0
+    self.emptyGlyph.Visible = count == 0
     self.body.Text = if self.state == "loading"
         then "The selected ID is preserved while details load."
         elseif count == 0 then self.emptyText
@@ -16192,7 +16234,7 @@ function ItemDetails:_render()
     self.body.Visible = self.body.Text ~= ""
     self.thumbnail:Set(data and data.image, data and data.name or "?")
     for _, badge in (data and data.badges or {}) do
-        local b = presentation.badge(w, self.badgeHost, badge)
+        local b = presentation.badge(w, self.badgeHost, badge, 18)
         table.insert(self._badges, b)
         table.insert(self._dynamic, b.label)
     end
@@ -16206,36 +16248,158 @@ function ItemDetails:_render()
             )
         end
     end
-    for index, prop in properties do
+    self._propertyPairs = {}
+    for index = 1, #properties, 2 do
         local row = w:Create("Frame", {
+            Name = "PropertyPair",
             Size = UDim2.new(1, 0, 0, 0),
             AutomaticSize = Enum.AutomaticSize.Y,
             BackgroundTransparency = 1,
             LayoutOrder = index,
             Parent = self.propertyHost,
         })
-        for _, definition in
-            {
-                { tostring(prop.label or prop.key or ""), 0, 0.4 },
-                { tostring(if prop.value ~= nil then prop.value else ""), 0.42, 0.58 },
-            }
-        do
-            local text = w:Create("TextLabel", {
-                Text = definition[1],
-                RichText = false,
-                TextWrapped = true,
+        local layout = w:Create("UIListLayout", {
+            FillDirection = Enum.FillDirection.Horizontal,
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            Padding = UDim.new(0, 8),
+            Parent = row,
+        })
+        local cells = {}
+        for offset = 0, math.min(1, #properties - index) do
+            local prop = properties[index + offset]
+            local cell = w:Create("Frame", {
+                Name = "Property",
+                Size = UDim2.new(0.5, -4, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y,
+                BorderSizePixel = 0,
                 BackgroundTransparency = 1,
-                TextSize = 13,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                Position = UDim2.fromScale(definition[2], 0),
-                Size = UDim2.new(definition[3], 0, 0, 0),
+                LayoutOrder = offset * 2,
                 Parent = row,
-            }, { TextColor3 = "ContentColor", FontFace = "Font" })
-            table.insert(self._labels, text)
+            }, { BackgroundColor3 = "ContentColor" })
+            w:Create("UIPadding", {
+                PaddingTop = UDim.new(0, 4),
+                PaddingBottom = UDim.new(0, 4),
+                Parent = cell,
+            })
+            w:Create("UIListLayout", {
+                FillDirection = Enum.FillDirection.Horizontal,
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                Padding = UDim.new(0, 6),
+                Parent = cell,
+            })
+            for order, textValue in
+                {
+                    tostring(prop.label or prop.key or ""),
+                    tostring(if prop.value ~= nil then prop.value else ""),
+                }
+            do
+                local host = w:Create("Frame", {
+                    Name = if order == 1 then "Caption" else "Value",
+                    Size = UDim2.new(if order == 1 then 0.4 else 0.6, -3, 0, 0),
+                    AutomaticSize = Enum.AutomaticSize.Y,
+                    BackgroundTransparency = 1,
+                    LayoutOrder = order,
+                    Parent = cell,
+                })
+                if order == 2 then
+                    w:Create(
+                        "UIListLayout",
+                        { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4), Parent = host }
+                    )
+                elseif prop.icon then
+                    local icon = w:Create("ImageLabel", {
+                        Name = "PropertyIcon",
+                        Image = prop.icon,
+                        Size = UDim2.fromOffset(12, 12),
+                        Position = UDim2.fromOffset(0, 1),
+                        BackgroundTransparency = 1,
+                        Parent = host,
+                    }, { ImageColor3 = "ContentColor" })
+                    table.insert(self._propertyImages, icon)
+                end
+                local text = w:Create("TextLabel", {
+                    Text = textValue,
+                    RichText = false,
+                    TextWrapped = true,
+                    AutomaticSize = Enum.AutomaticSize.Y,
+                    BackgroundTransparency = 1,
+                    TextSize = if order == 1 then 12 else 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextYAlignment = Enum.TextYAlignment.Top,
+                    Size = UDim2.new(1, if order == 1 and prop.icon then -17 else 0, 0, 0),
+                    Position = UDim2.fromOffset(if order == 1 and prop.icon then 17 else 0, 0),
+                    LayoutOrder = order,
+                    Parent = host,
+                }, { TextColor3 = "ContentColor", FontFace = if order == 1 then "Font" else "TitleFont" })
+                table.insert(self._labels, text)
+                if order == 2 and prop.images and #prop.images > 0 then
+                    local images = w:Create("Frame", {
+                        Name = "Thumbnails",
+                        Size = UDim2.new(1, 0, 0, 18),
+                        AutomaticSize = Enum.AutomaticSize.Y,
+                        BackgroundTransparency = 1,
+                        LayoutOrder = 3,
+                        Parent = host,
+                    })
+                    w:Create("UIListLayout", {
+                        FillDirection = Enum.FillDirection.Horizontal,
+                        Wraps = true,
+                        SortOrder = Enum.SortOrder.LayoutOrder,
+                        Padding = UDim.new(0, 3),
+                        Parent = images,
+                    })
+                    for imageIndex, asset in prop.images do
+                        local picture = w:Create("ImageLabel", {
+                            Image = asset,
+                            Size = UDim2.fromOffset(18, 18),
+                            ScaleType = Enum.ScaleType.Fit,
+                            BackgroundTransparency = 1,
+                            LayoutOrder = imageIndex,
+                            Parent = images,
+                        })
+                        w:Create("UICorner", { CornerRadius = UDim.new(0, 4), Parent = picture })
+                        table.insert(self._propertyImages, picture)
+                    end
+                end
+            end
+            table.insert(cells, cell)
         end
+        local pair = { layout = layout, cells = cells }
+        if #cells == 2 then
+            pair.divider = w:Create("Frame", {
+                Name = "ColumnDivider",
+                Size = UDim2.fromOffset(8, 24),
+                BackgroundTransparency = 1,
+                LayoutOrder = 1,
+                Parent = row,
+            })
+            pair.rule = w:Create("Frame", {
+                Name = "Rule",
+                Size = UDim2.fromOffset(1, 16),
+                AnchorPoint = Vector2.new(0.5, 0.5),
+                Position = UDim2.fromScale(0.5, 0.5),
+                BorderSizePixel = 0,
+                BackgroundTransparency = 0.8,
+                Parent = pair.divider,
+            }, { BackgroundColor3 = "ContentColor" })
+            table.insert(self._rules, pair.rule)
+        end
+        table.insert(self._propertyPairs, pair)
         table.insert(self._dynamic, row)
+        if index + 1 < #properties then
+            local rule = w:Create("Frame", {
+                Name = "RowDivider",
+                Size = UDim2.new(1, 0, 0, 1),
+                BorderSizePixel = 0,
+                BackgroundTransparency = 0.8,
+                LayoutOrder = index + 1,
+                Parent = self.propertyHost,
+            }, { BackgroundColor3 = "ContentColor" })
+            table.insert(self._rules, rule)
+            table.insert(self._dynamic, rule)
+        end
     end
+    self:_layoutProperties()
     self.propertyHost.Visible = #properties > 0
     local key = data and data.id
     if self._actionKey ~= key then
@@ -16267,6 +16431,7 @@ function ItemDetails:_render()
         record.definition = definition
         record.snapshot = data
         local action = record.control
+        action.main.Size = UDim2.new(1, -20, 0, 34)
         action.name = definition.text or id
         if not action:IsBusy() then
             action.title.Text = action.name
@@ -16288,13 +16453,22 @@ function ItemDetails:_render()
         end
     end
     self._group.main.Visible = #self.actions > 0
+    self.actionDivider.Visible = #self.actions > 0 and (self.propertyHost.Visible or self.badgeHost.Visible)
     self:_setShown(self._shown ~= false and not w.hidden, false)
     w:_notifyControlChanged(self)
 end
 function ItemDetails:Select(ids)
-    self.selected = selection(ids)
+    local nextSelection = selection(ids)
+    local changed = table.concat(self.selected, "\0") ~= table.concat(nextSelection, "\0")
+    self.selected = nextSelection
     self.loading = false
     self:_render()
+    if changed and self._shown ~= false and not self.window.hidden then
+        for _, text in { self.title, self.body } do
+            text.TextTransparency = 0.65
+        end
+        self:_setShown(true, true)
+    end
 end
 function ItemDetails:GetSelection()
     return table.clone(self.selected)
@@ -16370,16 +16544,67 @@ function ItemDetails:_setShown(shown, animate)
     end
     self._shown = shown
     self.thumbnail:Show(shown)
-    for _, text in { self.title, self.stateLabel, self.body } do
-        text.TextTransparency = if shown then 0 else 1
+    w:_reveal(self.emptyGlyph, { ImageTransparency = if shown then 0.4 else 1 }, animate)
+    w:_reveal(self.actionDivider, { BackgroundTransparency = if shown then 0.8 else 1 }, animate)
+    for _, picture in self._propertyImages or {} do
+        w:_reveal(picture, { ImageTransparency = if shown then 0 else 1 }, animate)
     end
-    for _, text in self._labels do
-        text.TextTransparency = if shown then 0 else 1
+    for _, text in { self.title, self.stateLabel, self.body } do
+        local muted = text == self.body or text == self.stateLabel
+        w:_reveal(
+            text,
+            { TextTransparency = if not shown then 1 elseif muted then w.theme.SecondaryTextTransparency else 0 },
+            animate
+        )
+    end
+    for index, text in self._labels do
+        w:_reveal(text, {
+            TextTransparency = if not shown then 1 elseif index % 2 == 1 then w.theme.SecondaryTextTransparency else 0,
+        }, animate)
     end
     for _, badge in self._badges do
         badge:Show(shown)
     end
     self._group:_setShown(shown, animate)
+    for _, rule in self._rules or {} do
+        w:_reveal(rule, { BackgroundTransparency = if shown then 0.8 else 1 }, animate)
+    end
+    for _, pair in self._propertyPairs or {} do
+        for _, cell in pair.cells do
+            w:_reveal(cell, { BackgroundTransparency = 1 }, animate)
+        end
+    end
+    for _, record in self._actionRecords or {} do
+        local action = record.control
+        local primary = record.definition.primary == true
+        local tint = if primary then Color3.new(1, 1, 1):Lerp(w.theme.AccentStroke, 0.14) else Color3.new(1, 1, 1)
+        w.themeProperties[action.main].BackgroundColor3 = if primary
+            then {
+                "AccentStroke",
+                function(color)
+                    return Color3.new(1, 1, 1):Lerp(color, 0.14)
+                end,
+            }
+            else {
+                "ContentColor",
+                function()
+                    return Color3.new(1, 1, 1)
+                end,
+            }
+        w:_reveal(action.main, { BackgroundColor3 = tint }, true, TweenInfo.new(0.12))
+        w.themeProperties[action.title].TextColor3 = if primary then "AccentStroke" else "ContentColor"
+        w:_reveal(
+            action.title,
+            { TextColor3 = if primary then w.theme.AccentStroke else w.theme.ContentColor },
+            true,
+            TweenInfo.new(0.12)
+        )
+        if action.stroke then
+            w.themeProperties[action.stroke].Color = if primary then "AccentStroke" else "ElementStroke"
+            action.stroke.Color = if primary then w.theme.AccentStroke else w.theme.ElementStroke
+            w:_reveal(action.stroke, { Transparency = if not shown then 1 elseif primary then 0.3 else 0.85 }, animate)
+        end
+    end
 end
 function ItemDetails:_refreshTheme()
     self:_setShown(self._shown ~= false, false)
@@ -25197,7 +25422,7 @@ function ReorderList.new(tab, properties)
     end
 
     if self.rich then
-        self.rowHeight = math.max(self.rowHeight, 76)
+        self.rowHeight = math.max(self.rowHeight, 52)
         self.showMoveButtons = functions.readBool(properties, "showMoveButtons", true)
     end
 
@@ -25232,13 +25457,15 @@ function ReorderList:_decorateRow(row, contentX, rightInset)
     row._contentX = contentX
     row._rightInset = rightInset
     if entry.image then
-        row.thumbnail = presentation.thumbnail(w, self, row.frame, 40, function(signal, fn)
+        row.thumbnail = presentation.thumbnail(w, self, row.frame, 32, function(signal, fn)
             self:_rowConnect(row, signal, fn)
         end)
-        row.thumbnail.frame.Position = UDim2.new(0, contentX, 0.5, -20)
+        row.thumbnail.frame.Position = UDim2.new(0, contentX, 0.5, -16)
         row.thumbnail:Set(entry.image, entry.name)
-        contentX += 48
+        contentX += 40
     end
+    row.title.FontFace = w.theme.TitleFont
+    w.themeProperties[row.title].FontFace = "TitleFont"
     row.title.Size = UDim2.new(1, -(contentX + rightInset), 0, 20)
     row.title.Position = UDim2.fromOffset(contentX, 6)
     row.subtitle = w:Create("TextLabel", {
@@ -25268,7 +25495,7 @@ function ReorderList:_decorateRow(row, contentX, rightInset)
         Parent = host,
     })
     for _, badge in entry.badges or {} do
-        table.insert(row.badges, presentation.badge(w, host, badge))
+        table.insert(row.badges, presentation.badge(w, host, badge, 16))
     end
     self:_rowConnect(row, host:GetPropertyChangedSignal("AbsoluteSize"), function()
         for _, badge in row.badges do
@@ -25284,20 +25511,23 @@ function ReorderList:_layoutRichRow(row)
     if row.thumbnail then
         row.thumbnail.frame.Visible = not narrow
         if not narrow then
-            x += 48
+            x += 40
         end
     end
     local right = row._rightInset - (if narrow and self.showMoveButtons then 30 else 0)
+    local badgeWidth = if #row.badges > 0 then math.clamp(width * 0.24, 72, 124) else 0
     row.title.Position = UDim2.fromOffset(x, 6)
-    row.title.Size = UDim2.new(1, -(x + right), 0, 20)
+    row.title.Size = UDim2.new(1, -(x + right + badgeWidth + (if badgeWidth > 0 then 8 else 0)), 0, 18)
     row.subtitle.Position = UDim2.fromOffset(x, 27)
     row.subtitle.Size = UDim2.new(1, -(x + right), 0, 17)
-    row.badgeHost.Position = UDim2.fromOffset(x, 47)
-    row.badgeHost.Size = UDim2.new(1, -(x + right), 0, 22)
+    row.badgeHost.AnchorPoint = Vector2.new(1, 0)
+    row.badgeHost.Position = UDim2.new(1, -right, 0, 7)
+    row.badgeHost.Size = UDim2.fromOffset(badgeWidth, 16)
     for index, button in row.moves or {} do
         button.Position = if narrow
-            then UDim2.new(1, -(if self.removable then 36 else 4), if index == 1 then 0.28 else 0.72, 0)
+            then UDim2.new(1, -(if self.removable then 36 else 4), if index == 1 then 0.25 else 0.75, 0)
             else UDim2.new(1, -(if self.removable then 36 else 4) - (2 - index) * 30, 0.5, 0)
+        button.Size = if narrow then UDim2.fromOffset(24, 22) else UDim2.fromOffset(26, 26)
     end
 end
 function ReorderList:_buildMoveButtons(row)
@@ -25315,6 +25545,16 @@ function ReorderList:_buildMoveButtons(row)
             ZIndex = 5,
             Parent = row.frame,
         }, { TextColor3 = "ContentColor", FontFace = "Font" })
+        self.window:Create("UICorner", { CornerRadius = UDim.new(0, 7), Parent = button })
+        self:_rowConnect(row, button.MouseEnter, function()
+            if row.entry.enabled ~= false and not self.locked then
+                button.BackgroundColor3 = self.window.theme.ContentColor
+                self.window:_reveal(button, { BackgroundTransparency = 0.9 }, true)
+            end
+        end)
+        self:_rowConnect(row, button.MouseLeave, function()
+            self.window:_reveal(button, { BackgroundTransparency = 1 }, true)
+        end)
         table.insert(row.moves, button)
         self:_rowConnect(row, button.MouseButton1Click, function()
             self:MoveItem(row.entry.id, (table.find(self.rows, row) or 1) + delta)
@@ -25460,7 +25700,7 @@ function ReorderList:_refreshTheme()
 end
 
 function ReorderList:_slot(): number
-    return self.rowHeight + rowGap
+    return self.rowHeight + (if self.rich then 4 else rowGap)
 end
 
 function ReorderList:_build()
@@ -25524,6 +25764,28 @@ function ReorderList:_build()
         Parent = self.main,
     })
 
+    if self.rich then
+        self.dropTarget = window:Create("Frame", {
+            Name = "DropTarget",
+            Size = UDim2.new(1, -4, 0, 2),
+            BorderSizePixel = 0,
+            Visible = false,
+            ZIndex = 35,
+            Parent = self.stack,
+        }, { BackgroundColor3 = "AccentStroke" })
+        self.dropLabel = window:Create("TextLabel", {
+            Text = "",
+            TextSize = 11,
+            RichText = false,
+            AnchorPoint = Vector2.new(1, 0),
+            Position = UDim2.new(1, 0, 0, 4),
+            Size = UDim2.fromOffset(78, 18),
+            BorderSizePixel = 0,
+            ZIndex = 36,
+            Parent = self.dropTarget,
+        }, { BackgroundColor3 = "StatBackground", TextColor3 = "AccentStroke", FontFace = "Font" })
+        window:Create("UICorner", { CornerRadius = UDim.new(0, 5), Parent = self.dropLabel })
+    end
     self.empty = window:_buildEmptyState(self.stack, {
         icon = self.emptyIcon,
         text = self.emptyText,
@@ -25810,8 +26072,18 @@ function ReorderList:_applyRowVisual(row, state)
         return
     end
     local ts = variables.tweenService
-    local background = if state == "lift" then rowLift elseif state == "hover" then rowHover else rowRest
-    local stroke = if state == "lift" then 0.35 elseif state == "hover" then 0.7 else 0.85
+    local selected = self.rich and self.selectedId == row.entry.id
+    local background = if state == "lift"
+        then rowLift
+        elseif selected then 0.89
+        elseif state == "hover" then rowHover
+        else rowRest
+    local stroke = if state == "lift" then 0.25 elseif selected then 0.35 elseif state == "hover" then 0.7 else 0.85
+    if self.rich then
+        row.frame.BackgroundColor3 = self.window.theme.ContentColor
+        background = if state == "lift" then 0.88 elseif selected then 0.94 elseif state == "hover" then 0.95 else 0.98
+        stroke = if state == "lift" then 0.25 elseif selected then 0.45 elseif state == "hover" then 0.8 else 1
+    end
 
     ts:Create(row.frame, liftInfo, { BackgroundTransparency = background }):Play()
     ts:Create(row.stroke, liftInfo, {
@@ -25821,7 +26093,13 @@ function ReorderList:_applyRowVisual(row, state)
             else self.window.theme.ElementStroke,
     }):Play()
 
-    local dotTransparency = if state == "rest" then 0.45 else 0.15
+    if row.badgeLabel and self.rich then
+        row.badge.BackgroundTransparency = 1
+        row.badgeLabel.FontFace = self.window.theme.TitleFont
+        row.badgeLabel.TextColor3 = row.entry.color
+            or (if selected then self.window.theme.AccentStroke else self.window.theme.ContentColor)
+    end
+    local dotTransparency = if state == "rest" then 0.65 else 0.25
     for _, dot in row.gripDots do
         ts:Create(dot, liftInfo, { BackgroundTransparency = dotTransparency }):Play()
     end
@@ -25853,7 +26131,7 @@ function ReorderList:_syncHeight()
     local stackHeight = if placeholders
         then self.skeleton.height
         elseif count == 0 then emptyHeight
-        else count * self.rowHeight + (count - 1) * rowGap
+        else count * self.rowHeight + (count - 1) * (self:_slot() - self.rowHeight)
 
     self._stackHeight = stackHeight
     local height = if self.maxHeight
@@ -25918,6 +26196,16 @@ function ReorderList:_pointerY(): number
     return variables.userInputService:GetMouseLocation().Y
 end
 
+function ReorderList:_showDropTarget(index)
+    if not self.dropTarget then
+        return
+    end
+    self.dropTarget.Visible = index ~= nil and self._shown ~= false and not self.window.hidden
+    if index then
+        self.dropTarget.Position = UDim2.fromOffset(2, (index - 1) * self:_slot() + 1)
+        self.dropLabel.Text = "Move to #" .. tostring(index)
+    end
+end
 function ReorderList:_beginDrag(row, input)
     if self.locked or self._busy or self._removed or row.entry.enabled == false or self._dragIndex then
         return
@@ -25936,6 +26224,7 @@ function ReorderList:_beginDrag(row, input)
     row._dragMoved = false
     self._dragIndex = index
     self._dragRow = row
+    self:_showDropTarget(index)
     -- grab offset, so the row doesn't jump its centre to the cursor on pickup
     self._grabOffset = self:_pointerY() - row.frame.AbsolutePosition.Y
 
@@ -25988,6 +26277,7 @@ function ReorderList:_follow(dt)
     row.frame.Position = UDim2.new(0, 0, 0, top)
 
     local target = math.clamp(math.floor(top / slot + 0.5) + 1, 1, count)
+    self:_showDropTarget(target)
     if target ~= self._dragIndex then
         row._dragMoved = true
         table.remove(self.rows, self._dragIndex)
@@ -26001,6 +26291,7 @@ function ReorderList:_follow(dt)
 end
 
 function ReorderList:_endDrag(cancelled)
+    self:_showDropTarget(nil)
     local row = self._dragRow
     self._dragIndex = nil
     self._dragRow = nil
@@ -26297,6 +26588,7 @@ function ReorderList:_setShown(shown, animate)
     local w = self.window
     self._revealed = shown
     self._shown = shown
+    self:_showDropTarget(if shown then self._dragIndex else nil)
     if self.skeleton then
         self.skeleton:SetVisible(shown)
     end
@@ -26322,6 +26614,9 @@ function ReorderList:_setShown(shown, animate)
             end
             for _, dot in row.gripDots do
                 w:_reveal(dot, { BackgroundTransparency = if row.hovered then 0.15 else 0.45 }, animate)
+            end
+            if self.rich then
+                self:_applyRowVisual(row, if row.hovered then "hover" else "rest")
             end
         end
     else
@@ -50426,6 +50721,7 @@ export type GridFilter = string | ((item: GridItem) -> boolean) | {
 export type DetailBadge = string | { text: string, color: (Color3 | string)? }
 export type DetailAction = {
     id: string?,
+    primary: boolean?,
     text: string,
     icon: (string | number)?,
     enabled: boolean?,
@@ -50433,7 +50729,13 @@ export type DetailAction = {
     callback: ((DetailItem, AsyncRequest) -> any)?,
     options: RunOptions?,
 }
-export type DetailProperty = { key: string?, label: string, value: any }
+export type DetailProperty = {
+    key: string?,
+    label: string,
+    value: any,
+    icon: (string | number)?,
+    images: { string | number }?,
+}
 export type DetailItem = {
     id: string,
     name: string,
@@ -57339,28 +57641,29 @@ function presentation.thumbnail(window, owner, parent, size, connect)
     return result
 end
 
-function presentation.badge(window, parent, spec)
+function presentation.badge(window, parent, spec, height)
+    height = height or 22
     spec = if type(spec) == "string" then { text = spec } else spec
     local label = window:Create("TextLabel", {
         Name = "Badge",
         Text = tostring(spec.text or ""),
         RichText = false,
-        TextSize = 11,
+        TextSize = if height < 20 then 10 else 11,
         TextTruncate = Enum.TextTruncate.AtEnd,
         AutomaticSize = Enum.AutomaticSize.X,
-        Size = UDim2.fromOffset(0, 22),
+        Size = UDim2.fromOffset(0, height),
         BorderSizePixel = 0,
         BackgroundTransparency = 0.85,
         Parent = parent,
     }, { TextColor3 = "ContentColor", BackgroundColor3 = "ContentColor", FontFace = "Font" })
     window:Create("UIPadding", { PaddingLeft = UDim.new(0, 7), PaddingRight = UDim.new(0, 7), Parent = label })
     window:Create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = label })
-    local constraint = window:Create("UISizeConstraint", { MaxSize = Vector2.new(10000, 22), Parent = label })
+    local constraint = window:Create("UISizeConstraint", { MaxSize = Vector2.new(10000, height), Parent = label })
     local function fit()
         local width = parent.AbsoluteSize.X
         local scale = if window.contentScale then window.contentScale.Scale else 1
         if width > 0 then
-            constraint.MaxSize = Vector2.new(math.max(16, width / math.max(scale, 0.01)), 22)
+            constraint.MaxSize = Vector2.new(math.max(16, width / math.max(scale, 0.01)), height)
         end
     end
     fit()

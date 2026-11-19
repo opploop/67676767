@@ -15,6 +15,8 @@ return function(Rayfield)
         return {
             id = id,
             text = text,
+            primary = id == "start" or id == "join",
+            icon = if id == "start" then "lucide:play" elseif id == "join" then "lucide:log-in" else nil,
             callback = function(selected, request)
                 task.wait(0.2)
                 if request.isCancelled() then
@@ -36,9 +38,13 @@ return function(Rayfield)
             properties = {
                 { label = "Map", value = "Training grounds" },
                 { label = "Mode", value = "Story" },
-                { label = "Difficulty", value = "Normal" },
-                { label = "Duration", value = "02:15" },
-                { label = "Required team", value = "Six equipped units" },
+                { label = "Difficulty", value = "Normal", icon = "lucide:gauge" },
+                { label = "Duration", value = "02:15", icon = "lucide:clock" },
+                {
+                    label = "Required team",
+                    value = "Six equipped units",
+                    images = { logo, logo, logo, logo, logo, logo },
+                },
             },
             actions = { action("equip", "Equip required team"), action("start", "Start macro") },
         },
@@ -51,14 +57,16 @@ return function(Rayfield)
             properties = {
                 { label = "Map", value = "Mountain pass" },
                 { label = "Mode", value = "Challenge" },
-                { label = "Difficulty", value = "Hard" },
-                { label = "Duration", value = "04:30" },
+                { label = "Difficulty", value = "Hard", icon = "lucide:gauge" },
+                { label = "Duration", value = "04:30", icon = "lucide:clock" },
                 { label = "Required team", value = "Hill + Ground units" },
             },
             actions = {
                 action("equip", "Equip required team"),
                 {
                     id = "start",
+                    primary = true,
+                    icon = "lucide:play",
                     text = "Start macro",
                     enabled = false,
                     disabledReason = "Equip the required team first.",
@@ -131,7 +139,7 @@ return function(Rayfield)
     handles.priorities = priorities:CreateReorderList({
         name = "Placement priority",
         rich = true,
-        maxHeight = 250,
+        maxHeight = 224,
         flag = "stage2-priorities",
         items = slots,
     })
